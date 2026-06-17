@@ -1,0 +1,43 @@
+services:
+  trading-webhook-api:
+    image: algotrade-trading-webhook:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trading-webhook-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "${APP_HOST_BIND:-0.0.0.0}:${APP_PORT:-8095}:8000"
+  trading-worker:
+    image: algotrade-trading-webhook:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trading-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: python -m backend.app.worker
+
+# Optional example if you later want to run PostgreSQL here instead of an existing host/container:
+#  postgres:
+#    image: postgres:16
+#    container_name: trading-webhook-postgres
+#    restart: unless-stopped
+#    environment:
+#      POSTGRES_DB: trading_webhooks
+#      POSTGRES_USER: postgres
+#      POSTGRES_PASSWORD: postgres
+#    ports:
+#      - "5432:5432"
+#
+# Optional example if you later want to run Redis here instead of an existing host/container:
+#  redis:
+#    image: redis:7-alpine
+#    container_name: trading-webhook-redis
+#    restart: unless-stopped
+#    ports:
+#      - "6379:6379"

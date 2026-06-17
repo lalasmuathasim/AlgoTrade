@@ -1,0 +1,17 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+.git
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+.codex_artifacts
+node_modules
+

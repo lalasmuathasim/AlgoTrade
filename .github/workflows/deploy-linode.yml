@@ -1,0 +1,160 @@
+name: Deploy Qubitx AlgoTrade
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: qubitx-algotrade-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DEPLOY_HOST: ${{ secrets.LINODE_HOST }}
+      DEPLOY_USER: ${{ secrets.LINODE_USERNAME }}
+      DEPLOY_PORT: ${{ secrets.LINODE_PORT || '22' }}
+      DEPLOY_BASE: /var/www/clients/client0/web13
+      APP_DOMAIN: qubitx.ai
+      HAS_DEPLOY_KEY: ${{ secrets.LINODE_SSH_KEY != '' }}
+      HAS_APP_ENV: ${{ secrets.LINODE_APP_ENV != '' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate deployment configuration
+        run: |
+          set -eu
+
+          if [ -z "${DEPLOY_HOST}" ]; then
+            echo "Missing LINODE_HOST secret."
+            exit 1
+          fi
+
+          if [ -z "${DEPLOY_USER}" ]; then
+            echo "Missing LINODE_USERNAME secret."
+            exit 1
+          fi
+
+          if [ "${HAS_DEPLOY_KEY}" != "true" ]; then
+            echo "Missing LINODE_SSH_KEY secret."
+            exit 1
+          fi
+
+          if [ "${HAS_APP_ENV}" != "true" ]; then
+            echo "Missing LINODE_APP_ENV secret."
+            exit 1
+          fi
+
+      - name: Set up SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.LINODE_SSH_KEY }}
+
+      - name: Add Linode host key
+        run: |
+          set -eu
+          mkdir -p ~/.ssh
+          ssh-keyscan -p "${DEPLOY_PORT}" -H "${DEPLOY_HOST}" >> ~/.ssh/known_hosts
+
+      - name: Resolve server deployment directory
+        id: deploy_root
+        run: |
+          set -eu
+
+          DEPLOY_ROOT="$(
+            ssh -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" '
+              set -eu
+              BASE="/var/www/clients/client0/web13"
+
+              if [ -d "${BASE}/private" ]; then
+                printf "%s" "${BASE}/private/algotrade"
+              elif [ -d "${BASE}" ]; then
+                printf "%s" "${BASE}/algotrade"
+              else
+                echo "Missing deployment base path: ${BASE}" >&2
+                exit 1
+              fi
+            '
+          )"
+
+          echo "path=${DEPLOY_ROOT}" >> "$GITHUB_OUTPUT"
+          echo "Resolved deployment path: ${DEPLOY_ROOT}"
+
+      - name: Build deployment bundle
+        env:
+          LINODE_APP_ENV: ${{ secrets.LINODE_APP_ENV }}
+        run: |
+          set -eu
+
+          tar \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='.env' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='.codex_artifacts' \
+            -czf /tmp/algotrade-deploy.tgz \
+            .
+
+          printf '%s' "$LINODE_APP_ENV" > /tmp/algotrade.env
+
+      - name: Upload application bundle
+        env:
+          DEPLOY_ROOT: ${{ steps.deploy_root.outputs.path }}
+        run: |
+          set -eu
+
+          scp -P "${DEPLOY_PORT}" /tmp/algotrade-deploy.tgz "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/algotrade-deploy.tgz"
+          scp -P "${DEPLOY_PORT}" /tmp/algotrade.env "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/algotrade.env"
+
+          ssh -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" "
+            set -eu
+
+            DEPLOY_ROOT='${DEPLOY_ROOT}'
+            EXPECTED_PREFIX='/var/www/clients/client0/web13'
+
+            case \"\${DEPLOY_ROOT}\" in
+              \${EXPECTED_PREFIX}|\${EXPECTED_PREFIX}/*) ;;
+              *)
+                echo 'Refusing to deploy outside the Qubitx ISPConfig root.'
+                exit 1
+                ;;
+            esac
+
+            TMP_DIR=\$(mktemp -d)
+            trap 'rm -rf \"\${TMP_DIR}\" /tmp/algotrade-deploy.tgz /tmp/algotrade.env' EXIT
+
+            mkdir -p \"\${DEPLOY_ROOT}\"
+            tar -xzf /tmp/algotrade-deploy.tgz -C \"\${TMP_DIR}\"
+
+            find \"\${DEPLOY_ROOT}\" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+            cp -a \"\${TMP_DIR}\"/. \"\${DEPLOY_ROOT}\"/
+            mv /tmp/algotrade.env \"\${DEPLOY_ROOT}/.env\"
+          "
+
+      - name: Start Docker services on Linode
+        env:
+          DEPLOY_ROOT: ${{ steps.deploy_root.outputs.path }}
+        run: |
+          set -eu
+
+          ssh -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" "
+            set -eu
+            cd '${DEPLOY_ROOT}'
+
+            docker compose up --build -d
+            docker compose ps
+
+            set -a
+            . ./.env
+            set +a
+
+            curl --fail --silent --show-error \"http://127.0.0.1:\${APP_PORT:-8095}/health\" >/tmp/algotrade-health.json
+            cat /tmp/algotrade-health.json
+          "
