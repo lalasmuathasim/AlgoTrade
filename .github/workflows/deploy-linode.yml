@@ -160,10 +160,11 @@ jobs:
             \$COMPOSE_CMD up --build -d
             \$COMPOSE_CMD ps
 
-            set -a
-            . ./.env
-            set +a
+            APP_PORT_VALUE=\$(awk -F= '/^APP_PORT=/{print \$2}' .env | tail -n 1)
+            if [ -z \"\${APP_PORT_VALUE}\" ]; then
+              APP_PORT_VALUE='8095'
+            fi
 
-            curl --fail --silent --show-error \"http://127.0.0.1:\${APP_PORT:-8095}/health\" >/tmp/algotrade-health.json
+            curl --fail --silent --show-error \"http://127.0.0.1:\${APP_PORT_VALUE}/health\" >/tmp/algotrade-health.json
             cat /tmp/algotrade-health.json
           "
