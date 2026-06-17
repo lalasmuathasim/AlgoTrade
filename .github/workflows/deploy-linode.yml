@@ -21,7 +21,30 @@ jobs:
       DEPLOY_BASE: /var/www/clients/client0/web13
       APP_DOMAIN: qubitx.ai
       HAS_DEPLOY_KEY: ${{ secrets.LINODE_SSH_KEY != '' }}
-      HAS_APP_ENV: ${{ secrets.LINODE_APP_ENV != '' }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+      REDIS_URL: ${{ secrets.REDIS_URL }}
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      SIGNAL_QUEUE_NAME: ${{ secrets.SIGNAL_QUEUE_NAME }}
+      MOCK_DATA: ${{ secrets.MOCK_DATA }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      APP_PORT: ${{ secrets.APP_PORT }}
+      LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${{ secrets.ACCESS_TOKEN_EXPIRE_MINUTES }}
+      SESSION_COOKIE_NAME: ${{ secrets.SESSION_COOKIE_NAME }}
+      SESSION_COOKIE_SECURE: ${{ secrets.SESSION_COOKIE_SECURE }}
+      INITIAL_ADMIN_EMAIL: ${{ secrets.INITIAL_ADMIN_EMAIL }}
+      INITIAL_ADMIN_PASSWORD: ${{ secrets.INITIAL_ADMIN_PASSWORD }}
+      INITIAL_ADMIN_NAME: ${{ secrets.INITIAL_ADMIN_NAME }}
+      TOTP_ISSUER: ${{ secrets.TOTP_ISSUER }}
+      STRATEGY_TUNING__LOOKBACKCANDLES: ${{ secrets.STRATEGY_TUNING__LOOKBACKCANDLES }}
+      STRATEGY_TUNING__MAXGAPPERCENT: ${{ secrets.STRATEGY_TUNING__MAXGAPPERCENT }}
+      STRATEGY_TUNING__MINSWINGDISTANCE: ${{ secrets.STRATEGY_TUNING__MINSWINGDISTANCE }}
+      STRATEGY_TUNING__BUYVOLUMEMULTIPLIER: ${{ secrets.STRATEGY_TUNING__BUYVOLUMEMULTIPLIER }}
+      STRATEGY_TUNING__SELLVOLUMEMULTIPLIER: ${{ secrets.STRATEGY_TUNING__SELLVOLUMEMULTIPLIER }}
+      STRATEGY_TUNING__ENTRYBUFFERTICKS: ${{ secrets.STRATEGY_TUNING__ENTRYBUFFERTICKS }}
+      STRATEGY_TUNING__STOPLOSSBUFFERTICKS: ${{ secrets.STRATEGY_TUNING__STOPLOSSBUFFERTICKS }}
 
     steps:
       - name: Checkout repository
@@ -46,8 +69,78 @@ jobs:
             exit 1
           fi
 
-          if [ "${HAS_APP_ENV}" != "true" ]; then
-            echo "Missing LINODE_APP_ENV secret."
+          if [ -z "${DATABASE_URL}" ]; then
+            echo "Missing DATABASE_URL secret."
+            exit 1
+          fi
+
+          if [ -z "${WEBHOOK_SECRET}" ]; then
+            echo "Missing WEBHOOK_SECRET secret."
+            exit 1
+          fi
+
+          if [ -z "${REDIS_URL}" ]; then
+            echo "Missing REDIS_URL secret."
+            exit 1
+          fi
+
+          if [ -z "${JWT_SECRET}" ]; then
+            echo "Missing JWT_SECRET secret."
+            exit 1
+          fi
+
+          if [ -z "${SIGNAL_QUEUE_NAME}" ]; then
+            echo "Missing SIGNAL_QUEUE_NAME secret."
+            exit 1
+          fi
+
+          if [ -z "${APP_PORT}" ]; then
+            echo "Missing APP_PORT secret."
+            exit 1
+          fi
+
+          if [ -z "${INITIAL_ADMIN_EMAIL}" ]; then
+            echo "Missing INITIAL_ADMIN_EMAIL secret."
+            exit 1
+          fi
+
+          if [ -z "${INITIAL_ADMIN_PASSWORD}" ]; then
+            echo "Missing INITIAL_ADMIN_PASSWORD secret."
+            exit 1
+          fi
+
+          if [ -z "${INITIAL_ADMIN_NAME}" ]; then
+            echo "Missing INITIAL_ADMIN_NAME secret."
+            exit 1
+          fi
+
+          if [ -z "${SESSION_COOKIE_NAME}" ]; then
+            echo "Missing SESSION_COOKIE_NAME secret."
+            exit 1
+          fi
+
+          if [ -z "${SESSION_COOKIE_SECURE}" ]; then
+            echo "Missing SESSION_COOKIE_SECURE secret."
+            exit 1
+          fi
+
+          if [ -z "${ACCESS_TOKEN_EXPIRE_MINUTES}" ]; then
+            echo "Missing ACCESS_TOKEN_EXPIRE_MINUTES secret."
+            exit 1
+          fi
+
+          if [ -z "${LOG_LEVEL}" ]; then
+            echo "Missing LOG_LEVEL secret."
+            exit 1
+          fi
+
+          if [ -z "${MOCK_DATA}" ]; then
+            echo "Missing MOCK_DATA secret."
+            exit 1
+          fi
+
+          if [ -z "${TOTP_ISSUER}" ]; then
+            echo "Missing TOTP_ISSUER secret."
             exit 1
           fi
 
@@ -87,8 +180,6 @@ jobs:
           echo "Resolved deployment path: ${DEPLOY_ROOT}"
 
       - name: Build deployment bundle
-        env:
-          LINODE_APP_ENV: ${{ secrets.LINODE_APP_ENV }}
         run: |
           set -eu
 
@@ -102,7 +193,33 @@ jobs:
             -czf /tmp/algotrade-deploy.tgz \
             .
 
-          printf '%s' "$LINODE_APP_ENV" > /tmp/algotrade.env
+          cat > /tmp/algotrade.env <<EOF
+DATABASE_URL=${DATABASE_URL}
+WEBHOOK_SECRET=${WEBHOOK_SECRET}
+REDIS_URL=${REDIS_URL}
+JWT_SECRET=${JWT_SECRET}
+SIGNAL_QUEUE_NAME=${SIGNAL_QUEUE_NAME}
+MOCK_DATA=${MOCK_DATA}
+TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+APP_HOST_BIND=127.0.0.1
+APP_PORT=${APP_PORT}
+LOG_LEVEL=${LOG_LEVEL}
+ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES}
+SESSION_COOKIE_NAME=${SESSION_COOKIE_NAME}
+SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE}
+INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL}
+INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD}
+INITIAL_ADMIN_NAME=${INITIAL_ADMIN_NAME}
+TOTP_ISSUER=${TOTP_ISSUER}
+STRATEGY_TUNING__LOOKBACKCANDLES=${STRATEGY_TUNING__LOOKBACKCANDLES:-20}
+STRATEGY_TUNING__MAXGAPPERCENT=${STRATEGY_TUNING__MAXGAPPERCENT:-0.5}
+STRATEGY_TUNING__MINSWINGDISTANCE=${STRATEGY_TUNING__MINSWINGDISTANCE:-1.0}
+STRATEGY_TUNING__BUYVOLUMEMULTIPLIER=${STRATEGY_TUNING__BUYVOLUMEMULTIPLIER:-1.0}
+STRATEGY_TUNING__SELLVOLUMEMULTIPLIER=${STRATEGY_TUNING__SELLVOLUMEMULTIPLIER:-1.0}
+STRATEGY_TUNING__ENTRYBUFFERTICKS=${STRATEGY_TUNING__ENTRYBUFFERTICKS:-0.05}
+STRATEGY_TUNING__STOPLOSSBUFFERTICKS=${STRATEGY_TUNING__STOPLOSSBUFFERTICKS:-0.05}
+EOF
 
       - name: Upload application bundle
         env:
