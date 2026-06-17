@@ -148,8 +148,17 @@ jobs:
             set -eu
             cd '${DEPLOY_ROOT}'
 
-            docker compose up --build -d
-            docker compose ps
+            if docker compose version >/dev/null 2>&1; then
+              COMPOSE_CMD='docker compose'
+            elif command -v docker-compose >/dev/null 2>&1; then
+              COMPOSE_CMD='docker-compose'
+            else
+              echo 'Neither docker compose nor docker-compose is available on the VPS.'
+              exit 1
+            fi
+
+            \$COMPOSE_CMD up --build -d
+            \$COMPOSE_CMD ps
 
             set -a
             . ./.env
