@@ -165,6 +165,17 @@ jobs:
               APP_PORT_VALUE='8095'
             fi
 
-            curl --fail --silent --show-error \"http://127.0.0.1:\${APP_PORT_VALUE}/health\" >/tmp/algotrade-health.json
+            sleep 8
+
+            if ! curl --fail --silent --show-error \"http://127.0.0.1:\${APP_PORT_VALUE}/health\" >/tmp/algotrade-health.json; then
+              echo 'Health check failed. Recent compose status:'
+              \$COMPOSE_CMD ps
+              echo 'Recent trading-webhook-api logs:'
+              \$COMPOSE_CMD logs --tail=120 trading-webhook-api || true
+              echo 'Recent trading-worker logs:'
+              \$COMPOSE_CMD logs --tail=120 trading-worker || true
+              exit 1
+            fi
+
             cat /tmp/algotrade-health.json
           "
