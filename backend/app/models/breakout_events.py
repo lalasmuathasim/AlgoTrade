@@ -17,6 +17,11 @@ class BreakoutEvent(Base):
         ForeignKey("trigger_lines.id"),
         nullable=True,
     )
+    market_candle_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("market_candles.id"),
+        nullable=True,
+    )
     exchange: Mapped[str] = mapped_column(String(20), nullable=False, default="NSE", server_default="NSE")
     symbol: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     event_type: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -42,5 +47,6 @@ class BreakoutEvent(Base):
     entry_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     stop_loss: Mapped[float | None] = mapped_column(Float, nullable=True)
     target: Mapped[float | None] = mapped_column(Float, nullable=True)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="PASSED", server_default="PASSED")
+    signal_generated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING", server_default="PENDING")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

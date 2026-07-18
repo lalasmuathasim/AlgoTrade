@@ -1,43 +1,54 @@
+name: qubitx
+
+x-common-service: &common-service
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: qubitx-backend:latest
+  env_file:
+    - .env
+  restart: unless-stopped
+
 services:
-  trading-webhook-api:
-    image: algotrade-trading-webhook:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: trading-webhook-api
-    restart: unless-stopped
-    env_file:
-      - .env
+  api:
+    <<: *common-service
     command: uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
     ports:
-      - "${APP_HOST_BIND:-0.0.0.0}:${APP_PORT:-8095}:8000"
-  trading-worker:
-    image: algotrade-trading-webhook:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: trading-worker
-    restart: unless-stopped
-    env_file:
-      - .env
+      - "${API_HOST_BIND:-127.0.0.1}:${API_HOST_PORT:-8095}:8000"
+
+  worker:
+    <<: *common-service
     command: python -m backend.app.worker
 
-# Optional example if you later want to run PostgreSQL here instead of an existing host/container:
+  scheduler:
+    <<: *common-service
+    command: python -m backend.app.scheduler
+
+  live-engine:
+    <<: *common-service
+    command: python -m backend.app.live_engine
+
+  migrate:
+    <<: *common-service
+    restart: "no"
+    command: python -m backend.app.migrate upgrade
+    profiles:
+      - ops
+
+# Optional example if you later want to run PostgreSQL here instead of an existing shared service:
 #  postgres:
 #    image: postgres:16
-#    container_name: trading-webhook-postgres
 #    restart: unless-stopped
 #    environment:
-#      POSTGRES_DB: trading_webhooks
-#      POSTGRES_USER: postgres
-#      POSTGRES_PASSWORD: postgres
+#      POSTGRES_DB: qubitx
+#      POSTGRES_USER: qubitx_user
+#      POSTGRES_PASSWORD: change-me
 #    ports:
-#      - "5432:5432"
+#      - "55432:5432"
 #
-# Optional example if you later want to run Redis here instead of an existing host/container:
+# Optional example if you later want to run Redis here instead of an existing shared service:
 #  redis:
 #    image: redis:7-alpine
-#    container_name: trading-webhook-redis
 #    restart: unless-stopped
 #    ports:
-#      - "6379:6379"
+#      - "56379:6379"

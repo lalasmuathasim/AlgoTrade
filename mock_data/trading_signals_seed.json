@@ -5,7 +5,7 @@
       "exchange": "NSE",
       "symbol": "INFY",
       "action": "SELL",
-      "event_category": "TRADING_SIGNAL",
+      "source": "ZERODHA",
       "watchlist_id": "c54ad272-56b1-4ad7-8e2c-870da35def15",
       "trigger_line_id": "22950979-91d1-4772-b6c7-46f091a7e519",
       "breakout_event_id": "f5d33613-670e-42c3-b14b-5140439a3041",
@@ -15,9 +15,9 @@
       "target": 1488.0,
       "volume_ratio": 4.23,
       "timeframe": "3m",
-      "strategy": "daily_structure_breakout",
+      "strategy": "zerodha_daily_structure",
       "raw_payload": {
-        "event_category": "TRADING_SIGNAL",
+        "source": "ZERODHA",
         "exchange": "NSE",
         "symbol": "INFY",
         "action": "SELL",
@@ -27,7 +27,7 @@
         "target": 1488.0,
         "volume_ratio": 4.23,
         "timeframe": "3m",
-        "strategy": "daily_structure_breakout"
+        "strategy": "zerodha_daily_structure"
       },
       "status": "PROCESSED",
       "processed_at": "2026-06-17T09:22:10+05:30",
@@ -40,7 +40,7 @@
       "exchange": "NSE",
       "symbol": "RELIANCE",
       "action": "BUY",
-      "event_category": "TRADING_SIGNAL",
+      "source": "ZERODHA",
       "watchlist_id": "c54ad272-56b1-4ad7-8e2c-870da35def15",
       "trigger_line_id": "e359d9a7-fd71-4a8e-b645-4a4a34a3aa6b",
       "breakout_event_id": null,
@@ -50,9 +50,9 @@
       "target": 1560.0,
       "volume_ratio": 5.8,
       "timeframe": "3m",
-      "strategy": "daily_structure_breakout",
+      "strategy": "zerodha_daily_structure",
       "raw_payload": {
-        "event_category": "TRADING_SIGNAL",
+        "source": "ZERODHA",
         "exchange": "NSE",
         "symbol": "RELIANCE",
         "action": "BUY",
@@ -62,7 +62,7 @@
         "target": 1560.0,
         "volume_ratio": 5.8,
         "timeframe": "3m",
-        "strategy": "daily_structure_breakout"
+        "strategy": "zerodha_daily_structure"
       },
       "status": "PROCESSED",
       "processed_at": "2026-06-17T11:04:08+05:30",

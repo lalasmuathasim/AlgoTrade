@@ -115,17 +115,22 @@ def _serialize_signal(signal: TradingSignal) -> dict:
         "exchange": signal.exchange,
         "symbol": signal.symbol,
         "action": signal.action,
-        "event_category": signal.event_category,
+        "source": signal.source,
         "watchlist_id": str(signal.watchlist_id) if signal.watchlist_id else None,
         "trigger_line_id": str(signal.trigger_line_id) if signal.trigger_line_id else None,
         "breakout_event_id": str(signal.breakout_event_id) if signal.breakout_event_id else None,
+        "scan_execution_id": str(signal.scan_execution_id) if signal.scan_execution_id else None,
         "trigger_price": signal.trigger_price,
         "entry_price": signal.entry_price,
         "stop_loss": signal.stop_loss,
         "target": signal.target,
+        "quantity": signal.quantity,
+        "capital_used": signal.capital_used,
+        "risk_amount": signal.risk_amount,
         "volume_ratio": signal.volume_ratio,
         "timeframe": signal.timeframe,
         "strategy": signal.strategy,
+        "dedupe_key": signal.dedupe_key,
         "status": signal.status,
         "notification_status": signal.notification_status,
         "processed_at": _serialize_datetime(signal.processed_at),
@@ -165,7 +170,7 @@ def dashboard_home() -> str:
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AlgoTrade Dashboard</title>
+  <title>Qubitx Dashboard</title>
   <style>
     :root {
       --bg: #f3efe5;
@@ -340,8 +345,8 @@ def dashboard_home() -> str:
     <section class="hero">
       <div class="hero-top">
         <div>
-          <h1>Trading Review Dashboard</h1>
-          <p>Study watchlists, active trigger structures, breakout history, historical signals, and paper-trading performance from a protected control center built for future live execution.</p>
+          <h1>Qubitx Trading Dashboard</h1>
+          <p>Study watchlists, Zerodha-native trigger structures, market breakouts, generated signals, and paper-trading performance from a protected control center built for staged live execution.</p>
         </div>
         <div class="hero-actions">
           <a href="/">Landing Page</a>

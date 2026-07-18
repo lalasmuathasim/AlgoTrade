@@ -24,10 +24,10 @@ def get_default_settings_payload() -> PaperTradingSettingsPayload:
         max_trades_per_day=3,
         max_daily_loss=5000.0,
         default_quantity_mode="RISK_BASED",
-        buy_volume_multiplier=settings.strategy_tuning.buyVolumeMultiplier,
-        sell_volume_multiplier=settings.strategy_tuning.sellVolumeMultiplier,
-        entry_buffer_ticks=settings.strategy_tuning.entryBufferTicks,
-        stop_loss_buffer_ticks=settings.strategy_tuning.stopLossBufferTicks,
+        buy_volume_multiplier=settings.buy_volume_multiplier,
+        sell_volume_multiplier=settings.sell_volume_multiplier,
+        entry_buffer_ticks=settings.entry_buffer_ticks,
+        stop_loss_buffer_ticks=settings.stop_buffer_ticks,
     )
 
 

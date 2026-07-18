@@ -54,6 +54,7 @@ class PaperTrade(Base):
     quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     capital_used: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default="0")
     risk_amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default="0")
+    execution_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="PAPER", server_default="PAPER")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="OPEN", server_default="OPEN")
     simulated_exit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     pnl: Mapped[float | None] = mapped_column(Float, nullable=True)

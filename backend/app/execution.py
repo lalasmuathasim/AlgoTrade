@@ -1,18 +1,22 @@
 import logging
 
-from backend.app.schemas import QueuedTradingSignal
+from backend.app.config import get_settings
+from backend.app.models import TradingSignal
 
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 
-def execute_order_placeholder(signal: QueuedTradingSignal) -> None:
+def execute_order_placeholder(signal: TradingSignal) -> None:
     logger.info(
-        "Execution placeholder invoked for payload %s (%s %s %s %s)",
-        signal.signal_id,
-        signal.event_category,
+        "Execution placeholder invoked for signal %s (%s %s %s)",
+        signal.id,
         signal.exchange,
         signal.symbol,
-        signal.action or signal.line_type or signal.event_type,
+        signal.action,
     )
-    logger.info("Zerodha order execution is intentionally disabled")
+    if settings.zerodha_live_trading_enabled:
+        logger.info("Live trading flag is enabled, but order placement remains placeholder-only in this build")
+    else:
+        logger.info("Live Zerodha execution is disabled by environment flag")

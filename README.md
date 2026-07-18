@@ -1,336 +1,411 @@
-# TradingView Webhook Receiver
+# Qubitx Zerodha Trading Platform
 
-A Dockerized FastAPI, Redis queue, worker, and dashboard setup that accepts TradingView webhook events, persists analytics data in PostgreSQL, and supports paper-trading review before real execution is enabled.
+Qubitx is a FastAPI-based trading platform built around Zerodha-native market data and staged execution. It scans Daily candles after market close, stores active trigger lines in PostgreSQL, consumes live Zerodha ticks during market hours, aggregates completed 3-minute candles, validates breakouts with volume rules, and generates paper trades by default.
 
-Zerodha order execution is intentionally not implemented yet.
+Live Zerodha order placement remains feature-gated and placeholder-only in this build. No real broker order is placed unless that path is explicitly implemented later.
 
-## Architecture
+## What Changed
 
-TradingView
-→ trading-webhook-api
-→ Redis Queue
-→ trading-worker
-→ PostgreSQL
-→ Dashboard APIs
-→ Telegram
+TradingView webhook ingestion has been removed from the production architecture.
 
-The architecture is intentionally designed now for future low-latency trade execution, even though actual Zerodha order placement is not yet enabled.
+The platform is now centered on:
 
-## Access Control
+1. Zerodha historical candle scans after market close
+2. Zerodha-native instrument sync
+3. Zerodha tick-driven intraday candle building
+4. Breakout and breakdown detection from stored trigger lines
+5. Paper trading first
+6. Live execution only behind `ZERODHA_LIVE_TRADING_ENABLED`
 
-- Public routes:
-  - `/`
-  - `/health`
-  - `/webhook/tradingview`
-- Protected routes:
-  - `/dashboard`
-  - `/dashboard/*`
-  - `/paper-trading/*`
-- Signup creates a pending user account.
-- An approved admin user must review and approve new signups before they can log in.
-- Optional TOTP-based two-factor authentication can be enabled from the dashboard after login.
+## Current Architecture
+
+```text
+Daily market close
+  -> scheduler
+  -> Zerodha historical candle provider
+  -> swing detection
+  -> untouched trigger-line generation
+  -> PostgreSQL trigger_lines
+
+Market hours
+  -> live-engine
+  -> Zerodha tick stream
+  -> 3-minute candle builder
+  -> breakout / breakdown detector
+  -> volume validator
+  -> trading_signals
+  -> Redis signal dispatch queue
+  -> worker
+  -> paper execution
+  -> Telegram notification
+  -> live execution placeholder
+```
+
+## Core Capabilities
+
+- Admin-approved login with optional TOTP 2FA
+- Watchlist and symbol storage
+- Instrument master sync
+- Daily OHLCV scan execution tracking
+- Swing high and swing low detection
+- Untouched BUY resistance and SELL support line detection
+- Multiple active or historical trigger lines per symbol
+- Completed 3-minute candle aggregation from ticks
+- BUY breakout validation using `BUY_VOLUME_MULTIPLIER`
+- SELL breakdown validation using `SELL_VOLUME_MULTIPLIER`
+- Duplicate-signal protection
+- Paper trade generation
+- Live execution placeholder behind feature flag
+- Broker order and position reconciliation placeholders
+- Protected dashboard APIs
 
 ## Project Layout
 
 ```text
-backend/
-  app/
-    models/
-    routers/
-    schemas/
-    services/
-frontend/
-docs/
-app/
+.
+├── app/                         # compatibility wrappers
+├── backend/app/
+│   ├── live_engine.py
+│   ├── main.py
+│   ├── migrate.py
+│   ├── queue.py
+│   ├── scheduler.py
+│   ├── worker.py
+│   ├── migrations/
+│   ├── models/
+│   ├── routers/
+│   ├── schemas/
+│   └── services/
+├── docs/
+├── frontend/
+├── mock_data/
+├── tests/
+├── .env.example
+├── AGENT.md
+├── AWS_DEPLOYMENT.md
+├── docker-compose.yml
+├── Dockerfile
+└── requirements.txt
 ```
 
-- `backend/app` is the canonical backend package for the API, worker, models, schemas, and services.
-- `app` remains as a compatibility layer so existing imports and container entrypoints do not break during the refactor.
-- `frontend` is a placeholder for the future React and TypeScript dashboard.
-- `docs` holds architecture, strategy, and dashboard design notes for the next development phase.
+## Data Model
 
-## Dashboard Scope
+### Existing reusable domain entities
 
-The dashboard layer supports:
+- `User`
+- `Watchlist`
+- `WatchlistSymbol`
+- `TriggerLine`
+- `BreakoutEvent`
+- `TradingSignal`
+- `PaperTradingSetting`
+- `PaperTrade`
 
-- Watchlists and watchlist symbols
-- Multiple active or historical trigger lines per symbol
-- Swing candidate details and gap percentages
-- Breakout and breakdown event history
-- Historical trading signals
-- Paper-trading summaries and settings
-- Mock-data seeding through JSON files while live webhook feeds are still evolving
+### New Zerodha-native entities
 
-## Setup
+- `Instrument`
+- `MarketCandle`
+- `ScanExecution`
+- `BrokerOrder`
+- `PositionSnapshot`
 
-1. Create your environment file:
+## Environment Variables
+
+The main runtime template is [.env.example](/Users/lalasmuathasim/Works/AlgoTrade/.env.example).
+
+### Required
+
+- `DATABASE_URL`
+- `REDIS_URL`
+- `REDIS_QUEUE_PREFIX`
+- `JWT_SECRET`
+
+### Zerodha credentials
+
+- `ZERODHA_API_KEY`
+- `ZERODHA_API_SECRET`
+- `ZERODHA_ACCESS_TOKEN`
+- `ZERODHA_REDIRECT_URL`
+
+### Execution flags
+
+- `ZERODHA_LIVE_TRADING_ENABLED=false`
+- `PAPER_TRADING_ENABLED=true`
+
+### Scanner and market behavior
+
+- `DAILY_SCAN_TIME`
+- `MARKET_TIMEZONE`
+- `BUY_VOLUME_MULTIPLIER`
+- `SELL_VOLUME_MULTIPLIER`
+- `ENTRY_BUFFER_TICKS`
+- `STOP_BUFFER_TICKS`
+- `DAILY_CANDLE_LOOKBACK`
+- `SWING_WINDOW`
+- `MAX_GAP_PERCENT`
+- `MIN_SWING_DISTANCE`
+
+### App runtime
+
+- `API_HOST_PORT`
+- `API_HOST_BIND`
+- `LOG_LEVEL`
+- `WORKER_POLL_TIMEOUT`
+- `WORKER_MAX_RETRIES`
+- `SCHEDULER_POLL_INTERVAL_SECONDS`
+- `RECONCILIATION_POLL_INTERVAL_SECONDS`
+
+### Auth and admin bootstrap
+
+- `ACCESS_TOKEN_EXPIRE_MINUTES`
+- `SESSION_COOKIE_NAME`
+- `SESSION_COOKIE_SECURE`
+- `INITIAL_ADMIN_EMAIL`
+- `INITIAL_ADMIN_PASSWORD`
+- `INITIAL_ADMIN_NAME`
+- `TOTP_ISSUER`
+
+### Optional
+
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID`
+- `MOCK_DATA`
+
+## Shared PostgreSQL Setup
+
+Qubitx is intended to use a dedicated database inside a shared PostgreSQL server.
+
+Recommended example:
+
+```sql
+CREATE USER qubitx_user WITH PASSWORD 'change-me';
+CREATE DATABASE qubitx OWNER qubitx_user;
+GRANT ALL PRIVILEGES ON DATABASE qubitx TO qubitx_user;
+```
+
+Example `DATABASE_URL`:
+
+```text
+postgresql+psycopg2://qubitx_user:change-me@postgres-host:5432/qubitx
+```
+
+Do not start another PostgreSQL container if your shared PostgreSQL server is already available.
+
+## Redis Usage
+
+Redis remains part of the architecture, but it is no longer used for webhook payload buffering. It now carries internal Qubitx dispatch jobs such as signal execution handoff.
+
+Example:
+
+```text
+REDIS_URL=redis://redis-host:6379/2
+REDIS_QUEUE_PREFIX=qubitx
+```
+
+## Migrations
+
+This repository now includes an explicit migration runner instead of relying on `create_all()` at startup.
+
+Run migrations with:
+
+```bash
+python3 -m backend.app.migrate upgrade
+```
+
+Inside Docker:
+
+```bash
+docker compose run --rm migrate
+```
+
+## Local Development
+
+### 1. Create the environment file
 
 ```bash
 cp .env.example .env
 ```
 
-2. Edit `.env` and provide:
+### 2. Update the important values
+
+At minimum:
 
 - `DATABASE_URL`
 - `REDIS_URL`
 - `JWT_SECRET`
-- `SIGNAL_QUEUE_NAME`
-- `MOCK_DATA`
-- `WEBHOOK_SECRET`
-- `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` if you want Telegram notifications
-- `APP_PORT` if you want a different host port than `8095`
-- `LOG_LEVEL` if you want different logging verbosity
-- `INITIAL_ADMIN_EMAIL`
-- `INITIAL_ADMIN_PASSWORD`
-- `INITIAL_ADMIN_NAME`
-- `SESSION_COOKIE_NAME`
-- `SESSION_COOKIE_SECURE`
-- `ACCESS_TOKEN_EXPIRE_MINUTES`
-- `TOTP_ISSUER`
+- `INITIAL_ADMIN_*`
+- Zerodha credentials if you are testing real integrations
 
-When `MOCK_DATA=true`, the app seeds the dashboard from:
-
-- `mock_data/dashboard_seed.json`
-- `mock_data/trading_signals_seed.json`
-
-## Run With Docker Compose
+### 3. Run migrations
 
 ```bash
-docker compose up --build -d
+python3 -m backend.app.migrate upgrade
 ```
 
-The API will be available on `http://localhost:8095` by default, or on the port set in `APP_PORT`. The worker runs from the same image and does not expose any host ports.
-
-For reverse-proxy deployments, set `APP_HOST_BIND=127.0.0.1` so the container only binds on the VPS loopback interface.
-
-## Authentication Flow
-
-1. Visit `http://localhost:8095/`.
-2. Log in using the seeded admin from `.env`, or request access through the signup form.
-3. Admin users can approve pending accounts from the protected dashboard.
-4. Approved users can optionally enable two-factor authentication from the dashboard security panel.
-
-## Linode Deployment
-
-This repository includes [deploy-linode.yml](/Users/lalasmuathasim/Works/AlgoTrade/.github/workflows/deploy-linode.yml) for automatic deployment to a Linode VPS on pushes to `main`.
-
-Deployment behavior:
-
-- Uses the ISPConfig site base `/var/www/clients/client0/web13`
-- Deploys the Docker project into `/var/www/clients/client0/web13/private/algotrade` when `private/` exists
-- Falls back to `/var/www/clients/client0/web13/algotrade` if `private/` is unavailable
-- Uploads the repository bundle and a production `.env`
-- Runs `docker compose up --build -d` on the VPS
-- Verifies the deployed app with `curl http://127.0.0.1:${APP_PORT}/health` on the server
-
-Recommended production env values inside the Linode `.env`:
-
-- `MOCK_DATA=false`
-- `APP_HOST_BIND=127.0.0.1`
-- `APP_PORT=8095`
-- `SESSION_COOKIE_SECURE=true`
-
-GitHub Actions secrets to create:
-
-- `LINODE_HOST`
-- `LINODE_USERNAME`
-- `LINODE_PORT`
-- `LINODE_SSH_KEY`
-- `DATABASE_URL`
-- `WEBHOOK_SECRET`
-- `REDIS_URL`
-- `JWT_SECRET`
-- `SIGNAL_QUEUE_NAME`
-- `MOCK_DATA`
-- `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_CHAT_ID`
-- `APP_PORT`
-- `LOG_LEVEL`
-- `ACCESS_TOKEN_EXPIRE_MINUTES`
-- `SESSION_COOKIE_NAME`
-- `SESSION_COOKIE_SECURE`
-- `INITIAL_ADMIN_EMAIL`
-- `INITIAL_ADMIN_PASSWORD`
-- `INITIAL_ADMIN_NAME`
-- `TOTP_ISSUER`
-- `STRATEGY_TUNING__LOOKBACKCANDLES`
-- `STRATEGY_TUNING__MAXGAPPERCENT`
-- `STRATEGY_TUNING__MINSWINGDISTANCE`
-- `STRATEGY_TUNING__BUYVOLUMEMULTIPLIER`
-- `STRATEGY_TUNING__SELLVOLUMEMULTIPLIER`
-- `STRATEGY_TUNING__ENTRYBUFFERTICKS`
-- `STRATEGY_TUNING__STOPLOSSBUFFERTICKS`
-
-The workflow now generates the VPS `.env` from those individual GitHub secrets and writes:
-
-- `APP_HOST_BIND=127.0.0.1`
-
-automatically for the Linode deployment.
-
-VPS prerequisites:
-
-- Docker Engine installed
-- Docker Compose plugin installed
-- The domain `https://qubitx.ai` reverse-proxied by ISPConfig or your web server to `127.0.0.1:8095`
-
-## Responsibilities
-
-API responsibilities:
-
-- Validate webhook payloads
-- Verify the shared secret
-- Queue accepted signals into Redis
-- Return an immediate response without waiting for database or Telegram work
-
-Worker responsibilities:
-
-- Read queued signals from Redis
-- Run the future execution placeholder
-- Persist trigger lines, breakout events, trading signals, and paper trades to PostgreSQL
-- Retry Telegram notifications
-- Update processing metadata and log failures
-
-Redis responsibilities:
-
-- Decouple the webhook response path from slower downstream processing
-- Buffer accepted signals for worker consumption using `LPUSH` and `BRPOP`
-
-Execution responsibilities:
-
-- `backend/app/execution.py` is the reserved future integration point for Zerodha execution
-- Execution is intentionally disabled for now and only logged
-
-Dashboard responsibilities:
-
-- `/dashboard` renders a lightweight review UI
-- `/` renders the public landing page and auth entry point
-- `/dashboard/watchlists` summarizes tracked lists
-- `/dashboard/watchlists/{watchlist_id}` drills into symbols and summaries
-- `/dashboard/symbols/{exchange}/{symbol}` shows line, event, signal, and paper-trade history
-- `/dashboard/trigger-lines` lists all lines with filters
-- `/dashboard/breakout-events` lists all breakout or breakdown events with filters
-- `/dashboard/paper-trades` returns trade analytics and detailed rows
-- `/paper-trading/settings` manages paper-trading assumptions
-
-## Health Check
+### 4. Start the services
 
 ```bash
-curl http://localhost:8095/health
+docker compose up --build -d api worker scheduler live-engine
 ```
 
-## Dashboard
-
-- Landing page: `http://localhost:8095/`
-- HTML dashboard: `http://localhost:8095/dashboard`
-- Watchlist summary API: `http://localhost:8095/dashboard/watchlists`
-- Paper-trading settings API: `http://localhost:8095/paper-trading/settings`
-
-## Sample Trading Signal Webhook JSON
-
-```json
-{
-  "secret": "change-me",
-  "event_category": "TRADING_SIGNAL",
-  "exchange": "NSE",
-  "symbol": "RELIANCE",
-  "action": "BUY",
-  "trigger_price": 1520,
-  "entry_price": 1524.10,
-  "stop_loss": 1519.90,
-  "target": 1560,
-  "volume_ratio": 5.8,
-  "timeframe": "3m",
-  "strategy": "daily_structure_breakout"
-}
-```
-
-## Sample Trigger Line Webhook JSON
-
-```json
-{
-  "secret": "change-me",
-  "event_category": "TRIGGER_LINE",
-  "exchange": "NSE",
-  "symbol": "RELIANCE",
-  "watchlist_name": "NSE 80-2000 Watchlist",
-  "line_type": "BUY",
-  "line_price": 1520,
-  "line_drawn_date": "2026-06-17",
-  "swing_1_price": 1518,
-  "swing_1_date": "2026-05-20",
-  "swing_2_price": 1509,
-  "swing_2_date": "2026-06-05",
-  "swing_gap_percent": 0.59,
-  "nearest_target": 1560,
-  "lookback_candles": 100,
-  "max_gap_percent_used": 1.5,
-  "min_swing_distance_used": 5
-}
-```
-
-## Sample Breakout Event Webhook JSON
-
-```json
-{
-  "secret": "change-me",
-  "event_category": "BREAKOUT_EVENT",
-  "exchange": "NSE",
-  "symbol": "INFY",
-  "trigger_line_id": "22950979-91d1-4772-b6c7-46f091a7e519",
-  "event_type": "BREAKDOWN",
-  "event_time": "2026-06-17T09:21:00+05:30",
-  "breakout_or_breakdown_price": 1497.8,
-  "breakout_candle_high": 1500.3,
-  "breakout_candle_low": 1496.7,
-  "breakout_candle_volume": 1820000,
-  "previous_candle_volume": 430000,
-  "volume_ratio": 4.23,
-  "volume_condition_required": true,
-  "volume_condition_passed": true,
-  "entry_price": 1497.8,
-  "stop_loss": 1502.0,
-  "target": 1488.0,
-  "breakout_status": "PASSED"
-}
-```
-
-## Sample curl Request
+### 5. Verify health
 
 ```bash
-curl -X POST http://localhost:8095/webhook/tradingview \
-  -H "Content-Type: application/json" \
-  -d '{
-    "secret": "change-me",
-    "event_category": "TRADING_SIGNAL",
-    "exchange": "NSE",
-    "symbol": "RELIANCE",
-    "action": "BUY",
-    "trigger_price": 1520,
-    "entry_price": 1524.10,
-    "stop_loss": 1519.90,
-    "target": 1560,
-    "volume_ratio": 5.8,
-    "timeframe": "3m",
-    "strategy": "daily_structure_breakout"
-  }'
+curl http://127.0.0.1:8095/health
 ```
 
-## Sample Webhook Response
+## Docker Services
 
-```json
-{
-  "status": "queued",
-  "signal_id": "00000000-0000-0000-0000-000000000000",
-  "queued": true
-}
+The Compose stack now includes:
+
+- `api`
+- `worker`
+- `scheduler`
+- `live-engine`
+- `migrate`
+
+There are no fixed container names, and the Compose project name is `qubitx` to reduce conflicts with other local or VPS deployments.
+
+## API Surface
+
+### Public
+
+- `GET /`
+- `GET /health`
+
+### Protected auth and dashboard
+
+- `POST /auth/signup`
+- `POST /auth/login`
+- `POST /auth/logout`
+- `GET /auth/status`
+- `GET /dashboard`
+- `GET /dashboard/watchlists`
+- `GET /dashboard/watchlists/{watchlist_id}`
+- `GET /dashboard/symbols/{exchange}/{symbol}`
+- `GET /dashboard/trigger-lines`
+- `GET /dashboard/breakout-events`
+- `GET /dashboard/paper-trades`
+- `GET /paper-trading/settings`
+- `POST /paper-trading/settings`
+
+### Admin-only system endpoints
+
+- `GET /system/dependencies`
+- `POST /system/instruments/sync`
+- `POST /system/scans/daily`
+- `POST /system/ticks/replay`
+
+## Zerodha Authentication Workflow
+
+This codebase assumes the access token is managed explicitly through environment configuration for now.
+
+Recommended daily workflow:
+
+1. Generate a fresh Zerodha access token through your existing auth process.
+2. Update `ZERODHA_ACCESS_TOKEN` in the production environment.
+3. Restart only the Qubitx services if needed.
+4. Confirm `/system/dependencies` reports Zerodha credentials as configured.
+
+This build does not implement automated daily token refresh yet.
+
+## Scheduler Behavior
+
+The scheduler checks the configured `DAILY_SCAN_TIME` in `MARKET_TIMEZONE` and records one completed daily market scan per trading day.
+
+Each scan:
+
+1. loads active watchlist symbols
+2. resolves linked instrument tokens
+3. fetches the last `DAILY_CANDLE_LOOKBACK` completed daily candles
+4. detects swings
+5. validates untouched trigger-line candidates
+6. upserts active trigger lines
+7. expires outdated active lines for that symbol when necessary
+8. records the run in `scan_executions`
+
+## Paper Trading vs Live Trading
+
+### Paper mode
+
+- controlled by `PAPER_TRADING_ENABLED`
+- enabled by default
+- generates `paper_trades`
+- does not place broker orders
+
+### Live mode
+
+- controlled by `ZERODHA_LIVE_TRADING_ENABLED`
+- still placeholder-only in this build
+- records a broker-order placeholder row
+- does not place a real order during local validation
+
+## Test Commands
+
+### Compile
+
+```bash
+python3 -m compileall backend app
 ```
 
-## Notes
+### Unit tests
 
-- PostgreSQL is not included by default in `docker-compose.yml`.
-- Redis is not included by default in `docker-compose.yml`.
-- Set `DATABASE_URL` and `REDIS_URL` to existing shared infrastructure or external hosts.
-- The webhook API returns after queueing and never waits for PostgreSQL or Telegram.
-- Database tables are created automatically on startup using SQLAlchemy metadata, with compatibility updates for the existing `trading_signals` table.
-- Telegram failures are retried and logged by the worker without failing webhook acceptance.
-- `MOCK_DATA=true` seeds watchlists, trigger lines, breakout events, trading signals, and paper trades from JSON so the dashboard is immediately usable.
+```bash
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+### Lint
+
+```bash
+.venv/bin/ruff check backend app tests
+```
+
+### Focused type check
+
+```bash
+.venv/bin/mypy backend/app/services backend/app/routers/system.py backend/app/live_engine.py backend/app/scheduler.py tests --ignore-missing-imports
+```
+
+## Deployment
+
+The GitHub Actions deployment workflow has been updated to:
+
+- build the updated backend bundle
+- generate `.env` from individual secrets
+- run migrations before starting services
+- start only Qubitx services
+- verify internal health on the server
+- verify reverse-proxy health through `https://qubitx.ai/health`
+
+See:
+
+- [AWS_DEPLOYMENT.md](/Users/lalasmuathasim/Works/AlgoTrade/AWS_DEPLOYMENT.md)
+- [.github/workflows/deploy-linode.yml](/Users/lalasmuathasim/Works/AlgoTrade/.github/workflows/deploy-linode.yml)
+
+## Rollback Guidance
+
+If deployment health checks fail:
+
+1. SSH into the VPS deployment directory.
+2. Inspect `docker compose logs api worker scheduler live-engine`.
+3. Re-run `python -m backend.app.migrate status` if needed.
+4. Check the last known good commit.
+5. Redeploy that commit and rebuild only the Qubitx services.
+
+## Validation Status In This Refactor
+
+Completed locally:
+
+- compile check
+- unit tests for scanner, swing detection, untouched-level validation, candle aggregation, volume validation, signal dedupe, paper trade generation, and restart-state behavior
+- Ruff lint
+- focused mypy pass
+
+Not completed in this workspace yet:
+
+- migration run against a real local Qubitx PostgreSQL database
+- live Redis connectivity verification from this sandbox
+- Docker build and Compose startup validation from this sandbox
+- production push and GitHub Actions deployment
+
+Those remaining checks depend on local Docker and network permissions plus an available PostgreSQL and Redis target configured for Qubitx.

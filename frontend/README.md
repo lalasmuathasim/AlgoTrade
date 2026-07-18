@@ -1,8 +1,8 @@
 # Frontend Placeholder
 
-This directory is reserved for the future trading dashboard frontend.
+This directory remains a placeholder for the future dedicated Qubitx frontend.
 
-Planned stack:
+## Planned Stack
 
 - React
 - TypeScript
@@ -10,14 +10,13 @@ Planned stack:
 - Axios
 - Recharts or Chart.js
 
-Planned dashboard areas:
+## Expected Frontend Scope
 
-- Watchlist summary and detail views
-- Symbol dashboards
-- Trigger-line history
-- Breakout and breakdown analytics
-- Paper-trading performance and settings
-- Future Zerodha-linked trade review
-
-For now, the backend continues to serve the API and lightweight dashboard endpoints while the frontend application is still being planned.
-
+- auth and account security views
+- watchlist summary and detail views
+- symbol dashboards
+- trigger-line history
+- breakout and breakdown analytics
+- scan execution history
+- paper-trading analytics
+- future live-order review

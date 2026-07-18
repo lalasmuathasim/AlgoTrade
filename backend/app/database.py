@@ -27,31 +27,16 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
-def create_tables() -> None:
-    from backend.app import models  # noqa: F401
+def verify_database_connectivity() -> None:
+    with engine.connect() as connection:
+        connection.execute(text("SELECT 1"))
+
+
+def initialize_runtime_state() -> None:
     from backend.app.mock_data import seed_mock_data_if_enabled
     from backend.app.services.auth_service import ensure_initial_admin_user
 
-    logger.info("Creating database tables if they do not exist")
-    Base.metadata.create_all(bind=engine)
-    ensure_schema_compatibility()
+    verify_database_connectivity()
     with SessionLocal() as db:
         ensure_initial_admin_user(db)
     seed_mock_data_if_enabled()
-
-
-def ensure_schema_compatibility() -> None:
-    statements = [
-        "ALTER TABLE trading_signals ADD COLUMN IF NOT EXISTS exchange VARCHAR(20) DEFAULT 'NSE'",
-        "ALTER TABLE trading_signals ADD COLUMN IF NOT EXISTS event_category VARCHAR(30) DEFAULT 'TRADING_SIGNAL'",
-        "ALTER TABLE trading_signals ADD COLUMN IF NOT EXISTS watchlist_id UUID",
-        "ALTER TABLE trading_signals ADD COLUMN IF NOT EXISTS trigger_line_id UUID",
-        "ALTER TABLE trading_signals ADD COLUMN IF NOT EXISTS breakout_event_id UUID",
-        "ALTER TABLE trading_signals ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ",
-        "ALTER TABLE trading_signals ADD COLUMN IF NOT EXISTS notification_status VARCHAR(20) DEFAULT 'PENDING'",
-        "ALTER TABLE trading_signals ADD COLUMN IF NOT EXISTS error_message TEXT",
-    ]
-
-    with engine.begin() as connection:
-        for statement in statements:
-            connection.execute(text(statement))

@@ -79,7 +79,7 @@ def ensure_initial_admin_user(db: Session) -> None:
 
 
 def list_pending_users(db: Session) -> list[User]:
-    return db.scalars(select(User).where(User.approval_status == "PENDING").order_by(User.created_at)).all()
+    return list(db.scalars(select(User).where(User.approval_status == "PENDING").order_by(User.created_at)).all())
 
 
 def approve_user(db: Session, user_id: UUID, admin_user: User) -> User | None:

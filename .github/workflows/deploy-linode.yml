@@ -1,4 +1,4 @@
-name: Deploy Qubitx AlgoTrade
+name: Deploy Qubitx Zerodha Platform
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: qubitx-algotrade-deploy
+  group: qubitx-zerodha-deploy
   cancel-in-progress: true
 
 jobs:
@@ -22,14 +22,29 @@ jobs:
       APP_DOMAIN: qubitx.ai
       HAS_DEPLOY_KEY: ${{ secrets.LINODE_SSH_KEY != '' }}
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
       REDIS_URL: ${{ secrets.REDIS_URL }}
+      REDIS_QUEUE_PREFIX: ${{ secrets.REDIS_QUEUE_PREFIX }}
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
-      SIGNAL_QUEUE_NAME: ${{ secrets.SIGNAL_QUEUE_NAME }}
+      ZERODHA_API_KEY: ${{ secrets.ZERODHA_API_KEY }}
+      ZERODHA_API_SECRET: ${{ secrets.ZERODHA_API_SECRET }}
+      ZERODHA_ACCESS_TOKEN: ${{ secrets.ZERODHA_ACCESS_TOKEN }}
+      ZERODHA_REDIRECT_URL: ${{ secrets.ZERODHA_REDIRECT_URL }}
+      ZERODHA_LIVE_TRADING_ENABLED: ${{ secrets.ZERODHA_LIVE_TRADING_ENABLED }}
+      PAPER_TRADING_ENABLED: ${{ secrets.PAPER_TRADING_ENABLED }}
+      DAILY_SCAN_TIME: ${{ secrets.DAILY_SCAN_TIME }}
+      MARKET_TIMEZONE: ${{ secrets.MARKET_TIMEZONE }}
+      BUY_VOLUME_MULTIPLIER: ${{ secrets.BUY_VOLUME_MULTIPLIER }}
+      SELL_VOLUME_MULTIPLIER: ${{ secrets.SELL_VOLUME_MULTIPLIER }}
+      ENTRY_BUFFER_TICKS: ${{ secrets.ENTRY_BUFFER_TICKS }}
+      STOP_BUFFER_TICKS: ${{ secrets.STOP_BUFFER_TICKS }}
+      DAILY_CANDLE_LOOKBACK: ${{ secrets.DAILY_CANDLE_LOOKBACK }}
+      SWING_WINDOW: ${{ secrets.SWING_WINDOW }}
+      MAX_GAP_PERCENT: ${{ secrets.MAX_GAP_PERCENT }}
+      MIN_SWING_DISTANCE: ${{ secrets.MIN_SWING_DISTANCE }}
       MOCK_DATA: ${{ secrets.MOCK_DATA }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      APP_PORT: ${{ secrets.APP_PORT }}
+      API_HOST_PORT: ${{ secrets.API_HOST_PORT }}
       LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${{ secrets.ACCESS_TOKEN_EXPIRE_MINUTES }}
       SESSION_COOKIE_NAME: ${{ secrets.SESSION_COOKIE_NAME }}
@@ -38,13 +53,6 @@ jobs:
       INITIAL_ADMIN_PASSWORD: ${{ secrets.INITIAL_ADMIN_PASSWORD }}
       INITIAL_ADMIN_NAME: ${{ secrets.INITIAL_ADMIN_NAME }}
       TOTP_ISSUER: ${{ secrets.TOTP_ISSUER }}
-      STRATEGY_TUNING__LOOKBACKCANDLES: ${{ secrets.STRATEGY_TUNING__LOOKBACKCANDLES }}
-      STRATEGY_TUNING__MAXGAPPERCENT: ${{ secrets.STRATEGY_TUNING__MAXGAPPERCENT }}
-      STRATEGY_TUNING__MINSWINGDISTANCE: ${{ secrets.STRATEGY_TUNING__MINSWINGDISTANCE }}
-      STRATEGY_TUNING__BUYVOLUMEMULTIPLIER: ${{ secrets.STRATEGY_TUNING__BUYVOLUMEMULTIPLIER }}
-      STRATEGY_TUNING__SELLVOLUMEMULTIPLIER: ${{ secrets.STRATEGY_TUNING__SELLVOLUMEMULTIPLIER }}
-      STRATEGY_TUNING__ENTRYBUFFERTICKS: ${{ secrets.STRATEGY_TUNING__ENTRYBUFFERTICKS }}
-      STRATEGY_TUNING__STOPLOSSBUFFERTICKS: ${{ secrets.STRATEGY_TUNING__STOPLOSSBUFFERTICKS }}
 
     steps:
       - name: Checkout repository
@@ -74,13 +82,13 @@ jobs:
             exit 1
           fi
 
-          if [ -z "${WEBHOOK_SECRET}" ]; then
-            echo "Missing WEBHOOK_SECRET secret."
+          if [ -z "${REDIS_URL}" ]; then
+            echo "Missing REDIS_URL secret."
             exit 1
           fi
 
-          if [ -z "${REDIS_URL}" ]; then
-            echo "Missing REDIS_URL secret."
+          if [ -z "${REDIS_QUEUE_PREFIX}" ]; then
+            echo "Missing REDIS_QUEUE_PREFIX secret."
             exit 1
           fi
 
@@ -89,13 +97,48 @@ jobs:
             exit 1
           fi
 
-          if [ -z "${SIGNAL_QUEUE_NAME}" ]; then
-            echo "Missing SIGNAL_QUEUE_NAME secret."
+          if [ -z "${API_HOST_PORT}" ]; then
+            echo "Missing API_HOST_PORT secret."
             exit 1
           fi
 
-          if [ -z "${APP_PORT}" ]; then
-            echo "Missing APP_PORT secret."
+          if [ -z "${PAPER_TRADING_ENABLED}" ]; then
+            echo "Missing PAPER_TRADING_ENABLED secret."
+            exit 1
+          fi
+
+          if [ -z "${ZERODHA_LIVE_TRADING_ENABLED}" ]; then
+            echo "Missing ZERODHA_LIVE_TRADING_ENABLED secret."
+            exit 1
+          fi
+
+          if [ -z "${DAILY_SCAN_TIME}" ]; then
+            echo "Missing DAILY_SCAN_TIME secret."
+            exit 1
+          fi
+
+          if [ -z "${MARKET_TIMEZONE}" ]; then
+            echo "Missing MARKET_TIMEZONE secret."
+            exit 1
+          fi
+
+          if [ -z "${BUY_VOLUME_MULTIPLIER}" ]; then
+            echo "Missing BUY_VOLUME_MULTIPLIER secret."
+            exit 1
+          fi
+
+          if [ -z "${SELL_VOLUME_MULTIPLIER}" ]; then
+            echo "Missing SELL_VOLUME_MULTIPLIER secret."
+            exit 1
+          fi
+
+          if [ -z "${ENTRY_BUFFER_TICKS}" ]; then
+            echo "Missing ENTRY_BUFFER_TICKS secret."
+            exit 1
+          fi
+
+          if [ -z "${STOP_BUFFER_TICKS}" ]; then
+            echo "Missing STOP_BUFFER_TICKS secret."
             exit 1
           fi
 
@@ -166,9 +209,9 @@ jobs:
               BASE="/var/www/clients/client0/web13"
 
               if [ -d "${BASE}/private" ]; then
-                printf "%s" "${BASE}/private/algotrade"
+                printf "%s" "${BASE}/private/qubitx"
               elif [ -d "${BASE}" ]; then
-                printf "%s" "${BASE}/algotrade"
+                printf "%s" "${BASE}/qubitx"
               else
                 echo "Missing deployment base path: ${BASE}" >&2
                 exit 1
@@ -190,20 +233,35 @@ jobs:
             --exclude='__pycache__' \
             --exclude='*.pyc' \
             --exclude='.codex_artifacts' \
-            -czf /tmp/algotrade-deploy.tgz \
+            -czf /tmp/qubitx-deploy.tgz \
             .
 
           {
             printf 'DATABASE_URL=%s\n' "${DATABASE_URL}"
-            printf 'WEBHOOK_SECRET=%s\n' "${WEBHOOK_SECRET}"
             printf 'REDIS_URL=%s\n' "${REDIS_URL}"
+            printf 'REDIS_QUEUE_PREFIX=%s\n' "${REDIS_QUEUE_PREFIX}"
             printf 'JWT_SECRET=%s\n' "${JWT_SECRET}"
-            printf 'SIGNAL_QUEUE_NAME=%s\n' "${SIGNAL_QUEUE_NAME}"
+            printf 'ZERODHA_API_KEY=%s\n' "${ZERODHA_API_KEY}"
+            printf 'ZERODHA_API_SECRET=%s\n' "${ZERODHA_API_SECRET}"
+            printf 'ZERODHA_ACCESS_TOKEN=%s\n' "${ZERODHA_ACCESS_TOKEN}"
+            printf 'ZERODHA_REDIRECT_URL=%s\n' "${ZERODHA_REDIRECT_URL}"
+            printf 'ZERODHA_LIVE_TRADING_ENABLED=%s\n' "${ZERODHA_LIVE_TRADING_ENABLED:-false}"
+            printf 'PAPER_TRADING_ENABLED=%s\n' "${PAPER_TRADING_ENABLED:-true}"
+            printf 'DAILY_SCAN_TIME=%s\n' "${DAILY_SCAN_TIME:-15:45}"
+            printf 'MARKET_TIMEZONE=%s\n' "${MARKET_TIMEZONE:-Asia/Kolkata}"
+            printf 'BUY_VOLUME_MULTIPLIER=%s\n' "${BUY_VOLUME_MULTIPLIER:-5}"
+            printf 'SELL_VOLUME_MULTIPLIER=%s\n' "${SELL_VOLUME_MULTIPLIER:-3}"
+            printf 'ENTRY_BUFFER_TICKS=%s\n' "${ENTRY_BUFFER_TICKS:-0.05}"
+            printf 'STOP_BUFFER_TICKS=%s\n' "${STOP_BUFFER_TICKS:-0.05}"
+            printf 'DAILY_CANDLE_LOOKBACK=%s\n' "${DAILY_CANDLE_LOOKBACK:-100}"
+            printf 'SWING_WINDOW=%s\n' "${SWING_WINDOW:-2}"
+            printf 'MAX_GAP_PERCENT=%s\n' "${MAX_GAP_PERCENT:-0.5}"
+            printf 'MIN_SWING_DISTANCE=%s\n' "${MIN_SWING_DISTANCE:-1.0}"
             printf 'MOCK_DATA=%s\n' "${MOCK_DATA}"
             printf 'TELEGRAM_BOT_TOKEN=%s\n' "${TELEGRAM_BOT_TOKEN}"
             printf 'TELEGRAM_CHAT_ID=%s\n' "${TELEGRAM_CHAT_ID}"
             printf 'APP_HOST_BIND=%s\n' '127.0.0.1'
-            printf 'APP_PORT=%s\n' "${APP_PORT}"
+            printf 'API_HOST_PORT=%s\n' "${API_HOST_PORT}"
             printf 'LOG_LEVEL=%s\n' "${LOG_LEVEL}"
             printf 'ACCESS_TOKEN_EXPIRE_MINUTES=%s\n' "${ACCESS_TOKEN_EXPIRE_MINUTES}"
             printf 'SESSION_COOKIE_NAME=%s\n' "${SESSION_COOKIE_NAME}"
@@ -212,14 +270,7 @@ jobs:
             printf 'INITIAL_ADMIN_PASSWORD=%s\n' "${INITIAL_ADMIN_PASSWORD}"
             printf 'INITIAL_ADMIN_NAME=%s\n' "${INITIAL_ADMIN_NAME}"
             printf 'TOTP_ISSUER=%s\n' "${TOTP_ISSUER}"
-            printf 'STRATEGY_TUNING__LOOKBACKCANDLES=%s\n' "${STRATEGY_TUNING__LOOKBACKCANDLES:-20}"
-            printf 'STRATEGY_TUNING__MAXGAPPERCENT=%s\n' "${STRATEGY_TUNING__MAXGAPPERCENT:-0.5}"
-            printf 'STRATEGY_TUNING__MINSWINGDISTANCE=%s\n' "${STRATEGY_TUNING__MINSWINGDISTANCE:-1.0}"
-            printf 'STRATEGY_TUNING__BUYVOLUMEMULTIPLIER=%s\n' "${STRATEGY_TUNING__BUYVOLUMEMULTIPLIER:-1.0}"
-            printf 'STRATEGY_TUNING__SELLVOLUMEMULTIPLIER=%s\n' "${STRATEGY_TUNING__SELLVOLUMEMULTIPLIER:-1.0}"
-            printf 'STRATEGY_TUNING__ENTRYBUFFERTICKS=%s\n' "${STRATEGY_TUNING__ENTRYBUFFERTICKS:-0.05}"
-            printf 'STRATEGY_TUNING__STOPLOSSBUFFERTICKS=%s\n' "${STRATEGY_TUNING__STOPLOSSBUFFERTICKS:-0.05}"
-          } > /tmp/algotrade.env
+          } > /tmp/qubitx.env
 
       - name: Upload application bundle
         env:
@@ -227,8 +278,8 @@ jobs:
         run: |
           set -eu
 
-          scp -P "${DEPLOY_PORT}" /tmp/algotrade-deploy.tgz "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/algotrade-deploy.tgz"
-          scp -P "${DEPLOY_PORT}" /tmp/algotrade.env "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/algotrade.env"
+          scp -P "${DEPLOY_PORT}" /tmp/qubitx-deploy.tgz "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/qubitx-deploy.tgz"
+          scp -P "${DEPLOY_PORT}" /tmp/qubitx.env "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/qubitx.env"
 
           ssh -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" "
             set -eu
@@ -245,17 +296,17 @@ jobs:
             esac
 
             TMP_DIR=\$(mktemp -d)
-            trap 'rm -rf \"\${TMP_DIR}\" /tmp/algotrade-deploy.tgz /tmp/algotrade.env' EXIT
+            trap 'rm -rf \"\${TMP_DIR}\" /tmp/qubitx-deploy.tgz /tmp/qubitx.env' EXIT
 
             mkdir -p \"\${DEPLOY_ROOT}\"
-            tar -xzf /tmp/algotrade-deploy.tgz -C \"\${TMP_DIR}\"
+            tar -xzf /tmp/qubitx-deploy.tgz -C \"\${TMP_DIR}\"
 
             find \"\${DEPLOY_ROOT}\" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
             cp -a \"\${TMP_DIR}\"/. \"\${DEPLOY_ROOT}\"/
-            mv /tmp/algotrade.env \"\${DEPLOY_ROOT}/.env\"
+            mv /tmp/qubitx.env \"\${DEPLOY_ROOT}/.env\"
           "
 
-      - name: Start Docker services on Linode
+      - name: Run migrations and start Docker services on Linode
         env:
           DEPLOY_ROOT: ${{ steps.deploy_root.outputs.path }}
         run: |
@@ -274,25 +325,35 @@ jobs:
               exit 1
             fi
 
-            \$COMPOSE_CMD up --build -d
-            \$COMPOSE_CMD ps
+            \$COMPOSE_CMD run --rm migrate
+            \$COMPOSE_CMD up --build -d api worker scheduler live-engine
+            \$COMPOSE_CMD ps api worker scheduler live-engine
 
-            APP_PORT_VALUE=\$(awk -F= '/^APP_PORT=/{print \$2}' .env | tail -n 1)
-            if [ -z \"\${APP_PORT_VALUE}\" ]; then
-              APP_PORT_VALUE='8095'
+            API_PORT_VALUE=\$(awk -F= '/^API_HOST_PORT=/{print \$2}' .env | tail -n 1)
+            if [ -z \"\${API_PORT_VALUE}\" ]; then
+              API_PORT_VALUE='8095'
             fi
 
             sleep 8
 
-            if ! curl --fail --silent --show-error \"http://127.0.0.1:\${APP_PORT_VALUE}/health\" >/tmp/algotrade-health.json; then
+            if ! curl --fail --silent --show-error \"http://127.0.0.1:\${API_PORT_VALUE}/health\" >/tmp/qubitx-health.json; then
               echo 'Health check failed. Recent compose status:'
-              \$COMPOSE_CMD ps
-              echo 'Recent trading-webhook-api logs:'
-              \$COMPOSE_CMD logs --tail=120 trading-webhook-api || true
-              echo 'Recent trading-worker logs:'
-              \$COMPOSE_CMD logs --tail=120 trading-worker || true
+              \$COMPOSE_CMD ps api worker scheduler live-engine
+              echo 'Recent api logs:'
+              \$COMPOSE_CMD logs --tail=120 api || true
+              echo 'Recent worker logs:'
+              \$COMPOSE_CMD logs --tail=120 worker || true
+              echo 'Recent scheduler logs:'
+              \$COMPOSE_CMD logs --tail=120 scheduler || true
+              echo 'Recent live-engine logs:'
+              \$COMPOSE_CMD logs --tail=120 live-engine || true
               exit 1
             fi
 
-            cat /tmp/algotrade-health.json
+            cat /tmp/qubitx-health.json
           "
+
+      - name: Verify reverse proxy health
+        run: |
+          set -eu
+          curl --fail --silent --show-error "https://${APP_DOMAIN}/health"

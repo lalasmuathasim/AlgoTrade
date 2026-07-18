@@ -60,7 +60,7 @@ def landing_page() -> str:
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AlgoTrade Control Center</title>
+  <title>Qubitx Control Center</title>
   <style>
     :root {
       --bg: #f4efe4;
@@ -302,13 +302,13 @@ def landing_page() -> str:
   <div class="wrap">
     <section class="hero">
       <article class="hero-copy">
-        <div class="eyebrow">AlgoTrade Control Center</div>
+        <div class="eyebrow">Qubitx Control Center</div>
         <h1>Research-first trade intelligence before live execution.</h1>
-        <p>Review structure-based trigger lines, breakout events, historical signals, paper trades, and approval-gated access from one control surface built for future low-latency execution.</p>
+        <p>Review Zerodha-native trigger lines, breakout events, generated signals, paper trades, and approval-gated access from one control surface built for future low-latency execution.</p>
         <div class="hero-grid">
           <div class="metric">
             <div class="metric-label">Pipeline</div>
-            <div class="metric-value">Webhook → Redis → Worker</div>
+            <div class="metric-value">Scan → Market Engine → Worker</div>
           </div>
           <div class="metric">
             <div class="metric-label">Security</div>
@@ -392,7 +392,7 @@ def landing_page() -> str:
           </div>
           <div class="flow-item">
             <strong>2. Queue-first processing</strong>
-            TradingView events are validated and queued immediately without waiting on analytics or notifications.
+            Daily scans and live market signals are processed asynchronously without waiting on analytics or notifications.
           </div>
           <div class="flow-item">
             <strong>3. Future execution readiness</strong>
@@ -404,7 +404,7 @@ def landing_page() -> str:
           <a class="inline-button" href="/dashboard">Dashboard</a>
           <a class="inline-button" href="/paper-trading/settings">Paper Settings</a>
         </div>
-        <p class="muted-note">Two-factor authentication can be enabled after login from the dashboard security panel. Existing webhook ingestion remains separate and unaffected by user sign-in.</p>
+        <p class="muted-note">Two-factor authentication can be enabled after login from the dashboard security panel. Market scanning and signal generation remain separate and unaffected by user sign-in.</p>
       </article>
     </section>
   </div>

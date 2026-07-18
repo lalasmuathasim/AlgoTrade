@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Float, String, Text, func
+from sqlalchemy import DateTime, Float, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -16,24 +16,29 @@ class TradingSignal(Base):
     exchange: Mapped[str] = mapped_column(String(20), nullable=False, default="NSE", server_default="NSE")
     symbol: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     action: Mapped[str] = mapped_column(String(10), nullable=False)
-    event_category: Mapped[str] = mapped_column(
-        String(30),
-        nullable=False,
-        default="TRADING_SIGNAL",
-        server_default="TRADING_SIGNAL",
-    )
+    source: Mapped[str] = mapped_column(String(30), nullable=False, default="ZERODHA", server_default="ZERODHA")
     watchlist_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     trigger_line_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     breakout_event_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    scan_execution_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     trigger_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     entry_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     stop_loss: Mapped[float | None] = mapped_column(Float, nullable=True)
     target: Mapped[float | None] = mapped_column(Float, nullable=True)
+    quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    capital_used: Mapped[float | None] = mapped_column(Float, nullable=True)
+    risk_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
     volume_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
     timeframe: Mapped[str | None] = mapped_column(String(20), nullable=True)
     strategy: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    raw_payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="RECEIVED", server_default="RECEIVED")
+    dedupe_key: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    raw_payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default="PENDING_EXECUTION",
+        server_default="PENDING_EXECUTION",
+    )
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     notification_status: Mapped[str] = mapped_column(
         String(20),

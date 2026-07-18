@@ -29,8 +29,10 @@ class WatchlistSymbol(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     watchlist_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("watchlists.id"), nullable=False)
+    instrument_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("instruments.id"), nullable=True)
     exchange: Mapped[str] = mapped_column(String(20), nullable=False, default="NSE", server_default="NSE")
     symbol: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    instrument_token: Mapped[int | None] = mapped_column(nullable=True)
     company_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     price_filter_min: Mapped[float | None] = mapped_column(Float, nullable=True)
     price_filter_max: Mapped[float | None] = mapped_column(Float, nullable=True)

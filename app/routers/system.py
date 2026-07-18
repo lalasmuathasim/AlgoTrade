@@ -1,5 +1,5 @@
 """Compatibility wrapper for the legacy app package."""
 
-from backend.app.routers.paper_trading import router as router
+from backend.app.routers.system import router as router
 
 __all__ = ["router"]
