@@ -23,7 +23,7 @@ jobs:
       HAS_DEPLOY_KEY: ${{ secrets.LINODE_SSH_KEY != '' }}
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       REDIS_URL: ${{ secrets.REDIS_URL }}
-      REDIS_QUEUE_PREFIX: ${{ secrets.REDIS_QUEUE_PREFIX }}
+      REDIS_QUEUE_PREFIX: ${{ secrets.REDIS_QUEUE_PREFIX || 'qubitx' }}
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
       ZERODHA_API_KEY: ${{ secrets.ZERODHA_API_KEY }}
       ZERODHA_API_SECRET: ${{ secrets.ZERODHA_API_SECRET }}
@@ -84,11 +84,6 @@ jobs:
 
           if [ -z "${REDIS_URL}" ]; then
             echo "Missing REDIS_URL secret."
-            exit 1
-          fi
-
-          if [ -z "${REDIS_QUEUE_PREFIX}" ]; then
-            echo "Missing REDIS_QUEUE_PREFIX secret."
             exit 1
           fi
 
