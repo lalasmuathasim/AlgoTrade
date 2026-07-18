@@ -44,7 +44,7 @@ jobs:
       MOCK_DATA: ${{ secrets.MOCK_DATA }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      API_HOST_PORT: ${{ secrets.API_HOST_PORT }}
+      API_HOST_PORT: ${{ secrets.API_HOST_PORT || '8095' }}
       LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${{ secrets.ACCESS_TOKEN_EXPIRE_MINUTES }}
       SESSION_COOKIE_NAME: ${{ secrets.SESSION_COOKIE_NAME }}
@@ -89,11 +89,6 @@ jobs:
 
           if [ -z "${JWT_SECRET}" ]; then
             echo "Missing JWT_SECRET secret."
-            exit 1
-          fi
-
-          if [ -z "${API_HOST_PORT}" ]; then
-            echo "Missing API_HOST_PORT secret."
             exit 1
           fi
 
