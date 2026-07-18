@@ -315,14 +315,30 @@ jobs:
               exit 1
             fi
 
-            \$COMPOSE_CMD run --rm migrate
-            \$COMPOSE_CMD up --build -d api worker scheduler live-engine
-            \$COMPOSE_CMD ps api worker scheduler live-engine
-
             API_PORT_VALUE=\$(awk -F= '/^API_HOST_PORT=/{print \$2}' .env | tail -n 1)
             if [ -z \"\${API_PORT_VALUE}\" ]; then
               API_PORT_VALUE='8095'
             fi
+
+            \$COMPOSE_CMD down --remove-orphans || true
+
+            for LEGACY_CONTAINER in trading-webhook-api trading-worker; do
+              if docker ps -a --format '{{.Names}}' | grep -Fx \"\${LEGACY_CONTAINER}\" >/dev/null 2>&1; then
+                echo \"Removing legacy container: \${LEGACY_CONTAINER}\"
+                docker rm -f \"\${LEGACY_CONTAINER}\"
+              fi
+            done
+
+            PORT_OWNER_NAMES=\$(docker ps --filter \"publish=\${API_PORT_VALUE}\" --format '{{.Names}}')
+            if [ -n \"\${PORT_OWNER_NAMES}\" ]; then
+              echo \"Port \${API_PORT_VALUE} is still occupied by: \${PORT_OWNER_NAMES}\"
+              echo 'Refusing to stop unknown containers automatically.'
+              exit 1
+            fi
+
+            \$COMPOSE_CMD run --rm migrate
+            \$COMPOSE_CMD up --build -d --remove-orphans api worker scheduler live-engine
+            \$COMPOSE_CMD ps api worker scheduler live-engine
 
             sleep 8
 
