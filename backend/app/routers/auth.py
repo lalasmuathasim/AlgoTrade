@@ -63,54 +63,110 @@ def landing_page() -> str:
   <title>Qubitx Control Center</title>
   <style>
     :root {
-      --bg: #f4efe4;
-      --ink: #16332f;
-      --muted: #5f706b;
-      --panel: rgba(255, 251, 245, 0.8);
-      --panel-strong: rgba(16, 34, 31, 0.94);
-      --accent: #b7652f;
-      --accent-soft: rgba(183, 101, 47, 0.12);
-      --ok: #0f766e;
-      --danger: #b42318;
-      --line: rgba(22, 51, 47, 0.12);
-      --shadow: 0 24px 60px rgba(24, 39, 37, 0.12);
+      --bg: #f5f7fb;
+      --ink: #122033;
+      --muted: #60738b;
+      --panel: rgba(255, 255, 255, 0.92);
+      --panel-soft: rgba(248, 251, 255, 0.98);
+      --accent: #0f9b8e;
+      --accent-alt: #3d7ef0;
+      --accent-soft: rgba(15, 155, 142, 0.1);
+      --ok: #0b8f63;
+      --danger: #cf4545;
+      --warn: #b8731d;
+      --line: rgba(75, 102, 138, 0.14);
+      --line-strong: rgba(75, 102, 138, 0.22);
+      --shadow: 0 24px 55px rgba(20, 34, 56, 0.1);
     }
     * { box-sizing: border-box; }
+    html { color-scheme: light; }
     body {
       margin: 0;
       min-height: 100vh;
       color: var(--ink);
-      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      font-family: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
       background:
-        radial-gradient(circle at 8% 12%, rgba(183, 101, 47, 0.18), transparent 26%),
-        radial-gradient(circle at 92% 18%, rgba(15, 118, 110, 0.14), transparent 28%),
-        linear-gradient(145deg, #efe6d6 0%, #f8f4ec 46%, #ebf3ef 100%);
+        radial-gradient(circle at 8% 12%, rgba(61, 126, 240, 0.12), transparent 26%),
+        radial-gradient(circle at 92% 18%, rgba(15, 155, 142, 0.1), transparent 28%),
+        linear-gradient(145deg, #f8fafc 0%, #eef3f8 46%, #edf5f3 100%);
     }
     body::before {
       content: "";
       position: fixed;
       inset: 0;
       background-image:
-        linear-gradient(rgba(22, 51, 47, 0.03) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(22, 51, 47, 0.03) 1px, transparent 1px);
-      background-size: 44px 44px;
+        linear-gradient(rgba(61, 126, 240, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(61, 126, 240, 0.03) 1px, transparent 1px);
+      background-size: 32px 32px;
       pointer-events: none;
     }
-    .wrap { max-width: 1320px; margin: 0 auto; padding: 28px 20px 56px; position: relative; }
+    a { color: inherit; }
+    .wrap { max-width: 1380px; margin: 0 auto; padding: 24px 20px 56px; position: relative; }
+    .masthead {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+    .brand {
+      display: grid;
+      gap: 4px;
+    }
+    .brand-mark {
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      font-size: 0.76rem;
+      font-weight: 700;
+    }
+    .brand-title {
+      font-family: "Space Grotesk", "Avenir Next", sans-serif;
+      font-size: 1.45rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .mast-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .shell-action, .cta, .ghost, .inline-button, .tab-button {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+      text-decoration: none;
+      transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease, opacity 0.16s ease;
+    }
+    .shell-action, .ghost, .inline-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 42px;
+      padding: 10px 14px;
+      background: rgba(255,255,255,0.72);
+      color: var(--ink);
+    }
+    .shell-action:hover, .ghost:hover, .inline-button:hover, .cta:hover, .tab-button:hover {
+      transform: translateY(-1px);
+      border-color: var(--line-strong);
+      background: rgba(248,251,255,0.98);
+    }
     .hero {
       display: grid;
-      grid-template-columns: 1.2fr 0.8fr;
+      grid-template-columns: 1.08fr 0.92fr;
       gap: 22px;
-      align-items: stretch;
+      align-items: start;
     }
-    .hero-copy, .auth-shell, .feature-card, .flow-card, .status-bar {
+    .hero-copy, .auth-shell, .feature-card, .flow-card, .status-bar, .market-card {
       border: 1px solid var(--line);
       border-radius: 26px;
       box-shadow: var(--shadow);
     }
     .hero-copy {
-      background: linear-gradient(140deg, rgba(16, 34, 31, 0.97), rgba(24, 49, 45, 0.9));
-      color: #f7f1e6;
+      background: linear-gradient(145deg, rgba(255,255,255,0.98), rgba(246,249,253,0.98));
       padding: 34px;
       position: relative;
       overflow: hidden;
@@ -122,29 +178,31 @@ def landing_page() -> str:
       width: 240px;
       height: 240px;
       border-radius: 50%;
-      background: radial-gradient(circle, rgba(183, 101, 47, 0.38), transparent 68%);
+      background: radial-gradient(circle, rgba(61,126,240,0.22), transparent 68%);
     }
     .eyebrow {
       text-transform: uppercase;
-      letter-spacing: 0.12em;
-      font-size: 0.8rem;
-      color: rgba(247, 241, 230, 0.76);
+      letter-spacing: 0.16em;
+      font-size: 0.76rem;
+      color: var(--accent);
+      font-weight: 700;
       margin-bottom: 14px;
     }
     h1, h2, h3 {
-      font-family: "Baskerville", "Palatino Linotype", serif;
+      font-family: "Space Grotesk", "Avenir Next", sans-serif;
       margin: 0;
     }
     h1 {
-      font-size: clamp(2.6rem, 5vw, 4.7rem);
-      line-height: 0.95;
+      font-size: clamp(2.7rem, 5vw, 4.9rem);
+      line-height: 0.92;
+      letter-spacing: -0.05em;
       max-width: 720px;
     }
     .hero-copy p {
       margin: 18px 0 0;
       max-width: 640px;
       line-height: 1.65;
-      color: rgba(247, 241, 230, 0.82);
+      color: var(--muted);
       font-size: 1.02rem;
     }
     .hero-grid {
@@ -154,88 +212,110 @@ def landing_page() -> str:
       margin-top: 26px;
     }
     .metric {
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.09);
+      background: rgba(248, 251, 255, 0.92);
+      border: 1px solid rgba(61, 126, 240, 0.08);
       border-radius: 18px;
       padding: 16px;
     }
     .metric-label {
       font-size: 0.78rem;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.12em;
       text-transform: uppercase;
-      color: rgba(247, 241, 230, 0.66);
+      color: var(--muted);
+      font-weight: 700;
     }
-    .metric-value { font-size: 1.5rem; margin-top: 8px; }
+    .metric-value {
+      font-family: "Space Grotesk", "Avenir Next", sans-serif;
+      font-size: 1.45rem;
+      margin-top: 8px;
+      letter-spacing: -0.03em;
+    }
     .auth-shell {
       background: var(--panel);
-      backdrop-filter: blur(14px);
+      backdrop-filter: blur(10px);
       padding: 22px;
+    }
+    .auth-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .auth-head p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      line-height: 1.55;
+      font-size: 0.95rem;
     }
     .tabs {
       display: flex;
       gap: 10px;
       margin-bottom: 16px;
     }
-    .tabs button, .cta, .ghost, .inline-button {
-      border: none;
-      cursor: pointer;
-      transition: transform 0.16s ease, opacity 0.16s ease, background 0.16s ease;
-    }
-    .tabs button {
+    .tab-button {
       flex: 1;
       padding: 12px 14px;
-      border-radius: 14px;
-      background: rgba(22, 51, 47, 0.07);
+      background: rgba(61, 126, 240, 0.06);
       color: var(--ink);
       font-weight: 600;
     }
-    .tabs button.active {
-      background: var(--panel-strong);
-      color: #f7f1e6;
+    .tab-button.active {
+      background: linear-gradient(135deg, rgba(15,155,142,0.94), rgba(18,125,164,0.92));
+      border-color: rgba(15,155,142,0.22);
+      color: #ffffff;
     }
     .panel { display: none; }
     .panel.active { display: block; }
     .field { margin-bottom: 12px; }
     label {
       display: block;
-      font-size: 0.88rem;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
       margin-bottom: 6px;
       color: var(--muted);
-      font-weight: 600;
+      font-weight: 700;
     }
     input {
       width: 100%;
       border-radius: 14px;
-      border: 1px solid rgba(22, 51, 47, 0.14);
-      background: rgba(255, 255, 255, 0.76);
+      border: 1px solid rgba(75, 102, 138, 0.16);
+      background: rgba(248, 251, 255, 0.98);
       padding: 13px 14px;
       font-size: 0.98rem;
       color: var(--ink);
     }
     input:focus {
-      outline: 2px solid rgba(183, 101, 47, 0.22);
-      border-color: rgba(183, 101, 47, 0.45);
+      outline: none;
+      border-color: rgba(15, 155, 142, 0.32);
+      box-shadow: 0 0 0 3px rgba(15, 155, 142, 0.08);
     }
     .cta {
       width: 100%;
       border-radius: 14px;
       padding: 14px;
-      background: linear-gradient(135deg, #1d3f39, #10211e);
-      color: #f7f1e6;
+      background: linear-gradient(135deg, rgba(15,155,142,0.96), rgba(18,125,164,0.94));
+      border-color: rgba(15,155,142,0.22);
+      color: #ffffff;
       font-weight: 700;
       font-size: 0.98rem;
     }
     .ghost {
       width: 100%;
-      border-radius: 14px;
       padding: 14px;
-      background: var(--accent-soft);
-      color: var(--accent);
       font-weight: 700;
       margin-top: 10px;
     }
+    .signed-session {
+      display: none;
+      gap: 12px;
+    }
+    .signed-session.active {
+      display: grid;
+    }
     .status-bar {
-      background: rgba(255,255,255,0.72);
+      background: rgba(248,251,255,0.98);
       margin-top: 16px;
       padding: 14px 16px;
       color: var(--muted);
@@ -250,9 +330,9 @@ def landing_page() -> str:
       gap: 18px;
       margin-top: 24px;
     }
-    .feature-card, .flow-card {
-      background: rgba(255, 251, 245, 0.72);
-      backdrop-filter: blur(12px);
+    .feature-card, .flow-card, .market-card {
+      background: rgba(255, 255, 255, 0.94);
+      backdrop-filter: blur(10px);
       padding: 22px;
     }
     .feature-list, .flow-list {
@@ -261,16 +341,17 @@ def landing_page() -> str:
       margin-top: 14px;
     }
     .feature-item, .flow-item {
-      border: 1px solid rgba(22, 51, 47, 0.08);
+      border: 1px solid rgba(75, 102, 138, 0.1);
       border-radius: 18px;
       padding: 16px;
-      background: rgba(255,255,255,0.62);
+      background: rgba(248,251,255,0.98);
     }
     .feature-item strong, .flow-item strong {
       display: block;
       margin-bottom: 6px;
-      font-family: "Baskerville", "Palatino Linotype", serif;
-      font-size: 1.12rem;
+      font-family: "Space Grotesk", "Avenir Next", sans-serif;
+      font-size: 1.04rem;
+      letter-spacing: -0.02em;
     }
     .inline-actions {
       display: flex;
@@ -279,30 +360,57 @@ def landing_page() -> str:
       margin-top: 14px;
     }
     .inline-button {
-      border-radius: 999px;
-      background: rgba(22, 51, 47, 0.08);
-      color: var(--ink);
-      padding: 10px 14px;
-      text-decoration: none;
-      font-weight: 600;
+      border-radius: 12px;
     }
     .muted-note {
       color: var(--muted);
       font-size: 0.92rem;
       line-height: 1.5;
     }
+    .market-card {
+      margin-top: 18px;
+    }
+    .market-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .market-item {
+      padding: 14px;
+      border-radius: 18px;
+      border: 1px solid rgba(75, 102, 138, 0.1);
+      background: rgba(248,251,255,0.98);
+    }
+    .market-item strong {
+      display: block;
+      font-size: 1rem;
+      margin-bottom: 8px;
+      font-family: "Space Grotesk", "Avenir Next", sans-serif;
+    }
     .hidden { display: none; }
     @media (max-width: 980px) {
-      .hero, .content { grid-template-columns: 1fr; }
+      .hero, .content, .market-grid { grid-template-columns: 1fr; }
       .hero-grid { grid-template-columns: 1fr; }
+      .masthead { align-items: flex-start; flex-direction: column; }
     }
   </style>
 </head>
 <body>
   <div class="wrap">
+    <section class="masthead">
+      <div class="brand">
+        <div class="brand-mark">Qubitx</div>
+        <div class="brand-title">Market Control</div>
+      </div>
+      <div class="mast-actions">
+        <a class="shell-action" href="/health">Health</a>
+        <a class="shell-action" href="/dashboard">Dashboard</a>
+      </div>
+    </section>
     <section class="hero">
       <article class="hero-copy">
-        <div class="eyebrow">Qubitx Control Center</div>
+        <div class="eyebrow">Trading Workspace</div>
         <h1>Research-first trade intelligence before live execution.</h1>
         <p>Review Zerodha-native trigger lines, breakout events, generated signals, paper trades, and approval-gated access from one control surface built for future low-latency execution.</p>
         <div class="hero-grid">
@@ -321,9 +429,16 @@ def landing_page() -> str:
         </div>
       </article>
       <aside class="auth-shell">
+        <div class="auth-head">
+          <div>
+            <div class="eyebrow">Access Control</div>
+            <h2>Enter the portal</h2>
+            <p>Approved users can access the protected workspace. New signups still require admin approval before login is enabled.</p>
+          </div>
+        </div>
         <div class="tabs">
-          <button id="loginTab" class="active" type="button">Login</button>
-          <button id="signupTab" type="button">Request Access</button>
+          <button id="loginTab" class="tab-button active" type="button">Login</button>
+          <button id="signupTab" class="tab-button" type="button">Request Access</button>
         </div>
         <div id="loginPanel" class="panel active">
           <form id="loginForm">
@@ -342,6 +457,14 @@ def landing_page() -> str:
             <button class="cta" type="submit">Enter Dashboard</button>
             <button class="ghost hidden" id="dashboardButton" type="button">Continue to Dashboard</button>
           </form>
+        </div>
+        <div id="signedInPanel" class="signed-session">
+          <div class="status-bar success" id="signedInStatus">Signed in.</div>
+          <div class="inline-actions">
+            <a class="inline-button" href="/dashboard">Open Dashboard</a>
+            <a class="inline-button" href="/configuration">Open Configuration</a>
+          </div>
+          <button class="ghost" id="logoutButton" type="button">Log Out</button>
         </div>
         <div id="signupPanel" class="panel">
           <form id="signupForm">
@@ -363,9 +486,31 @@ def landing_page() -> str:
         <div id="statusBar" class="status-bar">Approved users can access the protected dashboard. New signups require admin approval before login is enabled.</div>
       </aside>
     </section>
+    <section class="market-card">
+      <div class="eyebrow">Platform Scope</div>
+      <h2>One visual system across the full portal.</h2>
+      <div class="market-grid">
+        <div class="market-item">
+          <strong>Configuration</strong>
+          Watchlists, validation, readiness, and live monitoring prerequisites.
+        </div>
+        <div class="market-item">
+          <strong>Dashboard</strong>
+          Reporting, coverage, active lines, and export-friendly operational review.
+        </div>
+        <div class="market-item">
+          <strong>Analytics</strong>
+          Placeholder for the next phase of signal quality and performance studies.
+        </div>
+        <div class="market-item">
+          <strong>Security</strong>
+          Admin approvals, role-based access, and two-factor readiness.
+        </div>
+      </div>
+    </section>
     <section class="content">
       <article class="feature-card">
-        <div class="eyebrow" style="color: var(--accent);">What You Can Study</div>
+        <div class="eyebrow">What You Can Study</div>
         <h2>Built for structure, review, and iteration.</h2>
         <div class="feature-list">
           <div class="feature-item">
@@ -383,7 +528,7 @@ def landing_page() -> str:
         </div>
       </article>
       <article class="flow-card">
-        <div class="eyebrow" style="color: var(--accent);">Security and Flow</div>
+        <div class="eyebrow">Security and Flow</div>
         <h2>Access stays gated. Signal ingestion stays fast.</h2>
         <div class="flow-list">
           <div class="flow-item">
@@ -414,16 +559,36 @@ def landing_page() -> str:
     const signupTab = document.getElementById("signupTab");
     const loginPanel = document.getElementById("loginPanel");
     const signupPanel = document.getElementById("signupPanel");
+    const signedInPanel = document.getElementById("signedInPanel");
+    const signedInStatus = document.getElementById("signedInStatus");
     const twoFactorField = document.getElementById("twoFactorField");
     const dashboardButton = document.getElementById("dashboardButton");
+    const tabs = document.querySelector(".tabs");
+    const logoutButton = document.getElementById("logoutButton");
 
     function setStatus(message, tone = "") {
       statusBar.textContent = message;
       statusBar.className = `status-bar ${tone}`;
     }
 
+    function showSignedInState(user) {
+      tabs.classList.add("hidden");
+      loginPanel.classList.remove("active");
+      signupPanel.classList.remove("active");
+      loginPanel.classList.add("hidden");
+      signupPanel.classList.add("hidden");
+      signedInPanel.classList.add("active");
+      dashboardButton.classList.remove("hidden");
+      signedInStatus.textContent = `Signed in as ${user.email}. Your workspace is ready.`;
+      setStatus("You already have an active session. Open the dashboard or continue to configuration.", "success");
+    }
+
     function activateTab(tab) {
       const isLogin = tab === "login";
+      signedInPanel.classList.remove("active");
+      loginPanel.classList.remove("hidden");
+      signupPanel.classList.remove("hidden");
+      tabs.classList.remove("hidden");
       loginTab.classList.toggle("active", isLogin);
       signupTab.classList.toggle("active", !isLogin);
       loginPanel.classList.toggle("active", isLogin);
@@ -457,6 +622,7 @@ def landing_page() -> str:
       }
       setStatus(data.message, "success");
       dashboardButton.classList.remove("hidden");
+      showSignedInState(data.user);
       window.location.href = "/dashboard";
     });
 
@@ -485,14 +651,18 @@ def landing_page() -> str:
       window.location.href = "/dashboard";
     });
 
+    logoutButton.addEventListener("click", async () => {
+      await fetch("/auth/logout", { method: "POST" });
+      window.location.reload();
+    });
+
     async function detectSession() {
       const response = await fetch("/auth/me");
       if (!response.ok) {
         return;
       }
       const user = await response.json();
-      dashboardButton.classList.remove("hidden");
-      setStatus(`Signed in as ${user.email}. Continue into the dashboard.`, "success");
+      showSignedInState(user);
     }
 
     detectSession();

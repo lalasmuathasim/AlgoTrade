@@ -30,47 +30,47 @@ def render_app_shell(
   <title>{escape(title)}</title>
   <style>
     :root {{
-      --bg: #07111b;
-      --bg-elevated: #0d1724;
-      --panel: rgba(11, 20, 31, 0.94);
-      --panel-soft: rgba(17, 28, 43, 0.92);
-      --panel-strong: rgba(10, 17, 27, 0.98);
-      --line: rgba(122, 151, 185, 0.18);
-      --line-strong: rgba(122, 151, 185, 0.3);
-      --text: #ebf2fb;
-      --muted: #90a2ba;
-      --accent: #00c2a8;
-      --accent-soft: rgba(0, 194, 168, 0.12);
-      --accent-alt: #5ca7ff;
-      --ok: #31d38b;
-      --warn: #ffb84d;
-      --danger: #ff7272;
-      --shadow: 0 24px 70px rgba(2, 8, 15, 0.36);
+      --bg: #f5f7fb;
+      --bg-elevated: #eef3f9;
+      --panel: rgba(255, 255, 255, 0.94);
+      --panel-soft: rgba(250, 252, 255, 0.98);
+      --panel-strong: rgba(246, 249, 253, 0.98);
+      --line: rgba(75, 102, 138, 0.14);
+      --line-strong: rgba(75, 102, 138, 0.22);
+      --text: #122033;
+      --muted: #60738b;
+      --accent: #0f9b8e;
+      --accent-soft: rgba(15, 155, 142, 0.1);
+      --accent-alt: #3d7ef0;
+      --ok: #0b8f63;
+      --warn: #b8731d;
+      --danger: #cf4545;
+      --shadow: 0 24px 55px rgba(20, 34, 56, 0.1);
       --radius-lg: 24px;
       --radius-md: 18px;
       --radius-sm: 14px;
     }}
     * {{ box-sizing: border-box; }}
-    html {{ color-scheme: dark; }}
+    html {{ color-scheme: light; }}
     body {{
       margin: 0;
       min-height: 100vh;
       font-family: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
       color: var(--text);
       background:
-        radial-gradient(circle at top left, rgba(92,167,255,0.12), transparent 22%),
-        radial-gradient(circle at 82% 12%, rgba(0,194,168,0.08), transparent 24%),
-        linear-gradient(180deg, #09131e 0%, #060d15 100%);
+        radial-gradient(circle at top left, rgba(61,126,240,0.12), transparent 22%),
+        radial-gradient(circle at 82% 12%, rgba(15,155,142,0.08), transparent 24%),
+        linear-gradient(180deg, #f7f9fc 0%, #edf2f8 100%);
     }}
     body::before {{
       content: "";
       position: fixed;
       inset: 0;
       background-image:
-        linear-gradient(rgba(92,167,255,0.045) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(92,167,255,0.045) 1px, transparent 1px);
+        linear-gradient(rgba(61,126,240,0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(61,126,240,0.035) 1px, transparent 1px);
       background-size: 28px 28px;
-      mask-image: linear-gradient(180deg, rgba(0,0,0,0.6), transparent 92%);
+      mask-image: linear-gradient(180deg, rgba(0,0,0,0.3), transparent 92%);
       pointer-events: none;
       z-index: 0;
     }}
@@ -90,7 +90,7 @@ def render_app_shell(
       height: 100vh;
       padding: 24px 18px;
       background:
-        linear-gradient(180deg, rgba(8, 15, 24, 0.98), rgba(10, 17, 28, 0.92)),
+        linear-gradient(180deg, rgba(251, 253, 255, 0.98), rgba(243, 247, 252, 0.94)),
         var(--panel-strong);
       border-right: 1px solid var(--line);
       display: flex;
@@ -100,9 +100,9 @@ def render_app_shell(
     .brand {{
       padding: 16px 16px 14px;
       border-radius: 20px;
-      background: linear-gradient(180deg, rgba(22, 35, 53, 0.92), rgba(10, 18, 29, 0.96));
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 247, 252, 0.98));
       border: 1px solid var(--line);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
     }}
     .brand-mark {{
       font-size: 0.78rem;
@@ -142,29 +142,29 @@ def render_app_shell(
       padding: 12px 14px;
       border-radius: 14px;
       text-decoration: none;
-      color: #bfd0e4;
+      color: #26405f;
       background: transparent;
       border: 1px solid transparent;
       font-weight: 600;
       transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease, color 0.16s ease;
     }}
     .nav-link:hover {{
-      background: rgba(92, 167, 255, 0.08);
-      border-color: rgba(92, 167, 255, 0.14);
-      color: var(--text);
+      background: rgba(61, 126, 240, 0.08);
+      border-color: rgba(61, 126, 240, 0.14);
+      color: #0d2137;
       transform: translateX(2px);
     }}
     .nav-link.active {{
-      background: linear-gradient(90deg, rgba(0,194,168,0.18), rgba(92,167,255,0.12));
-      border-color: rgba(0, 194, 168, 0.25);
-      color: var(--text);
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
+      background: linear-gradient(90deg, rgba(15,155,142,0.14), rgba(61,126,240,0.12));
+      border-color: rgba(15, 155, 142, 0.22);
+      color: #0e1f33;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.5);
     }}
     .sidebar-foot {{
       margin-top: auto;
       padding: 14px 16px;
       border-radius: 18px;
-      background: rgba(18, 29, 45, 0.72);
+      background: rgba(245, 248, 252, 0.9);
       border: 1px solid var(--line);
       color: var(--muted);
       font-size: 0.88rem;
@@ -183,7 +183,7 @@ def render_app_shell(
       border-radius: var(--radius-lg);
       border: 1px solid var(--line);
       background:
-        linear-gradient(135deg, rgba(11, 20, 31, 0.98), rgba(14, 24, 38, 0.92)),
+        linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(246, 249, 253, 0.96)),
         var(--panel);
       box-shadow: var(--shadow);
     }}
@@ -228,7 +228,7 @@ def render_app_shell(
       padding: 10px 14px;
       border-radius: 12px;
       border: 1px solid var(--line);
-      background: rgba(255,255,255,0.03);
+      background: rgba(255,255,255,0.72);
       color: var(--text);
       text-decoration: none;
       cursor: pointer;
@@ -240,20 +240,20 @@ def render_app_shell(
     .button:hover {{
       transform: translateY(-1px);
       border-color: var(--line-strong);
-      background: rgba(255,255,255,0.06);
+      background: rgba(245,248,252,0.98);
     }}
     button.primary,
     .button.primary {{
-      background: linear-gradient(135deg, rgba(0, 194, 168, 0.94), rgba(23, 165, 140, 0.94));
-      border-color: rgba(0,194,168,0.35);
-      color: #031413;
-      box-shadow: 0 10px 24px rgba(0, 194, 168, 0.18);
+      background: linear-gradient(135deg, rgba(15, 155, 142, 0.96), rgba(18, 125, 164, 0.94));
+      border-color: rgba(15,155,142,0.28);
+      color: #ffffff;
+      box-shadow: 0 10px 24px rgba(15, 155, 142, 0.15);
     }}
     button.secondary,
     .button.secondary {{
-      background: rgba(92, 167, 255, 0.08);
-      border-color: rgba(92, 167, 255, 0.14);
-      color: #dce9ff;
+      background: rgba(61, 126, 240, 0.08);
+      border-color: rgba(61, 126, 240, 0.14);
+      color: #24416d;
     }}
     button.ghost,
     .button.ghost {{
@@ -286,7 +286,7 @@ def render_app_shell(
       min-height: 118px;
       padding: 18px 18px 16px;
       background:
-        linear-gradient(180deg, rgba(18, 29, 44, 0.98), rgba(10, 18, 29, 0.96)),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 250, 254, 0.98)),
         var(--panel-soft);
     }}
     .metric-label {{
@@ -336,7 +336,7 @@ def render_app_shell(
       border-radius: 22px;
       border: 1px solid var(--line);
       background:
-        linear-gradient(180deg, rgba(15, 25, 38, 0.96), rgba(9, 17, 28, 0.96)),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 250, 254, 0.98)),
         var(--panel);
       box-shadow: var(--shadow);
       overflow: auto;
@@ -387,8 +387,8 @@ def render_app_shell(
     .status-box {{
       min-height: 52px;
       border-radius: 16px;
-      border: 1px solid rgba(122, 151, 185, 0.14);
-      background: rgba(8, 15, 24, 0.72);
+      border: 1px solid rgba(75, 102, 138, 0.12);
+      background: rgba(248, 251, 255, 0.96);
       padding: 12px 14px;
       color: var(--muted);
       line-height: 1.55;
@@ -489,9 +489,9 @@ def render_app_shell(
       min-height: 34px;
       padding: 8px 12px;
       border-radius: 999px;
-      background: rgba(92, 167, 255, 0.08);
-      border: 1px solid rgba(92, 167, 255, 0.08);
-      color: #dbe8fb;
+      background: rgba(61, 126, 240, 0.08);
+      border: 1px solid rgba(61, 126, 240, 0.08);
+      color: #26405f;
       font-size: 0.88rem;
     }}
     .pill-button {{
@@ -500,10 +500,10 @@ def render_app_shell(
       gap: 8px;
       min-height: 38px;
       padding: 8px 12px;
-      border: 1px solid rgba(92, 167, 255, 0.1);
+      border: 1px solid rgba(61, 126, 240, 0.1);
       border-radius: 999px;
-      background: rgba(92, 167, 255, 0.08);
-      color: #dbe8fb;
+      background: rgba(61, 126, 240, 0.08);
+      color: #26405f;
       font: inherit;
       font-size: 0.88rem;
       cursor: pointer;
@@ -511,8 +511,8 @@ def render_app_shell(
     }}
     .pill-button:hover {{
       transform: translateY(-1px);
-      background: rgba(92, 167, 255, 0.12);
-      border-color: rgba(92, 167, 255, 0.18);
+      background: rgba(61, 126, 240, 0.12);
+      border-color: rgba(61, 126, 240, 0.18);
     }}
     .pill-button:disabled {{
       opacity: 0.56;
