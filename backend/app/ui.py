@@ -91,19 +91,15 @@ def render_app_shell(
     }}
     .masthead {{
       display: grid;
-      grid-template-columns: auto 1fr auto;
-      gap: 16px;
+      grid-template-columns: minmax(260px, 420px) 1fr;
+      gap: 28px;
       margin-bottom: 18px;
       align-items: center;
+      padding: 18px 8px 10px;
     }}
     .brand {{
       display: grid;
       gap: 4px;
-      padding: 16px 16px 14px;
-      border-radius: 20px;
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 247, 252, 0.98));
-      border: 1px solid var(--line);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
     }}
     .brand-mark {{
       font-size: 0.78rem;
@@ -113,37 +109,44 @@ def render_app_shell(
       font-weight: 700;
     }}
     .brand-title {{
-      margin-top: 10px;
-      font-size: 1.4rem;
+      margin-top: 8px;
+      font-family: "Space Grotesk", "Avenir Next", sans-serif;
+      font-size: clamp(2.1rem, 4vw, 3.1rem);
       font-weight: 700;
-      letter-spacing: 0.02em;
+      line-height: 0.95;
+      letter-spacing: -0.05em;
     }}
     .brand-copy {{
-      margin-top: 8px;
+      margin-top: 10px;
       color: var(--muted);
       font-size: 0.92rem;
       line-height: 1.5;
+      max-width: 420px;
     }}
     .workspace-nav {{
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
-      justify-content: center;
+      justify-content: flex-end;
       min-width: 0;
+      align-items: center;
     }}
     .workspace-link {{
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-height: 42px;
-      padding: 10px 14px;
-      border-radius: 12px;
+      min-height: 76px;
+      padding: 0 28px;
+      border-radius: 22px;
       text-decoration: none;
       color: #26405f;
       background: transparent;
       border: 1px solid transparent;
-      font-weight: 600;
-      transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease, color 0.16s ease;
+      font-family: "Space Grotesk", "Avenir Next", sans-serif;
+      font-size: clamp(1.05rem, 1.6vw, 1.45rem);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
     }}
     .workspace-link:hover {{
       background: rgba(61, 126, 240, 0.08);
@@ -152,15 +155,12 @@ def render_app_shell(
       transform: translateY(-1px);
     }}
     .workspace-link.active {{
-      background: linear-gradient(90deg, rgba(15,155,142,0.14), rgba(61,126,240,0.12));
+      background: linear-gradient(180deg, rgba(238,248,255,0.98), rgba(230,242,252,0.98));
       border-color: rgba(15, 155, 142, 0.22);
       color: #0e1f33;
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.5);
-    }}
-    .mast-actions {{
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
+      box-shadow:
+        inset 0 0 0 1px rgba(255,255,255,0.7),
+        0 10px 24px rgba(61, 126, 240, 0.08);
     }}
     .main-shell {{
       min-width: 0;
@@ -429,10 +429,10 @@ def render_app_shell(
       border-radius: 14px;
       border: 1px solid rgba(122, 151, 185, 0.16);
       padding: 12px 13px;
-      background: rgba(8, 15, 24, 0.92);
+      background: rgba(248, 251, 255, 0.98);
       color: var(--text);
       font: inherit;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
     }}
     input:focus,
     select:focus,
@@ -535,9 +535,15 @@ def render_app_shell(
       .masthead {{
         grid-template-columns: 1fr;
         align-items: start;
+        padding-bottom: 4px;
       }}
       .workspace-nav {{
         justify-content: flex-start;
+      }}
+      .workspace-link {{
+        min-height: 56px;
+        padding: 0 18px;
+        border-radius: 18px;
       }}
       .layout-main-aside,
       .layout-halves,
@@ -560,9 +566,6 @@ def render_app_shell(
         <div class="brand-copy">A focused trading workspace for watchlists, structure tracking, runtime readiness, and review-grade reporting.</div>
         </div>
         <nav class="workspace-nav">{nav_html}</nav>
-        <div class="mast-actions">
-          <button id="logoutButton" class="secondary" type="button">Log Out</button>
-        </div>
       </section>
       <main class="main-shell">
       <section class="topbar">
@@ -570,6 +573,9 @@ def render_app_shell(
           <div class="eyebrow">Trading Workspace</div>
           <h1>{escape(heading)}</h1>
           <p>{escape(subtitle)}</p>
+        </div>
+        <div class="topbar-actions">
+          <button id="logoutButton" class="secondary" type="button">Log Out</button>
         </div>
       </section>
       <div class="content">

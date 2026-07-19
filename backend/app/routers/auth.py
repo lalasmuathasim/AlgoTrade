@@ -104,10 +104,11 @@ def landing_page() -> str:
     .wrap { max-width: 1380px; margin: 0 auto; padding: 24px 20px 56px; position: relative; }
     .masthead {
       display: grid;
-      grid-template-columns: auto 1fr auto;
-      gap: 16px;
+      grid-template-columns: minmax(260px, 420px) 1fr;
+      gap: 28px;
       margin-bottom: 18px;
       align-items: center;
+      padding: 18px 8px 10px;
     }
     .brand {
       display: grid;
@@ -117,21 +118,25 @@ def landing_page() -> str:
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
-      justify-content: center;
+      justify-content: flex-end;
       min-width: 0;
+      align-items: center;
     }
     .workspace-link {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-height: 42px;
-      padding: 10px 14px;
-      border-radius: 12px;
+      min-height: 76px;
+      padding: 0 28px;
+      border-radius: 22px;
       border: 1px solid transparent;
       color: #26405f;
       text-decoration: none;
-      font-weight: 600;
-      transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+      font-family: "Space Grotesk", "Avenir Next", sans-serif;
+      font-size: clamp(1.05rem, 1.6vw, 1.45rem);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
     }
     .workspace-link:hover {
       transform: translateY(-1px);
@@ -140,10 +145,12 @@ def landing_page() -> str:
       color: #0d2137;
     }
     .workspace-link.active {
-      background: linear-gradient(90deg, rgba(15,155,142,0.14), rgba(61,126,240,0.12));
+      background: linear-gradient(180deg, rgba(238,248,255,0.98), rgba(230,242,252,0.98));
       border-color: rgba(15, 155, 142, 0.22);
       color: #0e1f33;
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.5);
+      box-shadow:
+        inset 0 0 0 1px rgba(255,255,255,0.7),
+        0 10px 24px rgba(61, 126, 240, 0.08);
     }
     .brand-mark {
       color: var(--accent);
@@ -157,11 +164,6 @@ def landing_page() -> str:
       font-size: 1.45rem;
       font-weight: 700;
       letter-spacing: -0.02em;
-    }
-    .mast-actions {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
     }
     .shell-action, .cta, .ghost, .inline-button, .tab-button {
       border: 1px solid var(--line);
@@ -426,8 +428,13 @@ def landing_page() -> str:
     @media (max-width: 980px) {
       .hero, .content, .market-grid { grid-template-columns: 1fr; }
       .hero-grid { grid-template-columns: 1fr; }
-      .masthead { grid-template-columns: 1fr; align-items: start; }
+      .masthead { grid-template-columns: 1fr; align-items: start; padding-bottom: 4px; }
       .workspace-nav { justify-content: flex-start; }
+      .workspace-link {
+        min-height: 56px;
+        padding: 0 18px;
+        border-radius: 18px;
+      }
     }
   </style>
 </head>
@@ -444,9 +451,6 @@ def landing_page() -> str:
         <a class="workspace-link" href="/configuration">Configuration</a>
         <a class="workspace-link" href="/analytics">Analytics</a>
       </nav>
-      <div class="mast-actions">
-        <a class="shell-action" href="/dashboard">Open Dashboard</a>
-      </div>
     </section>
     <section class="hero">
       <article class="hero-copy">
