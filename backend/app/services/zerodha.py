@@ -196,6 +196,22 @@ class ZerodhaApiClient:
             )
         return instruments
 
+    def fetch_ltp_quotes(self, instruments: list[str]) -> dict[str, float]:
+        if not instruments:
+            return {}
+
+        params = [("i", instrument) for instrument in instruments]
+        payload = self._get("/quote/ltp", params=params)
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            raise RuntimeError("Unexpected Zerodha LTP response")
+
+        result: dict[str, float] = {}
+        for instrument_key, row in data.items():
+            if isinstance(row, dict) and row.get("last_price") is not None:
+                result[instrument_key] = float(row["last_price"])
+        return result
+
 
 class HistoricalCandleProvider:
     def __init__(

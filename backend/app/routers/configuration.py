@@ -1,3 +1,4 @@
+import logging
 import re
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -21,6 +22,7 @@ from backend.app.ui import render_app_shell
 
 router = APIRouter(tags=["configuration"], dependencies=[Depends(require_admin_user)])
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 def _normalize_exchange(exchange: str) -> str:
@@ -157,6 +159,92 @@ def _watchlist_payload(db: Session) -> list[dict]:
             }
         )
     return payload
+
+
+def _watchlist_detail_payload(db: Session, watchlist_id: uuid.UUID) -> dict:
+    watchlist = db.get(Watchlist, watchlist_id)
+    if watchlist is None:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+
+    symbols = db.scalars(
+        select(WatchlistSymbol)
+        .where(WatchlistSymbol.watchlist_id == watchlist_id)
+        .order_by(WatchlistSymbol.exchange, WatchlistSymbol.symbol)
+    ).all()
+
+    latest_candle_map: dict[tuple[str, str], MarketCandle] = {}
+    if symbols:
+        exchange_groups: dict[str, list[str]] = {}
+        for symbol in symbols:
+            exchange_groups.setdefault(symbol.exchange, []).append(symbol.symbol)
+        recent_threshold = datetime.now(UTC) - timedelta(days=7)
+        for exchange, exchange_symbols in exchange_groups.items():
+            candles = db.scalars(
+                select(MarketCandle)
+                .where(
+                    MarketCandle.exchange == exchange,
+                    MarketCandle.symbol.in_(exchange_symbols),
+                    MarketCandle.timeframe == "3minute",
+                    MarketCandle.candle_end >= recent_threshold,
+                )
+                .order_by(desc(MarketCandle.candle_end))
+                .limit(max(len(exchange_symbols) * 12, 200))
+            ).all()
+            for candle in candles:
+                key = (candle.exchange, candle.symbol)
+                if key not in latest_candle_map:
+                    latest_candle_map[key] = candle
+
+    ltp_map: dict[str, float] = {}
+    access_token = get_current_zerodha_access_token(db)
+    if symbols and access_token:
+        quote_keys = [f"{symbol.exchange}:{symbol.symbol}" for symbol in symbols]
+        try:
+            ltp_map = ZerodhaApiClient(
+                auth_service=ZerodhaAuthService(),
+                access_token=access_token,
+            ).fetch_ltp_quotes(quote_keys)
+        except Exception:  # noqa: BLE001
+            logger.warning("Unable to fetch watchlist LTP quotes from Zerodha", exc_info=True)
+
+    symbol_payload = []
+    for symbol in symbols:
+        quote_key = f"{symbol.exchange}:{symbol.symbol}"
+        latest_candle = latest_candle_map.get((symbol.exchange, symbol.symbol))
+        current_price = ltp_map.get(quote_key)
+        price_source = "zerodha_ltp" if current_price is not None else None
+        price_timestamp = None
+        if current_price is None and latest_candle is not None:
+            current_price = latest_candle.close
+            price_source = "latest_3minute_close"
+            price_timestamp = latest_candle.candle_end.isoformat()
+
+        symbol_payload.append(
+            {
+                "id": str(symbol.id),
+                "exchange": symbol.exchange,
+                "symbol": symbol.symbol,
+                "company_name": symbol.company_name,
+                "instrument_token": symbol.instrument_token,
+                "is_active": symbol.is_active,
+                "current_price": round(float(current_price), 2) if current_price is not None else None,
+                "price_source": price_source,
+                "price_timestamp": price_timestamp,
+            }
+        )
+
+    return {
+        "watchlist": {
+            "id": str(watchlist.id),
+            "name": watchlist.name,
+            "description": watchlist.description,
+            "exchange": watchlist.exchange,
+            "is_selected": watchlist.is_selected,
+            "symbol_count": len(symbols),
+            "mapped_symbol_count": sum(1 for symbol in symbols if symbol.instrument_token is not None),
+        },
+        "symbols": symbol_payload,
+    }
 
 
 def _readiness_payload(db: Session) -> dict:
@@ -353,14 +441,20 @@ def configuration_page() -> str:
         <table id="watchlistsTable"></table>
       </div>
       <div class="panel">
-        <h2>3-Minute Coverage Snapshot</h2>
-        <table id="symbolActivityTable"></table>
+        <h2>Watchlist Detail</h2>
+        <div id="watchlistDetailStatus" class="status-box">Select a watchlist to inspect its tracked symbols and current prices.</div>
+        <table id="watchlistDetailTable"></table>
       </div>
+    </section>
+    <section class="panel" style="margin-top: 18px;">
+      <h2>3-Minute Coverage Snapshot</h2>
+      <table id="symbolActivityTable"></table>
     </section>
     """
     script = """
     let cachedValidation = null;
     let cachedWatchlists = [];
+    let currentWatchlistDetailId = null;
     let latestReadiness = null;
     let latestZerodhaStatus = null;
     const zerodhaStatusMessages = {
@@ -458,17 +552,47 @@ def configuration_page() -> str:
       );
       renderTable(
         document.getElementById("watchlistsTable"),
-        ["Name", "In Use", "Exchange", "Symbols", "Mapped", "Action", "Preview"],
+        ["Name", "In Use", "Exchange", "Symbols", "Mapped", "Actions", "Preview"],
         watchlists.map((item) => [
-          item.name,
+          `<button class="secondary" type="button" onclick="openWatchlistDetail('${item.id}')">${item.name}</button>`,
           item.is_selected ? '<span class="badge">IN USE</span>' : '<span class="badge warn">STANDBY</span>',
           item.exchange,
           item.symbol_count,
           item.mapped_symbol_count,
-          item.is_selected
-            ? "Current"
-            : `<button class="secondary" type="button" onclick="selectWatchlist('${item.id}')">Use This Watchlist</button>`,
+          `<div class="inline">
+            <button class="secondary" type="button" onclick="openWatchlistDetail('${item.id}')">View</button>
+            ${item.is_selected
+              ? '<span class="badge">Current</span>'
+              : `<button class="secondary" type="button" onclick="selectWatchlist('${item.id}')">Use This Watchlist</button>`
+            }
+          </div>`,
           item.symbols.slice(0, 6).map((symbol) => symbol.symbol).join(", ") || "No symbols yet",
+        ]),
+      );
+      if (selected) {
+        document.getElementById("targetWatchlist").value = selected.id;
+      }
+    }
+
+    function renderWatchlistDetail(payload) {
+      currentWatchlistDetailId = payload.watchlist.id;
+      const watchlist = payload.watchlist;
+      const statusMessage = `${watchlist.name} · ${watchlist.exchange} · ${watchlist.symbol_count} symbols · ${watchlist.mapped_symbol_count} mapped${watchlist.description ? ` · ${watchlist.description}` : ""}`;
+      setBox("watchlistDetailStatus", statusMessage, watchlist.is_selected ? "success" : "");
+      renderTable(
+        document.getElementById("watchlistDetailTable"),
+        ["Symbol", "Company", "Instrument Token", "Current Price", "Price Source", "Active"],
+        payload.symbols.map((item) => [
+          `${item.exchange}:${item.symbol}`,
+          item.company_name || "Unknown company",
+          item.instrument_token ?? "Unmapped",
+          item.current_price ?? "Unavailable",
+          item.price_source === "zerodha_ltp"
+            ? "Zerodha LTP"
+            : item.price_source === "latest_3minute_close"
+              ? "Latest 3-min close"
+              : "Unavailable",
+          item.is_active ? '<span class="badge">ACTIVE</span>' : '<span class="badge warn">INACTIVE</span>',
         ]),
       );
     }
@@ -648,12 +772,22 @@ def configuration_page() -> str:
       try {
         const result = await apiSend(`/configuration/watchlists/${id}/select`, "POST");
         setBox("watchlistStatus", `Now using ${result.name} for scans and live monitoring.`, "success");
-        await refreshAll();
+        await refreshAll(id);
       } catch (error) {
         setBox("watchlistStatus", error.message, "error");
       }
     }
     window.selectWatchlist = selectWatchlist;
+
+    async function openWatchlistDetail(id) {
+      try {
+        const detail = await apiGet(`/configuration/watchlists/${id}`);
+        renderWatchlistDetail(detail);
+      } catch (error) {
+        setBox("watchlistDetailStatus", error.message, "error");
+      }
+    }
+    window.openWatchlistDetail = openWatchlistDetail;
 
     async function loadReadiness() {
       const readiness = await apiGet("/configuration/readiness");
@@ -666,7 +800,7 @@ def configuration_page() -> str:
       return result;
     }
 
-    async function refreshAll() {
+    async function refreshAll(preferredWatchlistId = null) {
       const [readiness, watchlists, zerodhaStatus] = await Promise.all([
         loadReadiness(),
         loadWatchlists(),
@@ -674,6 +808,16 @@ def configuration_page() -> str:
       ]);
       renderReadiness(readiness, zerodhaStatus);
       renderConfigCards(readiness, watchlists);
+      const detailWatchlist = watchlists.find((item) => item.id === preferredWatchlistId)
+        || watchlists.find((item) => item.id === currentWatchlistDetailId)
+        || watchlists.find((item) => item.is_selected)
+        || watchlists[0];
+      if (detailWatchlist) {
+        await openWatchlistDetail(detailWatchlist.id);
+      } else {
+        setBox("watchlistDetailStatus", "Create a watchlist to inspect its symbols and current prices.", "warn");
+        renderTable(document.getElementById("watchlistDetailTable"), ["Symbol", "Company", "Instrument Token", "Current Price", "Price Source", "Active"], []);
+      }
     }
 
     document.getElementById("createWatchlistButton").addEventListener("click", async () => {
@@ -783,6 +927,11 @@ def configuration_page() -> str:
 @router.get("/configuration/watchlists")
 def configuration_watchlists(db: Session = Depends(get_db)) -> list[dict]:
     return _watchlist_payload(db)
+
+
+@router.get("/configuration/watchlists/{watchlist_id}")
+def configuration_watchlist_detail(watchlist_id: uuid.UUID, db: Session = Depends(get_db)) -> dict:
+    return _watchlist_detail_payload(db, watchlist_id)
 
 
 @router.post("/configuration/watchlists")

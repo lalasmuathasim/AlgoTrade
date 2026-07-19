@@ -38,12 +38,9 @@ def ensure_selected_watchlist(db: Session) -> Watchlist | None:
 
 
 def set_selected_watchlist(db: Session, watchlist: Watchlist) -> Watchlist:
-    existing = db.scalars(select(Watchlist).where(Watchlist.is_selected.is_(True))).all()
-    for row in existing:
+    all_watchlists = db.scalars(select(Watchlist)).all()
+    for row in all_watchlists:
         row.is_selected = row.id == watchlist.id
-
-    if not existing:
-        watchlist.is_selected = True
 
     db.commit()
     if hasattr(db, "refresh"):
