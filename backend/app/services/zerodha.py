@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from backend.app.config import get_settings
 from backend.app.models import Instrument, TriggerLine, WatchlistSymbol
 from backend.app.schemas import HistoricalCandlePayload, InstrumentPayload, TickPayload
+from backend.app.services.watchlists import get_selected_watchlist
 
 
 logger = logging.getLogger(__name__)
@@ -177,8 +178,12 @@ class InstrumentMasterSyncService:
 class SubscriptionManager:
     def get_active_subscriptions(self, db: Session) -> list[tuple[int, str, str]]:
         subscriptions: dict[int, tuple[int, str, str]] = {}
+        selected_watchlist = get_selected_watchlist(db)
 
-        watchlist_symbols = db.scalars(select(WatchlistSymbol).where(WatchlistSymbol.is_active.is_(True))).all()
+        watchlist_query = select(WatchlistSymbol).where(WatchlistSymbol.is_active.is_(True))
+        if selected_watchlist is not None:
+            watchlist_query = watchlist_query.where(WatchlistSymbol.watchlist_id == selected_watchlist.id)
+        watchlist_symbols = db.scalars(watchlist_query).all()
         for symbol in watchlist_symbols:
             if symbol.instrument_token:
                 subscriptions[symbol.instrument_token] = (symbol.instrument_token, symbol.exchange, symbol.symbol)
@@ -186,7 +191,10 @@ class SubscriptionManager:
         instruments = db.scalars(select(Instrument).where(Instrument.is_active.is_(True))).all()
         instrument_map = {instrument.id: instrument for instrument in instruments}
 
-        active_lines = db.scalars(select(TriggerLine).where(TriggerLine.line_status == "ACTIVE")).all()
+        active_lines_query = select(TriggerLine).where(TriggerLine.line_status == "ACTIVE")
+        if selected_watchlist is not None:
+            active_lines_query = active_lines_query.where(TriggerLine.watchlist_id == selected_watchlist.id)
+        active_lines = db.scalars(active_lines_query).all()
         for line in active_lines:
             if line.instrument_id and line.instrument_id in instrument_map:
                 instrument = instrument_map[line.instrument_id]

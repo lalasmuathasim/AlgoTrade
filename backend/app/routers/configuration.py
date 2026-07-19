@@ -13,6 +13,7 @@ from backend.app.dependencies import require_admin_user
 from backend.app.models import Instrument, MarketCandle, Watchlist, WatchlistSymbol
 from backend.app.queue import check_redis_connectivity
 from backend.app.schemas import SymbolValidationPayload, WatchlistCreatePayload, WatchlistSymbolCreatePayload
+from backend.app.services.watchlists import ensure_selected_watchlist, set_selected_watchlist
 from backend.app.services.zerodha import SubscriptionManager, ZerodhaAuthService
 from backend.app.ui import render_app_shell
 
@@ -86,7 +87,7 @@ def _symbol_validation_result(db: Session, exchange: str, parsed_symbols: list[s
 
 
 def _watchlist_payload(db: Session) -> list[dict]:
-    watchlists = db.scalars(select(Watchlist).order_by(Watchlist.name)).all()
+    watchlists = db.scalars(select(Watchlist).order_by(desc(Watchlist.is_selected), Watchlist.name)).all()
     symbols = db.scalars(
         select(WatchlistSymbol).order_by(WatchlistSymbol.watchlist_id, WatchlistSymbol.exchange, WatchlistSymbol.symbol)
     ).all()
@@ -105,6 +106,7 @@ def _watchlist_payload(db: Session) -> list[dict]:
                 "name": watchlist.name,
                 "description": watchlist.description,
                 "exchange": watchlist.exchange,
+                "is_selected": watchlist.is_selected,
                 "symbol_count": len(members),
                 "mapped_symbol_count": mapped_symbols,
                 "symbols": [
@@ -140,9 +142,13 @@ def _readiness_payload(db: Session) -> dict:
         select(func.count()).select_from(Instrument).where(Instrument.exchange.in_(["NSE", "BSE"]), Instrument.is_active.is_(True))
     ) or 0
     last_instrument_sync = db.scalar(select(func.max(Instrument.synced_at)))
+    selected_watchlist = ensure_selected_watchlist(db)
 
+    watched_symbols_query = select(WatchlistSymbol).where(WatchlistSymbol.is_active.is_(True))
+    if selected_watchlist is not None:
+        watched_symbols_query = watched_symbols_query.where(WatchlistSymbol.watchlist_id == selected_watchlist.id)
     watched_symbols = db.scalars(
-        select(WatchlistSymbol).where(WatchlistSymbol.is_active.is_(True)).order_by(WatchlistSymbol.exchange, WatchlistSymbol.symbol)
+        watched_symbols_query.order_by(WatchlistSymbol.exchange, WatchlistSymbol.symbol)
     ).all()
     watched_symbol_keys = {(symbol.exchange, symbol.symbol) for symbol in watched_symbols}
     mapped_symbol_count = sum(1 for symbol in watched_symbols if symbol.instrument_token is not None)
@@ -191,6 +197,13 @@ def _readiness_payload(db: Session) -> dict:
     return {
         "database_connected": database_ok,
         "redis_connected": check_redis_connectivity(),
+        "selected_watchlist": {
+            "id": str(selected_watchlist.id),
+            "name": selected_watchlist.name,
+            "exchange": selected_watchlist.exchange,
+        }
+        if selected_watchlist
+        else None,
         "zerodha_credentials_configured": zerodha_auth.has_credentials(),
         "zerodha_access_token_configured": zerodha_auth.has_access_token(),
         "zerodha_login_url": zerodha_auth.build_login_url(),
@@ -219,6 +232,7 @@ def configuration_page() -> str:
       <div class="panel">
         <h2>Watchlist Setup</h2>
         <div id="watchlistStatus" class="status-box">Create a watchlist first, then validate and add NSE or BSE symbols.</div>
+        <div id="selectedWatchlistBox" class="status-box" style="margin-top: 12px;">No watchlist is currently selected.</div>
         <div class="field">
           <label for="watchlistName">Watchlist name</label>
           <input id="watchlistName" type="text" placeholder="NSE Core Swing Watchlist" />
@@ -298,8 +312,10 @@ def configuration_page() -> str:
     function renderConfigCards(readiness, watchlists) {
       const totalSymbols = watchlists.reduce((sum, item) => sum + item.symbol_count, 0);
       const mappedSymbols = watchlists.reduce((sum, item) => sum + item.mapped_symbol_count, 0);
+      const selected = watchlists.find((item) => item.is_selected);
       const cards = [
         ["Watchlists", watchlists.length, "Configured draw/redraw groups"],
+        ["In Use", selected ? selected.name : "None", "The only watchlist used for scan and live monitoring"],
         ["Watched Symbols", totalSymbols, "Symbols queued for daily structure scanning"],
         ["Mapped Symbols", mappedSymbols, "Symbols linked to Zerodha instrument tokens"],
         ["3-Minute Coverage", readiness.symbols_with_recent_3minute_data, "Watched symbols with recent candle volume"],
@@ -318,14 +334,26 @@ def configuration_page() -> str:
       document.getElementById("targetWatchlist").innerHTML = watchlists.length
         ? optionMarkup(watchlists)
         : '<option value="">Create a watchlist first</option>';
+      const selected = watchlists.find((item) => item.is_selected);
+      setBox(
+        "selectedWatchlistBox",
+        selected
+          ? `Currently using ${selected.name} (${selected.exchange}) for scans, subscriptions, and 3-minute monitoring.`
+          : "No watchlist is currently selected.",
+        selected ? "success" : "warn",
+      );
       renderTable(
         document.getElementById("watchlistsTable"),
-        ["Name", "Exchange", "Symbols", "Mapped", "Preview"],
+        ["Name", "In Use", "Exchange", "Symbols", "Mapped", "Action", "Preview"],
         watchlists.map((item) => [
           item.name,
+          item.is_selected ? '<span class="badge">IN USE</span>' : '<span class="badge warn">STANDBY</span>',
           item.exchange,
           item.symbol_count,
           item.mapped_symbol_count,
+          item.is_selected
+            ? "Current"
+            : `<button class="secondary" type="button" onclick="selectWatchlist('${item.id}')">Use This Watchlist</button>`,
           item.symbols.slice(0, 6).map((symbol) => symbol.symbol).join(", ") || "No symbols yet",
         ]),
       );
@@ -339,7 +367,7 @@ def configuration_page() -> str:
           : "error";
       setBox(
         "readinessStatus",
-        `DB ${readiness.database_connected ? "connected" : "down"} · Redis ${readiness.redis_connected ? "connected" : "down"} · Zerodha token ${readiness.zerodha_access_token_configured ? "present" : "missing"} · ${readiness.symbols_with_recent_3minute_data}/${readiness.watched_symbol_count} watched symbols have recent 3-minute candle data.`,
+        `${readiness.selected_watchlist ? `Using ${readiness.selected_watchlist.name} · ` : ""}DB ${readiness.database_connected ? "connected" : "down"} · Redis ${readiness.redis_connected ? "connected" : "down"} · Zerodha token ${readiness.zerodha_access_token_configured ? "present" : "missing"} · ${readiness.symbols_with_recent_3minute_data}/${readiness.watched_symbol_count} watched symbols have recent 3-minute candle data.`,
         tone,
       );
       const pillData = [
@@ -392,6 +420,17 @@ def configuration_page() -> str:
       renderWatchlists(watchlists);
       return watchlists;
     }
+
+    async function selectWatchlist(id) {
+      try {
+        const result = await apiSend(`/configuration/watchlists/${id}/select`, "POST");
+        setBox("watchlistStatus", `Now using ${result.name} for scans and live monitoring.`, "success");
+        await refreshAll();
+      } catch (error) {
+        setBox("watchlistStatus", error.message, "error");
+      }
+    }
+    window.selectWatchlist = selectWatchlist;
 
     async function loadReadiness() {
       const readiness = await apiGet("/configuration/readiness");
@@ -504,11 +543,14 @@ def create_watchlist(payload: WatchlistCreatePayload, db: Session = Depends(get_
     if existing is not None:
         raise HTTPException(status_code=409, detail="Watchlist name already exists")
 
+    has_any_watchlist = db.scalar(select(func.count()).select_from(Watchlist)) or 0
+
     watchlist = Watchlist(
         id=uuid.uuid4(),
         name=payload.name.strip(),
         description=payload.description.strip() if payload.description else None,
         exchange=exchange,
+        is_selected=has_any_watchlist == 0,
     )
     db.add(watchlist)
     db.commit()
@@ -518,6 +560,7 @@ def create_watchlist(payload: WatchlistCreatePayload, db: Session = Depends(get_
         "name": watchlist.name,
         "description": watchlist.description,
         "exchange": watchlist.exchange,
+        "is_selected": watchlist.is_selected,
     }
 
 
@@ -606,7 +649,21 @@ def add_watchlist_symbols(
     }
 
 
+@router.post("/configuration/watchlists/{watchlist_id}/select")
+def select_configuration_watchlist(watchlist_id: uuid.UUID, db: Session = Depends(get_db)) -> dict:
+    watchlist = db.get(Watchlist, watchlist_id)
+    if watchlist is None:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+
+    selected = set_selected_watchlist(db, watchlist)
+    return {
+        "id": str(selected.id),
+        "name": selected.name,
+        "exchange": selected.exchange,
+        "is_selected": selected.is_selected,
+    }
+
+
 @router.get("/configuration/readiness")
 def configuration_readiness(db: Session = Depends(get_db)) -> dict:
     return _readiness_payload(db)
-

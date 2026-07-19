@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from backend.app.config import get_settings
 from backend.app.models import Instrument, ScanExecution, TriggerLine, WatchlistSymbol
 from backend.app.schemas import HistoricalCandlePayload, SwingPointPayload, TriggerLineCandidatePayload
+from backend.app.services.watchlists import get_selected_watchlist
 from backend.app.services.zerodha import HistoricalCandleProvider
 
 
@@ -275,6 +276,10 @@ class DailyMarketScanner:
         self.trigger_line_manager = trigger_line_manager or TriggerLineManager()
 
     def run(self, db: Session, watchlist_id=None, scan_date: date | None = None, dry_run: bool = False) -> ScanExecution:
+        if watchlist_id is None:
+            selected_watchlist = get_selected_watchlist(db)
+            watchlist_id = selected_watchlist.id if selected_watchlist is not None else None
+
         execution = ScanExecution(
             id=uuid.uuid4(),
             scan_name="daily_market_scan",

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from backend.app.dependencies import require_approved_user
 from backend.app.database import get_db
 from backend.app.models import BreakoutEvent, PaperTrade, TradingSignal, TriggerLine, Watchlist, WatchlistSymbol
+from backend.app.services.watchlists import get_selected_watchlist
 from backend.app.ui import render_app_shell
 
 
@@ -52,6 +53,11 @@ def _paper_trade_summary(trades: list[PaperTrade]) -> dict:
         "average_loss": average_loss,
         "profit_factor": profit_factor,
     }
+
+
+def _selected_watchlist_filter(db: Session) -> tuple[Watchlist | None, UUID | None]:
+    selected = get_selected_watchlist(db)
+    return selected, selected.id if selected else None
 
 
 def _serialize_trigger_line(line: TriggerLine) -> dict:
@@ -218,6 +224,7 @@ def dashboard_home() -> str:
     function renderCards(stats) {
       const cards = [
         ["Watchlists", stats.watchlists, "Saved watch universes"],
+        ["In Use", stats.current_watchlist_name || "None", "The watchlist currently used by scan and live monitoring"],
         ["Watched Symbols", stats.configured_symbols, "Symbols scheduled for daily draw/redraw"],
         ["Drawn Symbols", stats.drawn_symbols, "Symbols with at least one trigger line"],
         ["Active Trigger Lines", stats.active_trigger_lines, "Current breakout / breakdown levels"],
@@ -242,7 +249,7 @@ def dashboard_home() -> str:
       renderCards(overview);
       setBox(
         "dashboardStatus",
-        `${overview.drawn_symbols} watched symbols already have drawn trigger structures. ${overview.configured_symbols} symbols are in the daily draw/redraw universe.`,
+        `${overview.current_watchlist_name ? `Using ${overview.current_watchlist_name} for runtime monitoring. ` : ""}${overview.drawn_symbols} watched symbols already have drawn trigger structures. ${overview.configured_symbols} symbols are in the daily draw/redraw universe.`,
         "success",
       );
       renderTable(
@@ -311,14 +318,22 @@ def dashboard_home() -> str:
 @router.get("/dashboard/reports/overview")
 def dashboard_report_overview(db: Session = Depends(get_db)) -> dict:
     watchlists = db.scalars(select(Watchlist)).all()
-    watchlist_symbols = db.scalars(select(WatchlistSymbol).where(WatchlistSymbol.is_active.is_(True))).all()
-    trigger_lines = db.scalars(select(TriggerLine)).all()
+    selected_watchlist, selected_watchlist_id = _selected_watchlist_filter(db)
+    watchlist_symbols_query = select(WatchlistSymbol).where(WatchlistSymbol.is_active.is_(True))
+    trigger_lines_query = select(TriggerLine)
+    if selected_watchlist_id is not None:
+        watchlist_symbols_query = watchlist_symbols_query.where(WatchlistSymbol.watchlist_id == selected_watchlist_id)
+        trigger_lines_query = trigger_lines_query.where(TriggerLine.watchlist_id == selected_watchlist_id)
+    watchlist_symbols = db.scalars(watchlist_symbols_query).all()
+    trigger_lines = db.scalars(trigger_lines_query).all()
 
     configured_symbol_keys = {(symbol.exchange, symbol.symbol) for symbol in watchlist_symbols}
     drawn_symbol_keys = {(line.exchange, line.symbol) for line in trigger_lines}
 
     return {
         "watchlists": len(watchlists),
+        "current_watchlist_id": str(selected_watchlist.id) if selected_watchlist else None,
+        "current_watchlist_name": selected_watchlist.name if selected_watchlist else None,
         "configured_symbols": len(configured_symbol_keys),
         "drawn_symbols": len(drawn_symbol_keys),
         "active_trigger_lines": sum(1 for line in trigger_lines if line.line_status == "ACTIVE"),
@@ -329,11 +344,17 @@ def dashboard_report_overview(db: Session = Depends(get_db)) -> dict:
 @router.get("/dashboard/reports/watched-symbols")
 def dashboard_watched_symbols_report(db: Session = Depends(get_db)) -> list[dict]:
     watchlists = {watchlist.id: watchlist for watchlist in db.scalars(select(Watchlist)).all()}
+    selected_watchlist, selected_watchlist_id = _selected_watchlist_filter(db)
+    symbols_query = select(WatchlistSymbol).where(WatchlistSymbol.is_active.is_(True))
+    lines_query = select(TriggerLine)
+    if selected_watchlist_id is not None:
+        symbols_query = symbols_query.where(WatchlistSymbol.watchlist_id == selected_watchlist_id)
+        lines_query = lines_query.where(TriggerLine.watchlist_id == selected_watchlist_id)
     symbols = db.scalars(
-        select(WatchlistSymbol).where(WatchlistSymbol.is_active.is_(True)).order_by(WatchlistSymbol.exchange, WatchlistSymbol.symbol)
+        symbols_query.order_by(WatchlistSymbol.exchange, WatchlistSymbol.symbol)
     ).all()
     lines = db.scalars(
-        select(TriggerLine).order_by(desc(TriggerLine.updated_at), desc(TriggerLine.created_at))
+        lines_query.order_by(desc(TriggerLine.updated_at), desc(TriggerLine.created_at))
     ).all()
 
     lines_by_symbol: dict[tuple[str, str], list[TriggerLine]] = defaultdict(list)
@@ -370,6 +391,7 @@ def dashboard_watched_symbols_report(db: Session = Depends(get_db)) -> list[dict
                 "active_line_count": sum(1 for line in symbol_lines if line.line_status == "ACTIVE"),
                 "historical_line_count": len(symbol_lines),
                 "latest_line_status": symbol_lines[0].line_status if symbol_lines else None,
+                "selected_watchlist_name": selected_watchlist.name if selected_watchlist else None,
             }
         )
     return payload
@@ -414,10 +436,12 @@ def dashboard_watched_symbols_export(db: Session = Depends(get_db)) -> Streaming
 
 @router.get("/dashboard/reports/active-trigger-lines.csv")
 def dashboard_active_trigger_lines_export(db: Session = Depends(get_db)) -> StreamingResponse:
+    _, selected_watchlist_id = _selected_watchlist_filter(db)
+    query = select(TriggerLine).where(TriggerLine.line_status == "ACTIVE")
+    if selected_watchlist_id is not None:
+        query = query.where(TriggerLine.watchlist_id == selected_watchlist_id)
     lines = db.scalars(
-        select(TriggerLine)
-        .where(TriggerLine.line_status == "ACTIVE")
-        .order_by(TriggerLine.exchange, TriggerLine.symbol, TriggerLine.line_type)
+        query.order_by(TriggerLine.exchange, TriggerLine.symbol, TriggerLine.line_type)
     ).all()
     buffer = StringIO()
     writer = csv.writer(buffer)
@@ -489,6 +513,7 @@ def get_watchlist_summary(db: Session = Depends(get_db)) -> list[dict]:
                 "name": watchlist.name,
                 "description": watchlist.description,
                 "exchange": watchlist.exchange,
+                "is_selected": watchlist.is_selected,
                 "symbol_count": len(watchlist_symbols),
                 "symbols_with_active_buy_lines": len(active_buy_symbols),
                 "symbols_with_active_sell_lines": len(active_sell_symbols),
@@ -551,6 +576,7 @@ def get_watchlist_detail(watchlist_id: UUID, db: Session = Depends(get_db)) -> d
             "name": watchlist.name,
             "description": watchlist.description,
             "exchange": watchlist.exchange,
+            "is_selected": watchlist.is_selected,
             "created_at": _serialize_datetime(watchlist.created_at),
             "updated_at": _serialize_datetime(watchlist.updated_at),
         },

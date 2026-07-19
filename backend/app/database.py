@@ -35,8 +35,11 @@ def verify_database_connectivity() -> None:
 def initialize_runtime_state() -> None:
     from backend.app.mock_data import seed_mock_data_if_enabled
     from backend.app.services.auth_service import ensure_initial_admin_user
+    from backend.app.services.watchlists import ensure_selected_watchlist
 
     verify_database_connectivity()
     with SessionLocal() as db:
         ensure_initial_admin_user(db)
     seed_mock_data_if_enabled()
+    with SessionLocal() as db:
+        ensure_selected_watchlist(db)
