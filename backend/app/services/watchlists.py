@@ -13,9 +13,18 @@ def get_selected_watchlist(db: Session) -> Watchlist | None:
 def ensure_selected_watchlist(db: Session) -> Watchlist | None:
     if not hasattr(db, "scalar"):
         return None
-    selected = get_selected_watchlist(db)
-    if selected is not None:
-        return selected
+
+    selected_rows = db.scalars(select(Watchlist).where(Watchlist.is_selected.is_(True)).order_by(Watchlist.created_at, Watchlist.name)).all()
+    if len(selected_rows) == 1:
+        return selected_rows[0]
+    if len(selected_rows) > 1:
+        chosen = selected_rows[0]
+        for row in selected_rows:
+            row.is_selected = row.id == chosen.id
+        db.commit()
+        if hasattr(db, "refresh"):
+            db.refresh(chosen)
+        return chosen
 
     first_watchlist = db.scalar(select(Watchlist).order_by(Watchlist.created_at, Watchlist.name).limit(1))
     if first_watchlist is None:

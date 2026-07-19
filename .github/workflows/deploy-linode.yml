@@ -336,8 +336,9 @@ jobs:
               exit 1
             fi
 
+            \$COMPOSE_CMD build migrate api worker scheduler live-engine
             \$COMPOSE_CMD run --rm migrate
-            \$COMPOSE_CMD up --build -d --remove-orphans api worker scheduler live-engine
+            \$COMPOSE_CMD up -d --remove-orphans api worker scheduler live-engine
             \$COMPOSE_CMD ps api worker scheduler live-engine
 
             sleep 8
