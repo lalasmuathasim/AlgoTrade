@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from backend.app.config import get_settings
 from backend.app.models import Instrument, ScanExecution, TriggerLine, WatchlistSymbol
 from backend.app.schemas import HistoricalCandlePayload, SwingPointPayload, TriggerLineCandidatePayload
+from backend.app.services.paper_trading_service import ensure_settings
 from backend.app.services.watchlists import get_selected_watchlist
 from backend.app.services.zerodha import HistoricalCandleProvider
 
@@ -58,18 +59,39 @@ class SwingDetector:
 
 
 class TargetResolver:
-    def resolve_buy_target(self, line_price: float, swing_highs: list[SwingPointPayload], candles: list[HistoricalCandlePayload]) -> float:
+    def resolve_buy_target(
+        self,
+        line_price: float,
+        swing_highs: list[SwingPointPayload],
+        candles: list[HistoricalCandlePayload],
+    ) -> float | None:
         higher = [point.price for point in swing_highs if point.price > line_price]
-        return min(higher) if higher else max(candle.high for candle in candles)
+        return min(higher) if higher else None
 
-    def resolve_sell_target(self, line_price: float, swing_lows: list[SwingPointPayload], candles: list[HistoricalCandlePayload]) -> float:
+    def resolve_sell_target(
+        self,
+        line_price: float,
+        swing_lows: list[SwingPointPayload],
+        candles: list[HistoricalCandlePayload],
+    ) -> float | None:
         lower = [point.price for point in swing_lows if point.price < line_price]
-        return max(lower) if lower else min(candle.low for candle in candles)
+        return max(lower) if lower else None
 
 
 class UntouchedLevelValidator:
-    def __init__(self, target_resolver: TargetResolver | None = None) -> None:
+    def __init__(
+        self,
+        target_resolver: TargetResolver | None = None,
+        swing_window: int | None = None,
+        daily_candle_lookback: int | None = None,
+        max_gap_percent: float | None = None,
+        min_swing_distance: int | None = None,
+    ) -> None:
         self.target_resolver = target_resolver or TargetResolver()
+        self.swing_window = swing_window or settings.swing_window
+        self.daily_candle_lookback = daily_candle_lookback or settings.daily_candle_lookback
+        self.max_gap_percent = max_gap_percent if max_gap_percent is not None else settings.max_gap_percent
+        self.min_swing_distance = min_swing_distance or max(int(settings.min_swing_distance), 1)
 
     def build_candidates(
         self,
@@ -84,9 +106,63 @@ class UntouchedLevelValidator:
         candidates.extend(self._build_sell_candidates(symbol, exchange, candles, swing_lows))
         return candidates
 
-    def _gap_percent(self, first_price: float, second_price: float) -> float:
-        anchor = max(first_price, second_price, 1.0)
+    def _index_to_offset(self, candles: list[HistoricalCandlePayload], index: int) -> int:
+        return len(candles) - 1 - index
+
+    def _gap_percent(self, first_price: float, second_price: float, candidate_level: float) -> float:
+        anchor = max(candidate_level, 1.0)
         return round(abs(first_price - second_price) / anchor * 100, 4)
+
+    def _point_by_offset(
+        self,
+        candles: list[HistoricalCandlePayload],
+        points: list[SwingPointPayload],
+    ) -> dict[int, SwingPointPayload]:
+        return {
+            self._index_to_offset(candles, point.index): point
+            for point in points
+        }
+
+    def _candle_at_offset(self, candles: list[HistoricalCandlePayload], offset: int) -> HistoricalCandlePayload:
+        return candles[-1 - offset]
+
+    def _resistance_clear_between_and_after(
+        self,
+        candles: list[HistoricalCandlePayload],
+        first_offset: int,
+        second_offset: int,
+        level: float,
+    ) -> bool:
+        if first_offset - second_offset > 1:
+            for offset in range(second_offset + 1, first_offset):
+                if self._candle_at_offset(candles, offset).high >= level:
+                    return False
+
+        if second_offset > 1:
+            for offset in range(0, second_offset):
+                if self._candle_at_offset(candles, offset).high >= level:
+                    return False
+
+        return True
+
+    def _support_clear_between_and_after(
+        self,
+        candles: list[HistoricalCandlePayload],
+        first_offset: int,
+        second_offset: int,
+        level: float,
+    ) -> bool:
+        if first_offset - second_offset > 1:
+            for offset in range(second_offset + 1, first_offset):
+                if self._candle_at_offset(candles, offset).low <= level:
+                    return False
+
+        if second_offset > 1:
+            for offset in range(0, second_offset):
+                if self._candle_at_offset(candles, offset).low <= level:
+                    return False
+
+        return True
 
     def _build_buy_candidates(
         self,
@@ -96,40 +172,63 @@ class UntouchedLevelValidator:
         swing_highs: list[SwingPointPayload],
     ) -> list[TriggerLineCandidatePayload]:
         candidates: list[TriggerLineCandidatePayload] = []
-        for first, second in zip(swing_highs, swing_highs[1:]):
-            gap_percent = self._gap_percent(first.price, second.price)
-            distance = second.index - first.index
-            line_price = max(first.price, second.price)
-            later_candles = candles[second.index + 1 :]
-            untouched = all(candle.high < line_price for candle in later_candles)
-            if gap_percent > settings.max_gap_percent or distance < settings.min_swing_distance or not untouched:
+        if len(candles) < (self.swing_window * 2) + 1:
+            return candidates
+
+        points_by_offset = self._point_by_offset(candles, swing_highs)
+        lookback = min(self.daily_candle_lookback, len(candles))
+        maximum_offset = lookback - 1 - self.swing_window
+
+        for first_offset in range(maximum_offset, self.swing_window, -1):
+            first = points_by_offset.get(first_offset)
+            if first is None:
                 continue
 
-            candidates.append(
-                TriggerLineCandidatePayload(
-                    symbol=symbol,
-                    exchange=exchange,
-                    line_type="BUY",
-                    line_price=line_price,
-                    level_key=f"{exchange}:{symbol}:BUY:{line_price:.4f}:{second.candle_date.isoformat()}",
-                    line_drawn_date=second.candle_date,
-                    lookback_candles=settings.daily_candle_lookback,
-                    max_gap_percent_used=settings.max_gap_percent,
-                    min_swing_distance_used=settings.min_swing_distance,
-                    swing_gap_percent=gap_percent,
-                    swing_high_1_price=first.price,
-                    swing_high_1_date=first.candle_date,
-                    swing_high_2_price=second.price,
-                    swing_high_2_date=second.candle_date,
-                    higher_swing_high_price=max(first.price, second.price),
-                    lower_swing_high_price=min(first.price, second.price),
-                    nearest_daily_swing_high_target=self.target_resolver.resolve_buy_target(
-                        line_price,
-                        swing_highs,
-                        candles,
-                    ),
+            for second_offset in range(first_offset - 1, self.swing_window - 1, -1):
+                second = points_by_offset.get(second_offset)
+                if second is None:
+                    continue
+
+                distance = first_offset - second_offset
+                line_price = max(first.price, second.price)
+                gap_percent = self._gap_percent(first.price, second.price, line_price)
+                untouched = self._resistance_clear_between_and_after(
+                    candles,
+                    first_offset,
+                    second_offset,
+                    line_price,
                 )
-            )
+                if gap_percent > self.max_gap_percent or distance < self.min_swing_distance or not untouched:
+                    continue
+
+                candidates.append(
+                    TriggerLineCandidatePayload(
+                        symbol=symbol,
+                        exchange=exchange,
+                        line_type="BUY",
+                        line_price=line_price,
+                        level_key=(
+                            f"{exchange}:{symbol}:BUY:{line_price:.4f}:"
+                            f"{first.candle_date.isoformat()}:{second.candle_date.isoformat()}"
+                        ),
+                        line_drawn_date=second.candle_date,
+                        lookback_candles=self.daily_candle_lookback,
+                        max_gap_percent_used=self.max_gap_percent,
+                        min_swing_distance_used=float(self.min_swing_distance),
+                        swing_gap_percent=gap_percent,
+                        swing_high_1_price=first.price,
+                        swing_high_1_date=first.candle_date,
+                        swing_high_2_price=second.price,
+                        swing_high_2_date=second.candle_date,
+                        higher_swing_high_price=max(first.price, second.price),
+                        lower_swing_high_price=min(first.price, second.price),
+                        nearest_daily_swing_high_target=self.target_resolver.resolve_buy_target(
+                            line_price,
+                            swing_highs,
+                            candles,
+                        ),
+                    )
+                )
         return candidates
 
     def _build_sell_candidates(
@@ -140,40 +239,63 @@ class UntouchedLevelValidator:
         swing_lows: list[SwingPointPayload],
     ) -> list[TriggerLineCandidatePayload]:
         candidates: list[TriggerLineCandidatePayload] = []
-        for first, second in zip(swing_lows, swing_lows[1:]):
-            gap_percent = self._gap_percent(first.price, second.price)
-            distance = second.index - first.index
-            line_price = min(first.price, second.price)
-            later_candles = candles[second.index + 1 :]
-            untouched = all(candle.low > line_price for candle in later_candles)
-            if gap_percent > settings.max_gap_percent or distance < settings.min_swing_distance or not untouched:
+        if len(candles) < (self.swing_window * 2) + 1:
+            return candidates
+
+        points_by_offset = self._point_by_offset(candles, swing_lows)
+        lookback = min(self.daily_candle_lookback, len(candles))
+        maximum_offset = lookback - 1 - self.swing_window
+
+        for first_offset in range(maximum_offset, self.swing_window, -1):
+            first = points_by_offset.get(first_offset)
+            if first is None:
                 continue
 
-            candidates.append(
-                TriggerLineCandidatePayload(
-                    symbol=symbol,
-                    exchange=exchange,
-                    line_type="SELL",
-                    line_price=line_price,
-                    level_key=f"{exchange}:{symbol}:SELL:{line_price:.4f}:{second.candle_date.isoformat()}",
-                    line_drawn_date=second.candle_date,
-                    lookback_candles=settings.daily_candle_lookback,
-                    max_gap_percent_used=settings.max_gap_percent,
-                    min_swing_distance_used=settings.min_swing_distance,
-                    swing_gap_percent=gap_percent,
-                    swing_low_1_price=first.price,
-                    swing_low_1_date=first.candle_date,
-                    swing_low_2_price=second.price,
-                    swing_low_2_date=second.candle_date,
-                    lower_swing_low_price=min(first.price, second.price),
-                    higher_swing_low_price=max(first.price, second.price),
-                    nearest_daily_swing_low_target=self.target_resolver.resolve_sell_target(
-                        line_price,
-                        swing_lows,
-                        candles,
-                    ),
+            for second_offset in range(first_offset - 1, self.swing_window - 1, -1):
+                second = points_by_offset.get(second_offset)
+                if second is None:
+                    continue
+
+                distance = first_offset - second_offset
+                line_price = min(first.price, second.price)
+                gap_percent = self._gap_percent(first.price, second.price, line_price)
+                untouched = self._support_clear_between_and_after(
+                    candles,
+                    first_offset,
+                    second_offset,
+                    line_price,
                 )
-            )
+                if gap_percent > self.max_gap_percent or distance < self.min_swing_distance or not untouched:
+                    continue
+
+                candidates.append(
+                    TriggerLineCandidatePayload(
+                        symbol=symbol,
+                        exchange=exchange,
+                        line_type="SELL",
+                        line_price=line_price,
+                        level_key=(
+                            f"{exchange}:{symbol}:SELL:{line_price:.4f}:"
+                            f"{first.candle_date.isoformat()}:{second.candle_date.isoformat()}"
+                        ),
+                        line_drawn_date=second.candle_date,
+                        lookback_candles=self.daily_candle_lookback,
+                        max_gap_percent_used=self.max_gap_percent,
+                        min_swing_distance_used=float(self.min_swing_distance),
+                        swing_gap_percent=gap_percent,
+                        swing_low_1_price=first.price,
+                        swing_low_1_date=first.candle_date,
+                        swing_low_2_price=second.price,
+                        swing_low_2_date=second.candle_date,
+                        lower_swing_low_price=min(first.price, second.price),
+                        higher_swing_low_price=max(first.price, second.price),
+                        nearest_daily_swing_low_target=self.target_resolver.resolve_sell_target(
+                            line_price,
+                            swing_lows,
+                            candles,
+                        ),
+                    )
+                )
         return candidates
 
 
@@ -271,8 +393,8 @@ class DailyMarketScanner:
         trigger_line_manager: TriggerLineManager | None = None,
     ) -> None:
         self.provider = provider or HistoricalCandleProvider()
-        self.swing_detector = swing_detector or SwingDetector()
-        self.validator = validator or UntouchedLevelValidator()
+        self.swing_detector = swing_detector
+        self.validator = validator
         self.trigger_line_manager = trigger_line_manager or TriggerLineManager()
 
     def run(self, db: Session, watchlist_id=None, scan_date: date | None = None, dry_run: bool = False) -> ScanExecution:
@@ -299,6 +421,14 @@ class DailyMarketScanner:
             query = query.where(WatchlistSymbol.watchlist_id == watchlist_id)
         symbols = db.scalars(query.order_by(WatchlistSymbol.symbol)).all()
         execution.symbols_scanned = len(symbols)
+        runtime_settings = ensure_settings(db)
+        swing_detector = self.swing_detector or SwingDetector(window=runtime_settings.swing_window)
+        validator = self.validator or UntouchedLevelValidator(
+            swing_window=runtime_settings.swing_window,
+            daily_candle_lookback=runtime_settings.daily_candle_lookback,
+            max_gap_percent=runtime_settings.max_gap_percent,
+            min_swing_distance=runtime_settings.min_swing_distance,
+        )
 
         try:
             for symbol in symbols:
@@ -313,14 +443,14 @@ class DailyMarketScanner:
                 candles = self.provider.fetch_last_n_completed_daily_candles(
                     symbol.symbol,
                     instrument_token,
-                    settings.daily_candle_lookback,
+                    runtime_settings.daily_candle_lookback,
                 )
-                if len(candles) < (settings.swing_window * 2) + 1:
+                if len(candles) < (runtime_settings.swing_window * 2) + 1:
                     logger.info("Skipping %s because only %s candles are available", symbol.symbol, len(candles))
                     continue
 
-                swing_highs, swing_lows = self.swing_detector.detect(candles)
-                candidates = self.validator.build_candidates(
+                swing_highs, swing_lows = swing_detector.detect(candles)
+                candidates = validator.build_candidates(
                     symbol.symbol,
                     symbol.exchange,
                     candles,

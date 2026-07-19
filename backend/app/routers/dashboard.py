@@ -15,6 +15,7 @@ from backend.app.dependencies import require_approved_user
 from backend.app.database import get_db
 from backend.app.models import BreakoutEvent, Instrument, PaperTrade, TradingSignal, TriggerLine, Watchlist, WatchlistSymbol
 from backend.app.services.market_scanner import SwingDetector, UntouchedLevelValidator
+from backend.app.services.paper_trading_service import ensure_settings
 from backend.app.services.watchlists import get_selected_watchlist
 from backend.app.services.zerodha import HistoricalCandleProvider, ZerodhaApiClient, ZerodhaAuthService
 from backend.app.services.zerodha_sessions import get_current_zerodha_access_token
@@ -454,8 +455,14 @@ def dashboard_daily_line_review(db: Session = Depends(get_db)) -> dict:
             access_token=access_token,
         )
     )
-    swing_detector = SwingDetector()
-    validator = UntouchedLevelValidator()
+    runtime_settings = ensure_settings(db)
+    swing_detector = SwingDetector(window=runtime_settings.swing_window)
+    validator = UntouchedLevelValidator(
+        swing_window=runtime_settings.swing_window,
+        daily_candle_lookback=runtime_settings.daily_candle_lookback,
+        max_gap_percent=runtime_settings.max_gap_percent,
+        min_swing_distance=runtime_settings.min_swing_distance,
+    )
 
     symbols = db.scalars(
         select(WatchlistSymbol)
@@ -484,7 +491,7 @@ def dashboard_daily_line_review(db: Session = Depends(get_db)) -> dict:
             candles = provider.fetch_last_n_completed_daily_candles(
                 symbol.symbol,
                 instrument_token,
-                settings.daily_candle_lookback,
+                runtime_settings.daily_candle_lookback,
             )
         except Exception:  # noqa: BLE001
             fetch_errors += 1
@@ -493,7 +500,7 @@ def dashboard_daily_line_review(db: Session = Depends(get_db)) -> dict:
         history_ready += 1
         swing_highs, swing_lows = swing_detector.detect(candles)
         candidates = []
-        if len(candles) >= (settings.swing_window * 2) + 1:
+        if len(candles) >= (runtime_settings.swing_window * 2) + 1:
             candidates = validator.build_candidates(
                 symbol.symbol,
                 symbol.exchange,

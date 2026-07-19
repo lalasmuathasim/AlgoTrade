@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.config import get_settings
 from backend.app.models import PaperTrade, PaperTradingSetting, TradingSignal
-from backend.app.schemas import PaperTradingSettingsPayload
+from backend.app.schemas import PaperTradingSettingsPayload, StrategySettingsPayload
 
 
 settings = get_settings()
@@ -28,6 +28,10 @@ def get_default_settings_payload() -> PaperTradingSettingsPayload:
         sell_volume_multiplier=settings.sell_volume_multiplier,
         entry_buffer_ticks=settings.entry_buffer_ticks,
         stop_loss_buffer_ticks=settings.stop_buffer_ticks,
+        daily_candle_lookback=settings.daily_candle_lookback,
+        swing_window=settings.swing_window,
+        max_gap_percent=settings.max_gap_percent,
+        min_swing_distance=max(int(settings.min_swing_distance), 1),
     )
 
 
@@ -51,6 +55,10 @@ def ensure_settings(db: Session) -> PaperTradingSetting:
         sell_volume_multiplier=defaults.sell_volume_multiplier,
         entry_buffer_ticks=defaults.entry_buffer_ticks,
         stop_loss_buffer_ticks=defaults.stop_loss_buffer_ticks,
+        daily_candle_lookback=defaults.daily_candle_lookback,
+        swing_window=defaults.swing_window,
+        max_gap_percent=defaults.max_gap_percent,
+        min_swing_distance=defaults.min_swing_distance,
     )
     db.add(current)
     db.commit()
@@ -69,6 +77,40 @@ def update_settings(db: Session, payload: PaperTradingSettingsPayload) -> PaperT
     current.max_trades_per_day = payload.max_trades_per_day
     current.max_daily_loss = payload.max_daily_loss
     current.default_quantity_mode = payload.default_quantity_mode
+    current.buy_volume_multiplier = payload.buy_volume_multiplier
+    current.sell_volume_multiplier = payload.sell_volume_multiplier
+    current.entry_buffer_ticks = payload.entry_buffer_ticks
+    current.stop_loss_buffer_ticks = payload.stop_loss_buffer_ticks
+    current.daily_candle_lookback = payload.daily_candle_lookback
+    current.swing_window = payload.swing_window
+    current.max_gap_percent = payload.max_gap_percent
+    current.min_swing_distance = payload.min_swing_distance
+    current.updated_at = datetime.now(UTC)
+    db.commit()
+    db.refresh(current)
+    return current
+
+
+def get_strategy_settings_payload(db: Session) -> StrategySettingsPayload:
+    current = ensure_settings(db)
+    return StrategySettingsPayload(
+        daily_candle_lookback=current.daily_candle_lookback,
+        swing_window=current.swing_window,
+        max_gap_percent=current.max_gap_percent,
+        min_swing_distance=current.min_swing_distance,
+        buy_volume_multiplier=current.buy_volume_multiplier,
+        sell_volume_multiplier=current.sell_volume_multiplier,
+        entry_buffer_ticks=current.entry_buffer_ticks,
+        stop_loss_buffer_ticks=current.stop_loss_buffer_ticks,
+    )
+
+
+def update_strategy_settings(db: Session, payload: StrategySettingsPayload) -> PaperTradingSetting:
+    current = ensure_settings(db)
+    current.daily_candle_lookback = payload.daily_candle_lookback
+    current.swing_window = payload.swing_window
+    current.max_gap_percent = payload.max_gap_percent
+    current.min_swing_distance = payload.min_swing_distance
     current.buy_volume_multiplier = payload.buy_volume_multiplier
     current.sell_volume_multiplier = payload.sell_volume_multiplier
     current.entry_buffer_ticks = payload.entry_buffer_ticks

@@ -32,6 +32,10 @@ class RiskEngine:
                 sell_volume_multiplier=settings.sell_volume_multiplier,
                 entry_buffer_ticks=settings.entry_buffer_ticks,
                 stop_loss_buffer_ticks=settings.stop_buffer_ticks,
+                daily_candle_lookback=settings.daily_candle_lookback,
+                swing_window=settings.swing_window,
+                max_gap_percent=settings.max_gap_percent,
+                min_swing_distance=max(int(settings.min_swing_distance), 1),
             )
             db.add(current_settings)
             db.flush()

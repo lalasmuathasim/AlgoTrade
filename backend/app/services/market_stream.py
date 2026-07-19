@@ -12,6 +12,7 @@ from backend.app.models import BreakoutEvent, MarketCandle, TradingSignal, Trigg
 from backend.app.queue import enqueue_signal_dispatch
 from backend.app.schemas import BreakoutCandidatePayload, CompletedCandlePayload, SignalDispatchJob, TickPayload
 from backend.app.services.execution_runtime import RiskEngine
+from backend.app.services.paper_trading_service import ensure_settings
 
 
 logger = logging.getLogger(__name__)
@@ -85,12 +86,27 @@ class CandleBuilder:
 
 
 class VolumeValidator:
-    def validate(self, action: str, current_volume: float, previous_volume: float | None) -> tuple[bool, float | None]:
+    def validate(
+        self,
+        action: str,
+        current_volume: float,
+        previous_volume: float | None,
+        buy_volume_multiplier: float | None = None,
+        sell_volume_multiplier: float | None = None,
+    ) -> tuple[bool, float | None]:
         if not previous_volume or previous_volume <= 0:
             return False, None
 
         ratio = current_volume / previous_volume
-        required = settings.buy_volume_multiplier if action == "BUY" else settings.sell_volume_multiplier
+        required = (
+            buy_volume_multiplier
+            if action == "BUY" and buy_volume_multiplier is not None
+            else sell_volume_multiplier
+            if action == "SELL" and sell_volume_multiplier is not None
+            else settings.buy_volume_multiplier
+            if action == "BUY"
+            else settings.sell_volume_multiplier
+        )
         return ratio >= required, round(ratio, 4)
 
 
@@ -119,9 +135,24 @@ class SignalGenerator:
         market_candle_id,
     ) -> tuple[BreakoutCandidatePayload, TradingSignal | None]:
         action = "BUY" if line.line_type == "BUY" else "SELL"
-        volume_passed, volume_ratio = self.volume_validator.validate(action, candle.volume, previous_candle_volume)
-        entry_price = line.line_price + settings.entry_buffer_ticks if action == "BUY" else line.line_price - settings.entry_buffer_ticks
-        stop_loss = candle.low - settings.stop_buffer_ticks if action == "BUY" else candle.high + settings.stop_buffer_ticks
+        runtime_settings = ensure_settings(db)
+        volume_passed, volume_ratio = self.volume_validator.validate(
+            action,
+            candle.volume,
+            previous_candle_volume,
+            buy_volume_multiplier=runtime_settings.buy_volume_multiplier,
+            sell_volume_multiplier=runtime_settings.sell_volume_multiplier,
+        )
+        entry_price = (
+            line.line_price + runtime_settings.entry_buffer_ticks
+            if action == "BUY"
+            else line.line_price - runtime_settings.entry_buffer_ticks
+        )
+        stop_loss = (
+            candle.low - runtime_settings.stop_loss_buffer_ticks
+            if action == "BUY"
+            else candle.high + runtime_settings.stop_loss_buffer_ticks
+        )
 
         target = (
             line.nearest_daily_swing_high_target

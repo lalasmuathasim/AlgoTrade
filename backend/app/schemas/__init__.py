@@ -1,4 +1,10 @@
-from backend.app.schemas.configuration import SymbolValidationPayload, WatchlistCreatePayload, WatchlistSymbolCreatePayload
+from backend.app.schemas.configuration import (
+    StrategySettingsPayload,
+    StrategySettingsResponse,
+    SymbolValidationPayload,
+    WatchlistCreatePayload,
+    WatchlistSymbolCreatePayload,
+)
 from backend.app.schemas.auth import (
     AuthStatusResponse,
     LoginPayload,
@@ -53,6 +59,8 @@ __all__ = [
     "PaperTradingSettingsResponse",
     "ScanExecutionResponse",
     "SignalDispatchJob",
+    "StrategySettingsPayload",
+    "StrategySettingsResponse",
     "SymbolValidationPayload",
     "SignupPayload",
     "SwingPointPayload",

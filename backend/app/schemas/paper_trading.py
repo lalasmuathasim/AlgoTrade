@@ -19,6 +19,10 @@ class PaperTradingSettingsPayload(BaseModel):
     sell_volume_multiplier: float
     entry_buffer_ticks: float
     stop_loss_buffer_ticks: float
+    daily_candle_lookback: int = 100
+    swing_window: int = 2
+    max_gap_percent: float = 0.5
+    min_swing_distance: int = 1
 
 
 class PaperTradingSettingsResponse(PaperTradingSettingsPayload):

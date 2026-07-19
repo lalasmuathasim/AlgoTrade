@@ -30,6 +30,10 @@ class PaperTradingSetting(Base):
     sell_volume_multiplier: Mapped[float] = mapped_column(Float, nullable=False)
     entry_buffer_ticks: Mapped[float] = mapped_column(Float, nullable=False)
     stop_loss_buffer_ticks: Mapped[float] = mapped_column(Float, nullable=False)
+    daily_candle_lookback: Mapped[int] = mapped_column(Integer, nullable=False)
+    swing_window: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_gap_percent: Mapped[float] = mapped_column(Float, nullable=False)
+    min_swing_distance: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

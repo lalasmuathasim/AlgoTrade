@@ -13,7 +13,15 @@ from backend.app.database import get_db, verify_database_connectivity
 from backend.app.dependencies import require_admin_user
 from backend.app.models import Instrument, MarketCandle, Watchlist, WatchlistSymbol
 from backend.app.queue import check_redis_connectivity
-from backend.app.schemas import InstrumentPayload, SymbolValidationPayload, WatchlistCreatePayload, WatchlistSymbolCreatePayload
+from backend.app.schemas import (
+    InstrumentPayload,
+    StrategySettingsPayload,
+    StrategySettingsResponse,
+    SymbolValidationPayload,
+    WatchlistCreatePayload,
+    WatchlistSymbolCreatePayload,
+)
+from backend.app.services.paper_trading_service import ensure_settings, update_strategy_settings
 from backend.app.services.watchlists import ensure_selected_watchlist, set_selected_watchlist
 from backend.app.services.zerodha_sessions import get_current_zerodha_access_token, get_current_zerodha_session
 from backend.app.services.zerodha import InstrumentMasterSyncService, SubscriptionManager, ZerodhaApiClient, ZerodhaAuthService
@@ -468,6 +476,77 @@ def configuration_page() -> str:
         <table id="validationTable"></table>
       </div>
     </section>
+    <section class="layout-halves">
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Strategy Tuning</h2>
+            <p class="panel-copy">Control how daily support and resistance lines are discovered, plus the breakout confirmation thresholds that the live engine and paper flow use.</p>
+          </div>
+          <div class="badge">Runtime</div>
+        </div>
+        <div id="strategySettingsStatus" class="status-box">Loading strategy tuning values from the runtime settings store...</div>
+        <div class="field">
+          <label for="dailyCandleLookbackInput">Daily candle lookback</label>
+          <input id="dailyCandleLookbackInput" type="number" min="20" max="300" step="1" />
+          <div class="field-help">How many completed daily candles the scanner should review when searching for swing highs and swing lows.</div>
+        </div>
+        <div class="field">
+          <label for="swingWindowInput">Swing window</label>
+          <input id="swingWindowInput" type="number" min="1" max="10" step="1" />
+          <div class="field-help">How many candles on each side must be lower or higher before a candle qualifies as a swing point. Pine usually uses `1` here.</div>
+        </div>
+        <div class="field">
+          <label for="maxGapPercentInput">Max gap percent</label>
+          <input id="maxGapPercentInput" type="number" min="0.1" max="10" step="0.1" />
+          <div class="field-help">Maximum allowed percentage gap between the two chosen swings before the candidate line is rejected as too wide.</div>
+        </div>
+        <div class="field">
+          <label for="minSwingDistanceInput">Min swing distance</label>
+          <input id="minSwingDistanceInput" type="number" min="1" max="50" step="1" />
+          <div class="field-help">Minimum number of candles that must separate the two selected swings so very tight structures are ignored.</div>
+        </div>
+        <div class="field">
+          <label for="buyVolumeMultiplierInput">Buy volume multiplier</label>
+          <input id="buyVolumeMultiplierInput" type="number" min="0.1" max="20" step="0.1" />
+          <div class="field-help">Required breakout candle volume multiple versus the previous 3-minute candle for BUY signals.</div>
+        </div>
+        <div class="field">
+          <label for="sellVolumeMultiplierInput">Sell volume multiplier</label>
+          <input id="sellVolumeMultiplierInput" type="number" min="0.1" max="20" step="0.1" />
+          <div class="field-help">Required breakdown candle volume multiple versus the previous 3-minute candle for SELL signals.</div>
+        </div>
+        <div class="field">
+          <label for="entryBufferTicksInput">Entry buffer ticks</label>
+          <input id="entryBufferTicksInput" type="number" min="0.01" max="10" step="0.01" />
+          <div class="field-help">Extra ticks added above a BUY breakout or below a SELL breakdown before generating the entry trigger.</div>
+        </div>
+        <div class="field">
+          <label for="stopLossBufferTicksInput">Stop-loss buffer ticks</label>
+          <input id="stopLossBufferTicksInput" type="number" min="0.01" max="10" step="0.01" />
+          <div class="field-help">Extra ticks added beyond the trigger line when placing the protective stop loss.</div>
+        </div>
+        <div class="inline">
+          <button id="saveStrategySettingsButton" class="primary" type="button">Save Strategy Tuning</button>
+          <button id="refreshStrategySettingsButton" class="secondary" type="button">Reload Values</button>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Tuning Guide</h2>
+            <p class="panel-copy">These values directly affect which lines appear in Daily Line Review and which 3-minute breakouts become valid signals.</p>
+          </div>
+        </div>
+        <ul class="list">
+          <li class="pill">Smaller swing window: more swing points and more candidate lines</li>
+          <li class="pill">Larger max gap percent: more tolerant matching between two swing levels</li>
+          <li class="pill">Larger minimum swing distance: filters out crowded nearby swing pairs</li>
+          <li class="pill">Higher volume multipliers: fewer but stronger breakout confirmations</li>
+          <li class="pill">Entry and stop buffers help avoid exact-line fills when price is noisy</li>
+        </ul>
+      </div>
+    </section>
     <section class="layout-main-aside">
       <div class="panel">
         <div class="panel-header">
@@ -508,6 +587,7 @@ def configuration_page() -> str:
     let currentWatchlistDetailId = null;
     let latestReadiness = null;
     let latestZerodhaStatus = null;
+    let latestStrategySettings = null;
     const zerodhaStatusMessages = {
       connected: { message: "Zerodha connection established successfully.", tone: "success" },
       error: { message: "Zerodha login did not complete successfully.", tone: "error" },
@@ -579,6 +659,23 @@ def configuration_page() -> str:
         { label: "Mapped Symbols", value: mappedSymbols, meta: "Symbols linked to Zerodha instrument tokens" },
         { label: "3-Minute Coverage", value: readiness.symbols_with_recent_3minute_data, meta: "Watched symbols with recent candle volume" },
       ]);
+    }
+
+    function renderStrategySettings(settingsPayload) {
+      latestStrategySettings = settingsPayload;
+      document.getElementById("dailyCandleLookbackInput").value = settingsPayload.daily_candle_lookback;
+      document.getElementById("swingWindowInput").value = settingsPayload.swing_window;
+      document.getElementById("maxGapPercentInput").value = settingsPayload.max_gap_percent;
+      document.getElementById("minSwingDistanceInput").value = settingsPayload.min_swing_distance;
+      document.getElementById("buyVolumeMultiplierInput").value = settingsPayload.buy_volume_multiplier;
+      document.getElementById("sellVolumeMultiplierInput").value = settingsPayload.sell_volume_multiplier;
+      document.getElementById("entryBufferTicksInput").value = settingsPayload.entry_buffer_ticks;
+      document.getElementById("stopLossBufferTicksInput").value = settingsPayload.stop_loss_buffer_ticks;
+      setBox(
+        "strategySettingsStatus",
+        `Daily scan uses ${settingsPayload.daily_candle_lookback} candles with swing window ${settingsPayload.swing_window}. Gap filter ${settingsPayload.max_gap_percent}% · min swing distance ${settingsPayload.min_swing_distance} candles · BUY volume ${settingsPayload.buy_volume_multiplier}x · SELL volume ${settingsPayload.sell_volume_multiplier}x.`,
+        "success",
+      );
     }
 
     function renderWatchlists(watchlists) {
@@ -838,6 +935,12 @@ def configuration_page() -> str:
       return readiness;
     }
 
+    async function loadStrategySettings() {
+      const strategySettings = await apiGet("/configuration/strategy-settings");
+      renderStrategySettings(strategySettings);
+      return strategySettings;
+    }
+
     async function loadZerodhaConnectionStatus() {
       const result = await apiGet("/api/zerodha/test");
       renderZerodhaConnectionStatus(result);
@@ -845,13 +948,15 @@ def configuration_page() -> str:
     }
 
     async function refreshAll(preferredWatchlistId = null) {
-      const [readiness, watchlists, zerodhaStatus] = await Promise.all([
+      const [readiness, watchlists, zerodhaStatus, strategySettings] = await Promise.all([
         loadReadiness(),
         loadWatchlists(),
         loadZerodhaConnectionStatus(),
+        loadStrategySettings(),
       ]);
       renderReadiness(readiness, zerodhaStatus);
       renderConfigCards(readiness, watchlists);
+      renderStrategySettings(strategySettings);
       const detailWatchlist = watchlists.find((item) => item.id === preferredWatchlistId)
         || watchlists.find((item) => item.id === currentWatchlistDetailId)
         || watchlists.find((item) => item.is_selected)
@@ -936,6 +1041,35 @@ def configuration_page() -> str:
       }
     });
 
+    document.getElementById("saveStrategySettingsButton").addEventListener("click", async () => {
+      try {
+        const payload = {
+          daily_candle_lookback: Number(document.getElementById("dailyCandleLookbackInput").value),
+          swing_window: Number(document.getElementById("swingWindowInput").value),
+          max_gap_percent: Number(document.getElementById("maxGapPercentInput").value),
+          min_swing_distance: Number(document.getElementById("minSwingDistanceInput").value),
+          buy_volume_multiplier: Number(document.getElementById("buyVolumeMultiplierInput").value),
+          sell_volume_multiplier: Number(document.getElementById("sellVolumeMultiplierInput").value),
+          entry_buffer_ticks: Number(document.getElementById("entryBufferTicksInput").value),
+          stop_loss_buffer_ticks: Number(document.getElementById("stopLossBufferTicksInput").value),
+        };
+        const result = await apiSend("/configuration/strategy-settings", "POST", payload);
+        renderStrategySettings(result);
+        setBox("strategySettingsStatus", "Strategy tuning saved. Daily scans, line review, and breakout checks will use these values.", "success");
+      } catch (error) {
+        setBox("strategySettingsStatus", error.message, "error");
+      }
+    });
+
+    document.getElementById("refreshStrategySettingsButton").addEventListener("click", async () => {
+      try {
+        const result = await loadStrategySettings();
+        renderStrategySettings(result);
+      } catch (error) {
+        setBox("strategySettingsStatus", error.message, "error");
+      }
+    });
+
     document.getElementById("connectZerodhaButton").addEventListener("click", () => {
       window.location.href = "/api/zerodha/login";
     });
@@ -956,6 +1090,7 @@ def configuration_page() -> str:
       setBox("watchlistStatus", error.message, "error");
       setBox("readinessStatus", "Unable to initialize configuration workspace.", "error");
       setBox("validationStatus", "Configuration workspace failed to initialize.", "error");
+      setBox("strategySettingsStatus", "Unable to load strategy tuning values.", "error");
     });
     """
     return render_app_shell(
@@ -1102,3 +1237,18 @@ def select_configuration_watchlist(watchlist_id: uuid.UUID, db: Session = Depend
 @router.get("/configuration/readiness")
 def configuration_readiness(db: Session = Depends(get_db)) -> dict:
     return _readiness_payload(db)
+
+
+@router.get("/configuration/strategy-settings", response_model=StrategySettingsResponse)
+def configuration_strategy_settings(db: Session = Depends(get_db)) -> StrategySettingsResponse:
+    current = ensure_settings(db)
+    return StrategySettingsResponse.model_validate(current, from_attributes=True)
+
+
+@router.post("/configuration/strategy-settings", response_model=StrategySettingsResponse)
+def save_configuration_strategy_settings(
+    payload: StrategySettingsPayload,
+    db: Session = Depends(get_db),
+) -> StrategySettingsResponse:
+    current = update_strategy_settings(db, payload)
+    return StrategySettingsResponse.model_validate(current, from_attributes=True)

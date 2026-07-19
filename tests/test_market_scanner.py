@@ -9,7 +9,7 @@ from tests.support import configure_test_env
 
 configure_test_env()
 
-from backend.app.models import TriggerLine, WatchlistSymbol
+from backend.app.models import PaperTradingSetting, TriggerLine, WatchlistSymbol
 from backend.app.schemas import HistoricalCandlePayload
 from backend.app.services.market_scanner import DailyMarketScanner, SwingDetector, UntouchedLevelValidator
 
@@ -23,7 +23,8 @@ class FakeScalarRows:
 
 
 class FakeSession:
-    def __init__(self, scalars_queue):
+    def __init__(self, scalar_queue, scalars_queue):
+        self.scalar_queue = list(scalar_queue)
         self.scalars_queue = list(scalars_queue)
         self.added = []
         self.committed = False
@@ -38,8 +39,37 @@ class FakeSession:
     def commit(self):
         self.committed = True
 
+    def refresh(self, _obj):
+        return None
+
+    def scalar(self, _query):
+        return self.scalar_queue.pop(0) if self.scalar_queue else None
+
     def scalars(self, _query):
         return FakeScalarRows(self.scalars_queue.pop(0))
+
+
+def build_runtime_settings() -> PaperTradingSetting:
+    return PaperTradingSetting(
+        id=uuid.uuid4(),
+        starting_capital=200000.0,
+        capital_per_trade=25000.0,
+        fixed_quantity=None,
+        risk_per_trade=2500.0,
+        brokerage_estimate=20.0,
+        slippage_estimate=0.2,
+        max_trades_per_day=3,
+        max_daily_loss=5000.0,
+        default_quantity_mode="RISK_BASED",
+        buy_volume_multiplier=5.0,
+        sell_volume_multiplier=3.0,
+        entry_buffer_ticks=0.05,
+        stop_loss_buffer_ticks=0.05,
+        daily_candle_lookback=100,
+        swing_window=2,
+        max_gap_percent=0.5,
+        min_swing_distance=1,
+    )
 
 
 def build_daily_fixture() -> list[HistoricalCandlePayload]:
@@ -54,6 +84,54 @@ def build_daily_fixture() -> list[HistoricalCandlePayload]:
         ("2026-07-08T00:00:00+00:00", 92, 107.2, 92, 104, 1600),
         ("2026-07-09T00:00:00+00:00", 104, 104.4, 89.2, 95, 1400),
         ("2026-07-10T00:00:00+00:00", 95, 101, 91, 99, 1300),
+    ]
+    return [
+        HistoricalCandlePayload(
+            timestamp=datetime.fromisoformat(timestamp),
+            open=open_,
+            high=high,
+            low=low,
+            close=close,
+            volume=volume,
+        )
+        for timestamp, open_, high, low, close, volume in rows
+    ]
+
+
+def build_non_adjacent_buy_fixture() -> list[HistoricalCandlePayload]:
+    rows = [
+        ("2026-07-01T00:00:00+00:00", 10, 10.0, 9.0, 9.5, 1000),
+        ("2026-07-02T00:00:00+00:00", 9.5, 15.0, 9.1, 14.0, 1100),
+        ("2026-07-03T00:00:00+00:00", 14.0, 10.0, 9.0, 9.8, 1000),
+        ("2026-07-04T00:00:00+00:00", 9.8, 14.9, 9.2, 14.0, 1000),
+        ("2026-07-05T00:00:00+00:00", 14.0, 10.0, 9.0, 9.9, 1000),
+        ("2026-07-06T00:00:00+00:00", 9.9, 14.85, 9.1, 14.0, 1000),
+        ("2026-07-07T00:00:00+00:00", 14.0, 10.0, 9.0, 9.8, 1000),
+        ("2026-07-08T00:00:00+00:00", 9.8, 14.8, 9.2, 13.9, 1000),
+        ("2026-07-09T00:00:00+00:00", 13.9, 10.0, 9.0, 9.7, 1000),
+    ]
+    return [
+        HistoricalCandlePayload(
+            timestamp=datetime.fromisoformat(timestamp),
+            open=open_,
+            high=high,
+            low=low,
+            close=close,
+            volume=volume,
+        )
+        for timestamp, open_, high, low, close, volume in rows
+    ]
+
+
+def build_touched_between_buy_fixture() -> list[HistoricalCandlePayload]:
+    rows = [
+        ("2026-07-01T00:00:00+00:00", 10, 10.0, 9.0, 9.5, 1000),
+        ("2026-07-02T00:00:00+00:00", 9.5, 15.0, 9.1, 14.0, 1000),
+        ("2026-07-03T00:00:00+00:00", 14.0, 15.1, 9.0, 10.0, 1000),
+        ("2026-07-04T00:00:00+00:00", 10.0, 15.0, 9.2, 10.2, 1000),
+        ("2026-07-05T00:00:00+00:00", 10.2, 10.0, 9.0, 9.8, 1000),
+        ("2026-07-06T00:00:00+00:00", 9.8, 14.9, 9.1, 14.0, 1000),
+        ("2026-07-07T00:00:00+00:00", 14.0, 10.0, 9.0, 9.7, 1000),
     ]
     return [
         HistoricalCandlePayload(
@@ -83,7 +161,7 @@ class MarketScannerTests(unittest.TestCase):
         candles = build_daily_fixture()
         detector = SwingDetector(window=1)
         highs, lows = detector.detect(candles)
-        validator = UntouchedLevelValidator()
+        validator = UntouchedLevelValidator(swing_window=1)
 
         candidates = validator.build_candidates("RELIANCE", "NSE", candles, highs, lows)
         line_types = {candidate.line_type for candidate in candidates}
@@ -91,6 +169,38 @@ class MarketScannerTests(unittest.TestCase):
         self.assertIn("BUY", line_types)
         self.assertIn("SELL", line_types)
         self.assertTrue(all(candidate.level_key for candidate in candidates))
+
+    def test_validator_matches_pine_non_adjacent_swing_pairing(self):
+        candles = build_non_adjacent_buy_fixture()
+        detector = SwingDetector(window=1)
+        highs, lows = detector.detect(candles)
+        validator = UntouchedLevelValidator(
+            swing_window=1,
+            daily_candle_lookback=len(candles),
+            max_gap_percent=1.5,
+            min_swing_distance=3,
+        )
+
+        candidates = validator.build_candidates("RELIANCE", "NSE", candles, highs, lows)
+
+        buy_candidates = [candidate for candidate in candidates if candidate.line_type == "BUY"]
+        self.assertTrue(any(candidate.swing_high_1_date != candidate.swing_high_2_date for candidate in buy_candidates))
+        self.assertTrue(any(candidate.line_price == 15.0 for candidate in buy_candidates))
+
+    def test_validator_rejects_resistance_touched_between_selected_swings(self):
+        candles = build_touched_between_buy_fixture()
+        detector = SwingDetector(window=1)
+        highs, lows = detector.detect(candles)
+        validator = UntouchedLevelValidator(
+            swing_window=1,
+            daily_candle_lookback=len(candles),
+            max_gap_percent=1.5,
+            min_swing_distance=3,
+        )
+
+        candidates = validator.build_candidates("RELIANCE", "NSE", candles, highs, lows)
+
+        self.assertFalse(any(candidate.line_type == "BUY" and candidate.line_price == 15.0 for candidate in candidates))
 
     def test_daily_scanner_uses_mocked_historical_provider(self):
         candles = build_daily_fixture()
@@ -110,7 +220,7 @@ class MarketScannerTests(unittest.TestCase):
             instrument_token=12345,
             is_active=True,
         )
-        db = FakeSession([[symbol], []])
+        db = FakeSession([build_runtime_settings()], [[symbol], []])
 
         execution = scanner.run(db, dry_run=False)
 

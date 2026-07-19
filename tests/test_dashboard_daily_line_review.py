@@ -16,7 +16,7 @@ configure_test_env()
 
 from backend.app.database import get_db
 from backend.app.dependencies import require_approved_user
-from backend.app.models import Watchlist, WatchlistSymbol
+from backend.app.models import PaperTradingSetting, Watchlist, WatchlistSymbol
 from backend.app.routers.dashboard import router
 
 
@@ -31,6 +31,28 @@ class FakeScalarRows:
 class DummyDb:
     def __init__(self, symbols):
         self.symbols = symbols
+
+    def scalar(self, _query):
+        return PaperTradingSetting(
+            id=uuid.uuid4(),
+            starting_capital=200000.0,
+            capital_per_trade=25000.0,
+            fixed_quantity=None,
+            risk_per_trade=2500.0,
+            brokerage_estimate=20.0,
+            slippage_estimate=0.2,
+            max_trades_per_day=3,
+            max_daily_loss=5000.0,
+            default_quantity_mode="RISK_BASED",
+            buy_volume_multiplier=5.0,
+            sell_volume_multiplier=3.0,
+            entry_buffer_ticks=0.05,
+            stop_loss_buffer_ticks=0.05,
+            daily_candle_lookback=100,
+            swing_window=2,
+            max_gap_percent=0.5,
+            min_swing_distance=1,
+        )
 
     def scalars(self, _query):
         return FakeScalarRows(self.symbols)

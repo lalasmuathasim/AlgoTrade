@@ -413,6 +413,12 @@ def render_app_shell(
     .field {{
       margin-bottom: 12px;
     }}
+    .field-help {{
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.45;
+    }}
     label {{
       display: block;
       margin-bottom: 7px;

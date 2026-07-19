@@ -1,3 +1,4 @@
+from datetime import datetime
 import uuid
 
 from pydantic import BaseModel, Field
@@ -17,3 +18,19 @@ class SymbolValidationPayload(BaseModel):
 class WatchlistSymbolCreatePayload(SymbolValidationPayload):
     watchlist_id: uuid.UUID | None = None
 
+
+class StrategySettingsPayload(BaseModel):
+    daily_candle_lookback: int = Field(ge=20, le=300)
+    swing_window: int = Field(ge=1, le=10)
+    max_gap_percent: float = Field(gt=0, le=10)
+    min_swing_distance: int = Field(ge=1, le=50)
+    buy_volume_multiplier: float = Field(gt=0, le=20)
+    sell_volume_multiplier: float = Field(gt=0, le=20)
+    entry_buffer_ticks: float = Field(gt=0, le=10)
+    stop_loss_buffer_ticks: float = Field(gt=0, le=10)
+
+
+class StrategySettingsResponse(StrategySettingsPayload):
+    id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime

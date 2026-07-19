@@ -73,6 +73,10 @@ class PaperExecutionTests(unittest.TestCase):
             sell_volume_multiplier=3.0,
             entry_buffer_ticks=0.05,
             stop_loss_buffer_ticks=0.05,
+            daily_candle_lookback=100,
+            swing_window=2,
+            max_gap_percent=0.5,
+            min_swing_distance=1,
         )
         db = FakeSession([None, settings], [[]])
 

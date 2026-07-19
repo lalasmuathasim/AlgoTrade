@@ -21,6 +21,12 @@ class ScalarQueueSession:
     def scalar(self, _query):
         return self.scalar_values.pop(0) if self.scalar_values else None
 
+    def add(self, _obj):
+        return None
+
+    def flush(self):
+        return None
+
 
 class MarketStreamTests(unittest.TestCase):
     def test_candle_builder_aggregates_exchange_aligned_three_minute_candles(self):
@@ -111,15 +117,22 @@ class MarketStreamTests(unittest.TestCase):
             sell_volume_multiplier=3.0,
             entry_buffer_ticks=0.05,
             stop_loss_buffer_ticks=0.05,
+            daily_candle_lookback=100,
+            swing_window=2,
+            max_gap_percent=0.5,
+            min_swing_distance=1,
         )
         generator = SignalGenerator()
 
-        first_db = ScalarQueueSession([None, settings])
+        first_db = ScalarQueueSession([settings, None, settings])
         breakout, signal = generator.build(first_db, line, candle, previous_candle_volume=1000.0, market_candle_id=None)
         self.assertTrue(breakout.volume_condition_passed)
         self.assertIsNotNone(signal)
 
-        duplicate_db = ScalarQueueSession([TradingSignal(id=uuid.uuid4(), exchange="NSE", symbol="RELIANCE", action="BUY")])
+        duplicate_db = ScalarQueueSession([
+            settings,
+            TradingSignal(id=uuid.uuid4(), exchange="NSE", symbol="RELIANCE", action="BUY"),
+        ])
         _, duplicate_signal = generator.build(
             duplicate_db,
             line,

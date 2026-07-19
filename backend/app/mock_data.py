@@ -204,6 +204,10 @@ def _merge_paper_settings(db: Session, row: dict[str, Any]) -> None:
             sell_volume_multiplier=row["sell_volume_multiplier"],
             entry_buffer_ticks=row["entry_buffer_ticks"],
             stop_loss_buffer_ticks=row["stop_loss_buffer_ticks"],
+            daily_candle_lookback=row.get("daily_candle_lookback", settings.daily_candle_lookback),
+            swing_window=row.get("swing_window", settings.swing_window),
+            max_gap_percent=row.get("max_gap_percent", settings.max_gap_percent),
+            min_swing_distance=row.get("min_swing_distance", max(int(settings.min_swing_distance), 1)),
             created_at=_parse_datetime(row.get("created_at")),
             updated_at=_parse_datetime(row.get("updated_at")),
         )
