@@ -11,6 +11,7 @@ def render_app_shell(
     script: str,
 ) -> str:
     nav_items = [
+        ("Home", "/", "home"),
         ("Dashboard", "/dashboard", "dashboard"),
         ("Configuration", "/configuration", "configuration"),
         ("Analytics", "/analytics", "analytics"),
@@ -81,7 +82,7 @@ def render_app_shell(
       position: relative;
       z-index: 1;
       display: grid;
-      grid-template-columns: 248px minmax(0, 1fr);
+      grid-template-columns: 232px minmax(0, 1fr);
       min-height: 100vh;
     }}
     .sidebar {{
@@ -317,7 +318,7 @@ def render_app_shell(
       align-items: start;
     }}
     .layout-main-aside {{
-      grid-template-columns: minmax(0, 1.38fr) minmax(320px, 0.92fr);
+      grid-template-columns: minmax(0, 1.58fr) minmax(260px, 0.72fr);
     }}
     .layout-halves {{
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -339,7 +340,7 @@ def render_app_shell(
         linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 250, 254, 0.98)),
         var(--panel);
       box-shadow: var(--shadow);
-      overflow: auto;
+      overflow: hidden;
     }}
     .panel-header {{
       display: flex;
@@ -377,12 +378,14 @@ def render_app_shell(
     .stack {{
       display: grid;
       gap: 12px;
+      align-content: start;
     }}
     .inline {{
       display: flex;
       gap: 10px;
       flex-wrap: wrap;
       align-items: center;
+      min-width: 0;
     }}
     .status-box {{
       min-height: 52px;
@@ -456,6 +459,7 @@ def render_app_shell(
       width: 100%;
       border-collapse: collapse;
       min-width: 0;
+      table-layout: fixed;
     }}
     th,
     td {{
@@ -464,6 +468,9 @@ def render_app_shell(
       text-align: left;
       vertical-align: top;
       font-size: 0.93rem;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }}
     th {{
       color: var(--muted);

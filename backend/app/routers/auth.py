@@ -103,15 +103,47 @@ def landing_page() -> str:
     a { color: inherit; }
     .wrap { max-width: 1380px; margin: 0 auto; padding: 24px 20px 56px; position: relative; }
     .masthead {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
       gap: 16px;
       margin-bottom: 18px;
+      align-items: center;
     }
     .brand {
       display: grid;
       gap: 4px;
+    }
+    .workspace-nav {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: center;
+      min-width: 0;
+    }
+    .workspace-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 42px;
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid transparent;
+      color: #26405f;
+      text-decoration: none;
+      font-weight: 600;
+      transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+    }
+    .workspace-link:hover {
+      transform: translateY(-1px);
+      background: rgba(61, 126, 240, 0.08);
+      border-color: rgba(61, 126, 240, 0.14);
+      color: #0d2137;
+    }
+    .workspace-link.active {
+      background: linear-gradient(90deg, rgba(15,155,142,0.14), rgba(61,126,240,0.12));
+      border-color: rgba(15, 155, 142, 0.22);
+      color: #0e1f33;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.5);
     }
     .brand-mark {
       color: var(--accent);
@@ -329,6 +361,7 @@ def landing_page() -> str:
       grid-template-columns: 1fr 1fr;
       gap: 18px;
       margin-top: 24px;
+      align-items: start;
     }
     .feature-card, .flow-card, .market-card {
       background: rgba(255, 255, 255, 0.94);
@@ -375,6 +408,7 @@ def landing_page() -> str:
       grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 12px;
       margin-top: 14px;
+      align-items: start;
     }
     .market-item {
       padding: 14px;
@@ -392,7 +426,8 @@ def landing_page() -> str:
     @media (max-width: 980px) {
       .hero, .content, .market-grid { grid-template-columns: 1fr; }
       .hero-grid { grid-template-columns: 1fr; }
-      .masthead { align-items: flex-start; flex-direction: column; }
+      .masthead { grid-template-columns: 1fr; align-items: start; }
+      .workspace-nav { justify-content: flex-start; }
     }
   </style>
 </head>
@@ -403,9 +438,15 @@ def landing_page() -> str:
         <div class="brand-mark">Qubitx</div>
         <div class="brand-title">Market Control</div>
       </div>
+      <nav class="workspace-nav">
+        <a class="workspace-link active" href="/">Home</a>
+        <a class="workspace-link" href="/dashboard">Dashboard</a>
+        <a class="workspace-link" href="/configuration">Configuration</a>
+        <a class="workspace-link" href="/analytics">Analytics</a>
+      </nav>
       <div class="mast-actions">
         <a class="shell-action" href="/health">Health</a>
-        <a class="shell-action" href="/dashboard">Dashboard</a>
+        <a class="shell-action" href="/paper-trading/settings">Paper Settings</a>
       </div>
     </section>
     <section class="hero">
