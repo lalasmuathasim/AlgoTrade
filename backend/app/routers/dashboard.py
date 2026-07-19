@@ -10,14 +10,19 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
+from backend.app.config import get_settings
 from backend.app.dependencies import require_approved_user
 from backend.app.database import get_db
-from backend.app.models import BreakoutEvent, PaperTrade, TradingSignal, TriggerLine, Watchlist, WatchlistSymbol
+from backend.app.models import BreakoutEvent, Instrument, PaperTrade, TradingSignal, TriggerLine, Watchlist, WatchlistSymbol
+from backend.app.services.market_scanner import SwingDetector, UntouchedLevelValidator
 from backend.app.services.watchlists import get_selected_watchlist
+from backend.app.services.zerodha import HistoricalCandleProvider, ZerodhaApiClient, ZerodhaAuthService
+from backend.app.services.zerodha_sessions import get_current_zerodha_access_token
 from backend.app.ui import render_app_shell
 
 
 router = APIRouter(tags=["dashboard"], dependencies=[Depends(require_approved_user)])
+settings = get_settings()
 
 
 def _serialize_datetime(value: datetime | None) -> str | None:
@@ -58,6 +63,15 @@ def _paper_trade_summary(trades: list[PaperTrade]) -> dict:
 def _selected_watchlist_filter(db: Session) -> tuple[Watchlist | None, UUID | None]:
     selected = get_selected_watchlist(db)
     return selected, selected.id if selected else None
+
+
+def _resolve_instrument_token(db: Session, symbol: WatchlistSymbol) -> int | None:
+    if symbol.instrument_token is not None:
+        return symbol.instrument_token
+    if symbol.instrument_id is None:
+        return None
+    instrument = db.get(Instrument, symbol.instrument_id)
+    return instrument.instrument_token if instrument else None
 
 
 def _serialize_trigger_line(line: TriggerLine) -> dict:
@@ -192,6 +206,7 @@ def dashboard_home() -> str:
           </div>
           <div class="inline">
             <a class="button secondary" href="/dashboard/watchlists">Watchlist Summary API</a>
+            <a class="button secondary" href="/dashboard/reports/daily-line-review">Daily Line Review API</a>
             <a class="button secondary" href="/dashboard/trigger-lines">Trigger Lines API</a>
             <a class="button secondary" href="/dashboard/breakout-events">Breakout Events API</a>
           </div>
@@ -226,6 +241,17 @@ def dashboard_home() -> str:
           </ul>
         </div>
       </div>
+    </section>
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Daily Line Review</h2>
+          <p class="panel-copy">Fetch the latest completed daily candles from Zerodha for the selected watchlist and preview the support or resistance lines we can draw before persisting anything.</p>
+        </div>
+        <button id="refreshDailyReviewButton" class="secondary" type="button">Refresh Daily Review</button>
+      </div>
+      <div id="dailyReviewStatus" class="status-box">Waiting to check Zerodha daily historical access for the active watchlist...</div>
+      <table id="dailyReviewTable"></table>
     </section>
     <section class="layout-main-aside">
       <div class="panel">
@@ -277,6 +303,37 @@ def dashboard_home() -> str:
         { label: "Drawn Symbols", value: stats.drawn_symbols, meta: "Symbols with stored line structures" },
         { label: "Active Trigger Lines", value: stats.active_trigger_lines, meta: "Open structure levels" },
       ]);
+    }
+
+    async function loadDailyLineReview() {
+      setBox("dailyReviewStatus", "Reviewing Zerodha daily candles and line candidates for the selected watchlist...", "");
+      const review = await apiGet("/dashboard/reports/daily-line-review");
+      const summary = review.summary;
+      const selectedLabel = review.selected_watchlist
+        ? `${review.selected_watchlist.name} (${review.selected_watchlist.exchange})`
+        : "the selected watchlist";
+      setBox(
+        "dailyReviewStatus",
+        `Using ${selectedLabel}. ${summary.history_ready}/${summary.total_symbols} symbols returned daily history. ${summary.symbols_with_candidates} symbols produced at least one candidate line. BUY candidates: ${summary.total_buy_candidates}. SELL candidates: ${summary.total_sell_candidates}.`,
+        summary.fetch_errors > 0 || summary.unmapped_symbols > 0 ? "warn" : "success",
+      );
+      renderTable(
+        document.getElementById("dailyReviewTable"),
+        ["Symbol", "History", "Candles", "Last Candle", "Swings H/L", "Buy Lines", "Sell Lines", "Primary Buy", "Primary Sell", "Notes"],
+        review.rows.map((item) => [
+          `${item.exchange}:${item.symbol}`,
+          item.fetch_status,
+          item.candle_count,
+          item.latest_candle_date ? `${item.latest_candle_date} · ${item.latest_close ?? "N/A"}` : "N/A",
+          `${item.swing_high_count}/${item.swing_low_count}`,
+          item.buy_candidate_count,
+          item.sell_candidate_count,
+          item.primary_buy_line ?? "N/A",
+          item.primary_sell_line ?? "N/A",
+          item.notes || item.company_name || "Ready",
+        ]),
+      );
+      return review;
     }
 
     async function init() {
@@ -340,7 +397,20 @@ def dashboard_home() -> str:
           item.status,
         ]),
       );
+      try {
+        await loadDailyLineReview();
+      } catch (error) {
+        setBox("dailyReviewStatus", error.message, "error");
+      }
     }
+
+    document.getElementById("refreshDailyReviewButton").addEventListener("click", async () => {
+      try {
+        await loadDailyLineReview();
+      } catch (error) {
+        setBox("dailyReviewStatus", error.message, "error");
+      }
+    });
 
     init().catch((error) => {
       setBox("dashboardStatus", error.message, "error");
@@ -354,6 +424,177 @@ def dashboard_home() -> str:
         body_html=body_html,
         script=script,
     )
+
+
+@router.get("/dashboard/reports/daily-line-review")
+def dashboard_daily_line_review(db: Session = Depends(get_db)) -> dict:
+    selected_watchlist, selected_watchlist_id = _selected_watchlist_filter(db)
+    if selected_watchlist is None or selected_watchlist_id is None:
+        return {
+            "selected_watchlist": None,
+            "summary": {
+                "total_symbols": 0,
+                "history_ready": 0,
+                "unmapped_symbols": 0,
+                "fetch_errors": 0,
+                "symbols_with_candidates": 0,
+                "total_buy_candidates": 0,
+                "total_sell_candidates": 0,
+            },
+            "rows": [],
+        }
+
+    access_token = get_current_zerodha_access_token(db) or settings.zerodha_access_token
+    if not settings.zerodha_api_key or not access_token:
+        raise HTTPException(status_code=503, detail="Zerodha daily historical access is not ready")
+
+    provider = HistoricalCandleProvider(
+        client=ZerodhaApiClient(
+            auth_service=ZerodhaAuthService(),
+            access_token=access_token,
+        )
+    )
+    swing_detector = SwingDetector()
+    validator = UntouchedLevelValidator()
+
+    symbols = db.scalars(
+        select(WatchlistSymbol)
+        .where(
+            WatchlistSymbol.watchlist_id == selected_watchlist_id,
+            WatchlistSymbol.is_active.is_(True),
+        )
+        .order_by(WatchlistSymbol.symbol)
+    ).all()
+
+    rows: list[dict] = []
+    history_ready = 0
+    unmapped_symbols = 0
+    fetch_errors = 0
+    symbols_with_candidates = 0
+    total_buy_candidates = 0
+    total_sell_candidates = 0
+
+    for symbol in symbols:
+        instrument_token = _resolve_instrument_token(db, symbol)
+        if instrument_token is None:
+            unmapped_symbols += 1
+            rows.append(
+                {
+                    "exchange": symbol.exchange,
+                    "symbol": symbol.symbol,
+                    "company_name": symbol.company_name,
+                    "instrument_token": None,
+                    "fetch_status": "UNMAPPED",
+                    "candle_count": 0,
+                    "latest_candle_date": None,
+                    "latest_close": None,
+                    "swing_high_count": 0,
+                    "swing_low_count": 0,
+                    "buy_candidate_count": 0,
+                    "sell_candidate_count": 0,
+                    "primary_buy_line": None,
+                    "primary_sell_line": None,
+                    "notes": "Instrument token is missing for this watchlist symbol.",
+                }
+            )
+            continue
+
+        try:
+            candles = provider.fetch_last_n_completed_daily_candles(
+                symbol.symbol,
+                instrument_token,
+                settings.daily_candle_lookback,
+            )
+        except Exception as exc:  # noqa: BLE001
+            fetch_errors += 1
+            rows.append(
+                {
+                    "exchange": symbol.exchange,
+                    "symbol": symbol.symbol,
+                    "company_name": symbol.company_name,
+                    "instrument_token": instrument_token,
+                    "fetch_status": "FETCH_ERROR",
+                    "candle_count": 0,
+                    "latest_candle_date": None,
+                    "latest_close": None,
+                    "swing_high_count": 0,
+                    "swing_low_count": 0,
+                    "buy_candidate_count": 0,
+                    "sell_candidate_count": 0,
+                    "primary_buy_line": None,
+                    "primary_sell_line": None,
+                    "notes": str(exc)[:180],
+                }
+            )
+            continue
+
+        history_ready += 1
+        swing_highs, swing_lows = swing_detector.detect(candles)
+        candidates = []
+        fetch_status = "READY"
+        notes = None
+        if len(candles) >= (settings.swing_window * 2) + 1:
+            candidates = validator.build_candidates(
+                symbol.symbol,
+                symbol.exchange,
+                candles,
+                swing_highs,
+                swing_lows,
+            )
+            if not candidates:
+                fetch_status = "NO_LINES"
+                notes = "Daily history loaded but no untouched support or resistance candidates were found."
+        else:
+            fetch_status = "INSUFFICIENT_HISTORY"
+            notes = f"Only {len(candles)} completed daily candles were returned."
+
+        buy_candidates = [candidate for candidate in candidates if candidate.line_type == "BUY"]
+        sell_candidates = [candidate for candidate in candidates if candidate.line_type == "SELL"]
+        if candidates:
+            symbols_with_candidates += 1
+        total_buy_candidates += len(buy_candidates)
+        total_sell_candidates += len(sell_candidates)
+
+        primary_buy = buy_candidates[-1] if buy_candidates else None
+        primary_sell = sell_candidates[-1] if sell_candidates else None
+        latest_candle = candles[-1] if candles else None
+        rows.append(
+            {
+                "exchange": symbol.exchange,
+                "symbol": symbol.symbol,
+                "company_name": symbol.company_name,
+                "instrument_token": instrument_token,
+                "fetch_status": fetch_status,
+                "candle_count": len(candles),
+                "latest_candle_date": latest_candle.timestamp.date().isoformat() if latest_candle else None,
+                "latest_close": round(latest_candle.close, 2) if latest_candle else None,
+                "swing_high_count": len(swing_highs),
+                "swing_low_count": len(swing_lows),
+                "buy_candidate_count": len(buy_candidates),
+                "sell_candidate_count": len(sell_candidates),
+                "primary_buy_line": round(primary_buy.line_price, 2) if primary_buy else None,
+                "primary_sell_line": round(primary_sell.line_price, 2) if primary_sell else None,
+                "notes": notes,
+            }
+        )
+
+    return {
+        "selected_watchlist": {
+            "id": str(selected_watchlist.id),
+            "name": selected_watchlist.name,
+            "exchange": selected_watchlist.exchange,
+        },
+        "summary": {
+            "total_symbols": len(symbols),
+            "history_ready": history_ready,
+            "unmapped_symbols": unmapped_symbols,
+            "fetch_errors": fetch_errors,
+            "symbols_with_candidates": symbols_with_candidates,
+            "total_buy_candidates": total_buy_candidates,
+            "total_sell_candidates": total_sell_candidates,
+        },
+        "rows": rows,
+    }
 
 
 @router.get("/dashboard/reports/overview")
