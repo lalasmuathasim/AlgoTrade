@@ -314,22 +314,21 @@ def dashboard_home() -> str:
         : "the selected watchlist";
       setBox(
         "dailyReviewStatus",
-        `Using ${selectedLabel}. ${summary.history_ready}/${summary.total_symbols} symbols returned daily history. ${summary.symbols_with_candidates} symbols produced at least one candidate line. BUY candidates: ${summary.total_buy_candidates}. SELL candidates: ${summary.total_sell_candidates}.`,
+        `Using ${selectedLabel}. ${summary.history_ready}/${summary.total_symbols} symbols returned daily history. ${summary.symbols_with_candidates} symbols produced candidate lines. Total review rows: ${summary.total_candidate_rows}. BUY candidates: ${summary.total_buy_candidates}. SELL candidates: ${summary.total_sell_candidates}.`,
         summary.fetch_errors > 0 || summary.unmapped_symbols > 0 ? "warn" : "success",
       );
       renderTable(
         document.getElementById("dailyReviewTable"),
-        ["Symbol", "History", "Candles", "Last Candle", "Swings H/L", "Buy Lines", "Sell Lines", "Primary Buy", "Primary Sell", "Notes"],
+        ["Symbol", "Line Type", "Line Price", "Line Drawn Date", "Swing 1", "Swing 2", "Gap %", "Nearest Target", "Notes"],
         review.rows.map((item) => [
           `${item.exchange}:${item.symbol}`,
-          item.fetch_status,
-          item.candle_count,
-          item.latest_candle_date ? `${item.latest_candle_date} · ${item.latest_close ?? "N/A"}` : "N/A",
-          `${item.swing_high_count}/${item.swing_low_count}`,
-          item.buy_candidate_count,
-          item.sell_candidate_count,
-          item.primary_buy_line ?? "N/A",
-          item.primary_sell_line ?? "N/A",
+          `<span class="badge">${item.line_type}</span>`,
+          item.line_price ?? "N/A",
+          item.line_drawn_date ?? "N/A",
+          item.swing_1 ? `${item.swing_1.price} · ${item.swing_1.date}` : "N/A",
+          item.swing_2 ? `${item.swing_2.price} · ${item.swing_2.date}` : "N/A",
+          item.swing_gap_percent ?? "N/A",
+          item.nearest_target ?? "N/A",
           item.notes || item.company_name || "Ready",
         ]),
       );
@@ -440,6 +439,7 @@ def dashboard_daily_line_review(db: Session = Depends(get_db)) -> dict:
                 "symbols_with_candidates": 0,
                 "total_buy_candidates": 0,
                 "total_sell_candidates": 0,
+                "total_candidate_rows": 0,
             },
             "rows": [],
         }
@@ -478,25 +478,6 @@ def dashboard_daily_line_review(db: Session = Depends(get_db)) -> dict:
         instrument_token = _resolve_instrument_token(db, symbol)
         if instrument_token is None:
             unmapped_symbols += 1
-            rows.append(
-                {
-                    "exchange": symbol.exchange,
-                    "symbol": symbol.symbol,
-                    "company_name": symbol.company_name,
-                    "instrument_token": None,
-                    "fetch_status": "UNMAPPED",
-                    "candle_count": 0,
-                    "latest_candle_date": None,
-                    "latest_close": None,
-                    "swing_high_count": 0,
-                    "swing_low_count": 0,
-                    "buy_candidate_count": 0,
-                    "sell_candidate_count": 0,
-                    "primary_buy_line": None,
-                    "primary_sell_line": None,
-                    "notes": "Instrument token is missing for this watchlist symbol.",
-                }
-            )
             continue
 
         try:
@@ -505,34 +486,13 @@ def dashboard_daily_line_review(db: Session = Depends(get_db)) -> dict:
                 instrument_token,
                 settings.daily_candle_lookback,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             fetch_errors += 1
-            rows.append(
-                {
-                    "exchange": symbol.exchange,
-                    "symbol": symbol.symbol,
-                    "company_name": symbol.company_name,
-                    "instrument_token": instrument_token,
-                    "fetch_status": "FETCH_ERROR",
-                    "candle_count": 0,
-                    "latest_candle_date": None,
-                    "latest_close": None,
-                    "swing_high_count": 0,
-                    "swing_low_count": 0,
-                    "buy_candidate_count": 0,
-                    "sell_candidate_count": 0,
-                    "primary_buy_line": None,
-                    "primary_sell_line": None,
-                    "notes": str(exc)[:180],
-                }
-            )
             continue
 
         history_ready += 1
         swing_highs, swing_lows = swing_detector.detect(candles)
         candidates = []
-        fetch_status = "READY"
-        notes = None
         if len(candles) >= (settings.swing_window * 2) + 1:
             candidates = validator.build_candidates(
                 symbol.symbol,
@@ -541,12 +501,8 @@ def dashboard_daily_line_review(db: Session = Depends(get_db)) -> dict:
                 swing_highs,
                 swing_lows,
             )
-            if not candidates:
-                fetch_status = "NO_LINES"
-                notes = "Daily history loaded but no untouched support or resistance candidates were found."
         else:
-            fetch_status = "INSUFFICIENT_HISTORY"
-            notes = f"Only {len(candles)} completed daily candles were returned."
+            continue
 
         buy_candidates = [candidate for candidate in candidates if candidate.line_type == "BUY"]
         sell_candidates = [candidate for candidate in candidates if candidate.line_type == "SELL"]
@@ -554,29 +510,44 @@ def dashboard_daily_line_review(db: Session = Depends(get_db)) -> dict:
             symbols_with_candidates += 1
         total_buy_candidates += len(buy_candidates)
         total_sell_candidates += len(sell_candidates)
+        for candidate in candidates:
+            if candidate.line_type == "BUY":
+                swing_1 = {
+                    "price": candidate.swing_high_1_price,
+                    "date": candidate.swing_high_1_date.isoformat() if candidate.swing_high_1_date else None,
+                }
+                swing_2 = {
+                    "price": candidate.swing_high_2_price,
+                    "date": candidate.swing_high_2_date.isoformat() if candidate.swing_high_2_date else None,
+                }
+                nearest_target = candidate.nearest_daily_swing_high_target
+            else:
+                swing_1 = {
+                    "price": candidate.swing_low_1_price,
+                    "date": candidate.swing_low_1_date.isoformat() if candidate.swing_low_1_date else None,
+                }
+                swing_2 = {
+                    "price": candidate.swing_low_2_price,
+                    "date": candidate.swing_low_2_date.isoformat() if candidate.swing_low_2_date else None,
+                }
+                nearest_target = candidate.nearest_daily_swing_low_target
 
-        primary_buy = buy_candidates[-1] if buy_candidates else None
-        primary_sell = sell_candidates[-1] if sell_candidates else None
-        latest_candle = candles[-1] if candles else None
-        rows.append(
-            {
-                "exchange": symbol.exchange,
-                "symbol": symbol.symbol,
-                "company_name": symbol.company_name,
-                "instrument_token": instrument_token,
-                "fetch_status": fetch_status,
-                "candle_count": len(candles),
-                "latest_candle_date": latest_candle.timestamp.date().isoformat() if latest_candle else None,
-                "latest_close": round(latest_candle.close, 2) if latest_candle else None,
-                "swing_high_count": len(swing_highs),
-                "swing_low_count": len(swing_lows),
-                "buy_candidate_count": len(buy_candidates),
-                "sell_candidate_count": len(sell_candidates),
-                "primary_buy_line": round(primary_buy.line_price, 2) if primary_buy else None,
-                "primary_sell_line": round(primary_sell.line_price, 2) if primary_sell else None,
-                "notes": notes,
-            }
-        )
+            rows.append(
+                {
+                    "exchange": symbol.exchange,
+                    "symbol": symbol.symbol,
+                    "company_name": symbol.company_name,
+                    "instrument_token": instrument_token,
+                    "line_type": candidate.line_type,
+                    "line_price": round(candidate.line_price, 2),
+                    "line_drawn_date": candidate.line_drawn_date.isoformat(),
+                    "swing_1": swing_1,
+                    "swing_2": swing_2,
+                    "swing_gap_percent": candidate.swing_gap_percent,
+                    "nearest_target": round(nearest_target, 2) if nearest_target is not None else None,
+                    "notes": candidate.notes,
+                }
+            )
 
     return {
         "selected_watchlist": {
@@ -592,6 +563,7 @@ def dashboard_daily_line_review(db: Session = Depends(get_db)) -> dict:
             "symbols_with_candidates": symbols_with_candidates,
             "total_buy_candidates": total_buy_candidates,
             "total_sell_candidates": total_sell_candidates,
+            "total_candidate_rows": len(rows),
         },
         "rows": rows,
     }

@@ -118,12 +118,12 @@ class DashboardDailyLineReviewTests(unittest.TestCase):
             payload["summary"]["total_buy_candidates"] + payload["summary"]["total_sell_candidates"],
             1,
         )
+        self.assertEqual(payload["summary"]["total_candidate_rows"], len(payload["rows"]))
+        self.assertGreaterEqual(len(payload["rows"]), 1)
         self.assertEqual(payload["rows"][0]["symbol"], "RELIANCE")
-        self.assertEqual(payload["rows"][0]["fetch_status"], "READY")
-        self.assertTrue(
-            payload["rows"][0]["primary_buy_line"] is not None
-            or payload["rows"][0]["primary_sell_line"] is not None
-        )
+        self.assertIn(payload["rows"][0]["line_type"], {"BUY", "SELL"})
+        self.assertIsNotNone(payload["rows"][0]["line_price"])
+        self.assertIsNotNone(payload["rows"][0]["line_drawn_date"])
         client.close()
 
     def test_daily_line_review_marks_unmapped_symbols_without_fetching_history(self):
@@ -149,8 +149,8 @@ class DashboardDailyLineReviewTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload["summary"]["unmapped_symbols"], 1)
-        self.assertEqual(payload["rows"][0]["fetch_status"], "UNMAPPED")
-        self.assertEqual(payload["rows"][0]["candle_count"], 0)
+        self.assertEqual(payload["summary"]["total_candidate_rows"], 0)
+        self.assertEqual(payload["rows"], [])
         client.close()
 
 
