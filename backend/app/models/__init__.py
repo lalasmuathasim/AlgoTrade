@@ -8,6 +8,7 @@ from backend.app.models.scan_tracking import ScanExecution
 from backend.app.models.trading_signals import TradingSignal
 from backend.app.models.trigger_lines import TriggerLine
 from backend.app.models.watchlists import Watchlist, WatchlistSymbol
+from backend.app.models.zerodha_auth import ZerodhaSession
 
 __all__ = [
     "BrokerOrder",
@@ -23,4 +24,5 @@ __all__ = [
     "User",
     "Watchlist",
     "WatchlistSymbol",
+    "ZerodhaSession",
 ]

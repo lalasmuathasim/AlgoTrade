@@ -32,6 +32,7 @@ from backend.app.schemas.market import (
 )
 from backend.app.schemas.paper_trading import PaperTradingSettingsPayload, PaperTradingSettingsResponse
 from backend.app.schemas.system import DailyScanRequest, InstrumentSyncRequest, InstrumentSyncResponse, TickReplayRequest
+from backend.app.schemas.zerodha import ZerodhaConnectionTestResponse
 
 __all__ = [
     "AuthStatusResponse",
@@ -68,4 +69,5 @@ __all__ = [
     "WatchlistCreatePayload",
     "WatchlistSummaryItem",
     "WatchlistSymbolCreatePayload",
+    "ZerodhaConnectionTestResponse",
 ]

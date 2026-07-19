@@ -1,8 +1,10 @@
 import logging
 from collections.abc import Callable, Iterable
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
+import hashlib
 import uuid
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy import select
@@ -16,13 +18,15 @@ from backend.app.services.watchlists import get_selected_watchlist
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+india_tz = ZoneInfo("Asia/Kolkata")
 
 
 class ZerodhaAuthService:
     login_base_url = "https://kite.zerodha.com/connect/login"
+    api_base_url = "https://api.kite.trade"
 
     def has_credentials(self) -> bool:
-        return bool(settings.zerodha_api_key and settings.zerodha_api_secret)
+        return bool(settings.zerodha_api_key and settings.zerodha_api_secret and settings.zerodha_redirect_url)
 
     def has_access_token(self) -> bool:
         return bool(settings.zerodha_access_token)
@@ -32,15 +36,68 @@ class ZerodhaAuthService:
             return None
 
         query = {"api_key": settings.zerodha_api_key, "v": 3}
-        if settings.zerodha_redirect_url:
-            query["redirect_params"] = settings.zerodha_redirect_url
         return f"{self.login_base_url}?{urlencode(query)}"
 
-    def build_auth_headers(self) -> dict[str, str]:
-        if not settings.zerodha_api_key or not settings.zerodha_access_token:
+    def build_auth_headers(self, access_token: str | None = None) -> dict[str, str]:
+        token = access_token or settings.zerodha_access_token
+        if not settings.zerodha_api_key or not token:
             raise RuntimeError("Zerodha API key or access token is not configured")
 
-        return {"Authorization": f"token {settings.zerodha_api_key}:{settings.zerodha_access_token}"}
+        return {
+            "Authorization": f"token {settings.zerodha_api_key}:{token}",
+            "X-Kite-Version": "3",
+        }
+
+    def build_session_checksum(self, request_token: str) -> str:
+        if not settings.zerodha_api_key or not settings.zerodha_api_secret:
+            raise RuntimeError("Zerodha API key or API secret is not configured")
+        payload = f"{settings.zerodha_api_key}{request_token}{settings.zerodha_api_secret}"
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def exchange_request_token(self, request_token: str) -> dict:
+        if not self.has_credentials():
+            raise RuntimeError("Zerodha credentials are not configured")
+
+        response = httpx.post(
+            f"{self.api_base_url}/session/token",
+            headers={"X-Kite-Version": "3"},
+            data={
+                "api_key": settings.zerodha_api_key,
+                "request_token": request_token,
+                "checksum": self.build_session_checksum(request_token),
+            },
+            timeout=20.0,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        data = payload.get("data")
+        if not isinstance(data, dict) or not data.get("access_token"):
+            raise RuntimeError("Unexpected Zerodha token exchange response")
+        return data
+
+    def fetch_user_profile(self, access_token: str) -> dict:
+        response = httpx.get(
+            f"{self.api_base_url}/user/profile",
+            headers=self.build_auth_headers(access_token=access_token),
+            timeout=20.0,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            raise RuntimeError("Unexpected Zerodha profile response")
+        return data
+
+    def parse_login_time(self, login_time_value: str | None) -> datetime | None:
+        if not login_time_value:
+            return None
+        parsed = datetime.strptime(login_time_value, "%Y-%m-%d %H:%M:%S")
+        return parsed.replace(tzinfo=india_tz)
+
+    def compute_access_token_expiry(self, login_time: datetime | None) -> datetime:
+        reference = login_time.astimezone(india_tz) if login_time else datetime.now(india_tz)
+        next_day = reference.date() + timedelta(days=1)
+        return datetime.combine(next_day, time(hour=6, minute=0), tzinfo=india_tz)
 
 
 class ZerodhaApiClient:

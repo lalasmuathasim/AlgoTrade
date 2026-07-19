@@ -11,6 +11,7 @@ from backend.app.routers.configuration import router as configuration_router
 from backend.app.routers.dashboard import router as dashboard_router
 from backend.app.routers.paper_trading import router as paper_trading_router
 from backend.app.routers.system import router as system_router
+from backend.app.routers.zerodha import router as zerodha_router
 
 
 settings = get_settings()
@@ -46,6 +47,7 @@ app.include_router(configuration_router)
 app.include_router(analytics_router)
 app.include_router(system_router)
 app.include_router(paper_trading_router)
+app.include_router(zerodha_router)
 
 
 @app.get("/health")

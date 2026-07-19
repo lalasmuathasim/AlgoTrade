@@ -14,6 +14,7 @@ from backend.app.models import Instrument, MarketCandle, Watchlist, WatchlistSym
 from backend.app.queue import check_redis_connectivity
 from backend.app.schemas import SymbolValidationPayload, WatchlistCreatePayload, WatchlistSymbolCreatePayload
 from backend.app.services.watchlists import ensure_selected_watchlist, set_selected_watchlist
+from backend.app.services.zerodha_sessions import get_current_zerodha_session
 from backend.app.services.zerodha import SubscriptionManager, ZerodhaAuthService
 from backend.app.ui import render_app_shell
 
@@ -134,6 +135,7 @@ def _readiness_payload(db: Session) -> dict:
         database_ok = False
 
     zerodha_auth = ZerodhaAuthService()
+    zerodha_session = get_current_zerodha_session(db)
     subscriptions = SubscriptionManager().get_active_subscriptions(db)
     instruments_count = db.scalar(
         select(func.count()).select_from(Instrument).where(Instrument.exchange.in_(["NSE", "BSE"]))
@@ -205,7 +207,7 @@ def _readiness_payload(db: Session) -> dict:
         if selected_watchlist
         else None,
         "zerodha_credentials_configured": zerodha_auth.has_credentials(),
-        "zerodha_access_token_configured": zerodha_auth.has_access_token(),
+        "zerodha_access_token_configured": bool(zerodha_session or zerodha_auth.has_access_token()),
         "zerodha_login_url": zerodha_auth.build_login_url(),
         "instrument_master_ready": active_instruments_count > 0,
         "instrument_count": int(instruments_count),
@@ -253,8 +255,12 @@ def configuration_page() -> str:
       <div class="panel">
         <h2>External Readiness</h2>
         <div id="readinessStatus" class="status-box">Checking Zerodha, Redis, and 3-minute data readiness...</div>
+        <div id="zerodhaConnectionStatus" class="status-box" style="margin-top: 12px;">Checking Zerodha connection status...</div>
+        <div id="zerodhaConnectionBadge" class="inline" style="margin-top: 10px;"></div>
         <div id="readinessPills" class="inline"></div>
         <div class="inline" style="margin-top: 12px;">
+          <button id="connectZerodhaButton" class="primary" type="button">Connect Zerodha</button>
+          <button id="testZerodhaButton" class="secondary" type="button">Test Connection</button>
           <button id="syncInstrumentsButton" class="secondary" type="button">Sync Instruments From Zerodha</button>
           <button id="refreshReadinessButton" class="secondary" type="button">Refresh Readiness</button>
         </div>
@@ -304,6 +310,49 @@ def configuration_page() -> str:
     script = """
     let cachedValidation = null;
     let cachedWatchlists = [];
+    const zerodhaStatusMessages = {
+      connected: { message: "Zerodha connection established successfully.", tone: "success" },
+      error: { message: "Zerodha login did not complete successfully.", tone: "error" },
+      not_configured: { message: "Zerodha credentials are not configured on the server.", tone: "warn" },
+      missing_request_token: { message: "Zerodha callback did not include a request token.", tone: "warn" },
+      token_exchange_failed: { message: "Zerodha token exchange failed. Please retry the connection flow.", tone: "error" },
+      callback_failed: { message: "Unexpected Zerodha callback failure. Please retry.", tone: "error" },
+    };
+
+    function renderZerodhaConnectionStatus(result) {
+      const toneMap = {
+        Connected: "success",
+        Expired: "warn",
+        "Invalid Token": "error",
+        "Not Configured": "warn",
+      };
+      const badgeClassMap = {
+        Connected: "badge",
+        Expired: "badge warn",
+        "Invalid Token": "badge danger",
+        "Not Configured": "badge warn",
+      };
+      const tone = toneMap[result.status] || "";
+      const detail = result.connected
+        ? `${result.profile_user_name || result.profile_user_id || "Connected"} · token expires ${result.access_token_expires_at ? new Date(result.access_token_expires_at).toLocaleString() : "unknown"}`
+        : `${result.status}${result.access_token_expires_at ? ` · token expiry ${new Date(result.access_token_expires_at).toLocaleString()}` : ""}`;
+      setBox("zerodhaConnectionStatus", detail, tone);
+      document.getElementById("zerodhaConnectionBadge").innerHTML = `<span class="${badgeClassMap[result.status] || "badge warn"}">${result.status}</span>`;
+    }
+
+    function applyZerodhaCallbackMessage() {
+      const params = new URLSearchParams(window.location.search);
+      const status = params.get("zerodha_status");
+      if (!status || !zerodhaStatusMessages[status]) {
+        return;
+      }
+      const { message, tone } = zerodhaStatusMessages[status];
+      setBox("zerodhaConnectionStatus", message, tone);
+      params.delete("zerodha_status");
+      const nextQuery = params.toString();
+      const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}`;
+      window.history.replaceState({}, "", nextUrl);
+    }
 
     function optionMarkup(items) {
       return items.map((item) => `<option value="${item.id}">${item.name} (${item.exchange})</option>`).join("");
@@ -438,9 +487,16 @@ def configuration_page() -> str:
       return readiness;
     }
 
+    async function loadZerodhaConnectionStatus() {
+      const result = await apiGet("/api/zerodha/test");
+      renderZerodhaConnectionStatus(result);
+      return result;
+    }
+
     async function refreshAll() {
       const [readiness, watchlists] = await Promise.all([loadReadiness(), loadWatchlists()]);
       renderConfigCards(readiness, watchlists);
+      await loadZerodhaConnectionStatus();
     }
 
     document.getElementById("createWatchlistButton").addEventListener("click", async () => {
@@ -515,7 +571,22 @@ def configuration_page() -> str:
       }
     });
 
-    refreshAll().catch((error) => {
+    document.getElementById("connectZerodhaButton").addEventListener("click", () => {
+      window.location.href = "/api/zerodha/login";
+    });
+
+    document.getElementById("testZerodhaButton").addEventListener("click", async () => {
+      try {
+        await loadZerodhaConnectionStatus();
+      } catch (error) {
+        setBox("zerodhaConnectionStatus", error.message, "error");
+      }
+    });
+
+    refreshAll().then(() => {
+      applyZerodhaCallbackMessage();
+    }).catch((error) => {
+      setBox("zerodhaConnectionStatus", "Unable to determine Zerodha connection state.", "error");
       setBox("watchlistStatus", error.message, "error");
       setBox("readinessStatus", "Unable to initialize configuration workspace.", "error");
       setBox("validationStatus", "Configuration workspace failed to initialize.", "error");
