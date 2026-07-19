@@ -31,6 +31,9 @@ class ZerodhaAuthService:
     def has_access_token(self) -> bool:
         return bool(settings.zerodha_access_token)
 
+    def resolve_access_token(self, access_token: str | None = None) -> str | None:
+        return access_token or settings.zerodha_access_token
+
     def build_login_url(self) -> str | None:
         if not settings.zerodha_api_key:
             return None
@@ -39,7 +42,7 @@ class ZerodhaAuthService:
         return f"{self.login_base_url}?{urlencode(query)}"
 
     def build_auth_headers(self, access_token: str | None = None) -> dict[str, str]:
-        token = access_token or settings.zerodha_access_token
+        token = self.resolve_access_token(access_token)
         if not settings.zerodha_api_key or not token:
             raise RuntimeError("Zerodha API key or access token is not configured")
 

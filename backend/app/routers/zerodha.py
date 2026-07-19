@@ -83,15 +83,42 @@ def zerodha_callback(
 def zerodha_test_connection(db: Session = Depends(get_db)) -> ZerodhaConnectionTestResponse:
     auth = ZerodhaAuthService()
     session = get_current_zerodha_session(db)
+    credentials_configured = auth.has_credentials()
+    token = auth.resolve_access_token(session.access_token if session else None)
+    token_present = bool(token)
 
-    if not auth.has_credentials() or session is None:
-        return ZerodhaConnectionTestResponse(status="Not Configured", connected=False)
+    if not credentials_configured:
+        return ZerodhaConnectionTestResponse(
+            status="Not Configured",
+            connected=False,
+            credentials_configured=False,
+            session_present=bool(session),
+            token_present=token_present,
+            can_connect=False,
+            can_test_connection=token_present,
+        )
 
-    if session.access_token_expires_at and session.access_token_expires_at <= datetime.now(UTC):
+    if session is None and not token_present:
+        return ZerodhaConnectionTestResponse(
+            status="Ready To Connect",
+            connected=False,
+            credentials_configured=True,
+            session_present=False,
+            token_present=False,
+            can_connect=True,
+            can_test_connection=False,
+        )
+
+    if session is not None and session.access_token_expires_at and session.access_token_expires_at <= datetime.now(UTC):
         mark_zerodha_session_status(db, session, status="EXPIRED")
         return ZerodhaConnectionTestResponse(
             status="Expired",
             connected=False,
+            credentials_configured=True,
+            session_present=True,
+            token_present=token_present,
+            can_connect=True,
+            can_test_connection=token_present,
             login_time=session.login_time,
             access_token_expires_at=session.access_token_expires_at,
             profile_user_id=session.profile_user_id,
@@ -100,30 +127,41 @@ def zerodha_test_connection(db: Session = Depends(get_db)) -> ZerodhaConnectionT
         )
 
     try:
-        profile = auth.fetch_user_profile(session.access_token)
-        mark_zerodha_session_status(db, session, status="CONNECTED")
+        profile = auth.fetch_user_profile(token)
+        if session is not None:
+            mark_zerodha_session_status(db, session, status="CONNECTED")
         return ZerodhaConnectionTestResponse(
             status="Connected",
             connected=True,
-            login_time=session.login_time,
-            access_token_expires_at=session.access_token_expires_at,
-            profile_user_id=profile.get("user_id") or session.profile_user_id,
-            profile_user_name=profile.get("user_name") or session.profile_user_name,
-            profile_email=profile.get("email") or session.profile_email,
+            credentials_configured=True,
+            session_present=session is not None,
+            token_present=True,
+            can_connect=True,
+            can_test_connection=True,
+            login_time=session.login_time if session else None,
+            access_token_expires_at=session.access_token_expires_at if session else None,
+            profile_user_id=profile.get("user_id") or (session.profile_user_id if session else None),
+            profile_user_name=profile.get("user_name") or (session.profile_user_name if session else None),
+            profile_email=profile.get("email") or (session.profile_email if session else None),
         )
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code in {401, 403}:
-            mark_zerodha_session_status(db, session, status="INVALID_TOKEN")
+            if session is not None:
+                mark_zerodha_session_status(db, session, status="INVALID_TOKEN")
             return ZerodhaConnectionTestResponse(
                 status="Invalid Token",
                 connected=False,
-                login_time=session.login_time,
-                access_token_expires_at=session.access_token_expires_at,
-                profile_user_id=session.profile_user_id,
-                profile_user_name=session.profile_user_name,
-                profile_email=session.profile_email,
+                credentials_configured=True,
+                session_present=session is not None,
+                token_present=True,
+                can_connect=True,
+                can_test_connection=True,
+                login_time=session.login_time if session else None,
+                access_token_expires_at=session.access_token_expires_at if session else None,
+                profile_user_id=session.profile_user_id if session else None,
+                profile_user_name=session.profile_user_name if session else None,
+                profile_email=session.profile_email if session else None,
             )
         raise HTTPException(status_code=502, detail="Unable to reach Zerodha profile API") from exc
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="Unable to reach Zerodha profile API") from exc
-

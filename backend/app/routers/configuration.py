@@ -136,6 +136,14 @@ def _readiness_payload(db: Session) -> dict:
 
     zerodha_auth = ZerodhaAuthService()
     zerodha_session = get_current_zerodha_session(db)
+    zerodha_token_present = bool(zerodha_session or zerodha_auth.has_access_token())
+    zerodha_connection_state = (
+        zerodha_session.status
+        if zerodha_session is not None
+        else "READY_TO_CONNECT"
+        if zerodha_auth.has_credentials()
+        else "NOT_CONFIGURED"
+    )
     subscriptions = SubscriptionManager().get_active_subscriptions(db)
     instruments_count = db.scalar(
         select(func.count()).select_from(Instrument).where(Instrument.exchange.in_(["NSE", "BSE"]))
@@ -207,8 +215,18 @@ def _readiness_payload(db: Session) -> dict:
         if selected_watchlist
         else None,
         "zerodha_credentials_configured": zerodha_auth.has_credentials(),
-        "zerodha_access_token_configured": bool(zerodha_session or zerodha_auth.has_access_token()),
+        "zerodha_access_token_configured": zerodha_token_present,
+        "zerodha_connection_state": zerodha_connection_state,
+        "zerodha_can_connect": zerodha_auth.has_credentials(),
+        "zerodha_profile_test_ready": zerodha_token_present,
         "zerodha_login_url": zerodha_auth.build_login_url(),
+        "zerodha_login_time": zerodha_session.login_time.isoformat() if zerodha_session and zerodha_session.login_time else None,
+        "zerodha_access_token_expires_at": zerodha_session.access_token_expires_at.isoformat()
+        if zerodha_session and zerodha_session.access_token_expires_at
+        else None,
+        "zerodha_last_validated_at": zerodha_session.last_validated_at.isoformat()
+        if zerodha_session and zerodha_session.last_validated_at
+        else None,
         "instrument_master_ready": active_instruments_count > 0,
         "instrument_count": int(instruments_count),
         "active_instrument_count": int(active_instruments_count),
@@ -218,7 +236,7 @@ def _readiness_payload(db: Session) -> dict:
         "unmapped_symbol_count": watched_symbol_count - mapped_symbol_count,
         "unmapped_symbols": unmapped_symbols[:20],
         "active_subscription_count": len(subscriptions),
-        "live_engine_ready": zerodha_auth.has_access_token() and mapped_symbol_count > 0,
+        "live_engine_ready": zerodha_token_present and mapped_symbol_count > 0,
         "three_minute_volume_ready": symbols_with_recent_candles > 0,
         "symbols_with_recent_3minute_data": symbols_with_recent_candles,
         "latest_3minute_candle_at": latest_three_minute_candle.isoformat() if latest_three_minute_candle else None,
@@ -322,12 +340,14 @@ def configuration_page() -> str:
     function renderZerodhaConnectionStatus(result) {
       const toneMap = {
         Connected: "success",
+        "Ready To Connect": "warn",
         Expired: "warn",
         "Invalid Token": "error",
         "Not Configured": "warn",
       };
       const badgeClassMap = {
         Connected: "badge",
+        "Ready To Connect": "badge warn",
         Expired: "badge warn",
         "Invalid Token": "badge danger",
         "Not Configured": "badge warn",
@@ -335,9 +355,12 @@ def configuration_page() -> str:
       const tone = toneMap[result.status] || "";
       const detail = result.connected
         ? `${result.profile_user_name || result.profile_user_id || "Connected"} · token expires ${result.access_token_expires_at ? new Date(result.access_token_expires_at).toLocaleString() : "unknown"}`
-        : `${result.status}${result.access_token_expires_at ? ` · token expiry ${new Date(result.access_token_expires_at).toLocaleString()}` : ""}`;
+        : result.status === "Ready To Connect"
+          ? "Zerodha credentials are configured. Use Connect Zerodha to complete login and create a testable session."
+          : `${result.status}${result.access_token_expires_at ? ` · token expiry ${new Date(result.access_token_expires_at).toLocaleString()}` : ""}`;
       setBox("zerodhaConnectionStatus", detail, tone);
       document.getElementById("zerodhaConnectionBadge").innerHTML = `<span class="${badgeClassMap[result.status] || "badge warn"}">${result.status}</span>`;
+      document.getElementById("testZerodhaButton").disabled = !result.can_connect;
     }
 
     function applyZerodhaCallbackMessage() {
@@ -408,18 +431,24 @@ def configuration_page() -> str:
       );
     }
 
-    function renderReadiness(readiness) {
+    function renderReadiness(readiness, zerodhaStatus) {
       const tone = readiness.database_connected && readiness.redis_connected && readiness.live_engine_ready
         ? "success"
         : readiness.database_connected && readiness.redis_connected
           ? "warn"
           : "error";
+      const zerodhaSummary = zerodhaStatus
+        ? `Zerodha ${zerodhaStatus.status.toLowerCase()} · connect ${zerodhaStatus.can_connect ? "ready" : "blocked"} · profile test ${zerodhaStatus.can_test_connection ? "ready" : "pending login"}`
+        : `Zerodha ${readiness.zerodha_connection_state.toLowerCase().replaceAll("_", " ")} · connect ${readiness.zerodha_can_connect ? "ready" : "blocked"} · profile test ${readiness.zerodha_profile_test_ready ? "ready" : "pending login"}`;
       setBox(
         "readinessStatus",
-        `${readiness.selected_watchlist ? `Using ${readiness.selected_watchlist.name} · ` : ""}DB ${readiness.database_connected ? "connected" : "down"} · Redis ${readiness.redis_connected ? "connected" : "down"} · Zerodha token ${readiness.zerodha_access_token_configured ? "present" : "missing"} · ${readiness.symbols_with_recent_3minute_data}/${readiness.watched_symbol_count} watched symbols have recent 3-minute candle data.`,
+        `${readiness.selected_watchlist ? `Using ${readiness.selected_watchlist.name} · ` : ""}DB ${readiness.database_connected ? "connected" : "down"} · Redis ${readiness.redis_connected ? "connected" : "down"} · ${zerodhaSummary} · ${readiness.symbols_with_recent_3minute_data}/${readiness.watched_symbol_count} watched symbols have recent 3-minute candle data.`,
         tone,
       );
       const pillData = [
+        ["Zerodha credentials", readiness.zerodha_credentials_configured],
+        ["Connect flow", readiness.zerodha_can_connect],
+        ["Profile test", readiness.zerodha_profile_test_ready],
         ["Instrument sync", readiness.instrument_master_ready],
         ["Token ready", readiness.zerodha_access_token_configured],
         ["Mapped watchlist", readiness.mapped_symbol_count > 0 && readiness.unmapped_symbol_count === 0],
@@ -483,7 +512,6 @@ def configuration_page() -> str:
 
     async function loadReadiness() {
       const readiness = await apiGet("/configuration/readiness");
-      renderReadiness(readiness);
       return readiness;
     }
 
@@ -494,9 +522,13 @@ def configuration_page() -> str:
     }
 
     async function refreshAll() {
-      const [readiness, watchlists] = await Promise.all([loadReadiness(), loadWatchlists()]);
+      const [readiness, watchlists, zerodhaStatus] = await Promise.all([
+        loadReadiness(),
+        loadWatchlists(),
+        loadZerodhaConnectionStatus(),
+      ]);
+      renderReadiness(readiness, zerodhaStatus);
       renderConfigCards(readiness, watchlists);
-      await loadZerodhaConnectionStatus();
     }
 
     document.getElementById("createWatchlistButton").addEventListener("click", async () => {
@@ -577,7 +609,8 @@ def configuration_page() -> str:
 
     document.getElementById("testZerodhaButton").addEventListener("click", async () => {
       try {
-        await loadZerodhaConnectionStatus();
+        const [readiness, zerodhaStatus] = await Promise.all([loadReadiness(), loadZerodhaConnectionStatus()]);
+        renderReadiness(readiness, zerodhaStatus);
       } catch (error) {
         setBox("zerodhaConnectionStatus", error.message, "error");
       }

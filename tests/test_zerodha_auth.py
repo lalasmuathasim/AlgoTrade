@@ -134,8 +134,25 @@ class ZerodhaAuthTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "Connected")
         self.assertTrue(response.json()["connected"])
+        self.assertTrue(response.json()["credentials_configured"])
+        self.assertTrue(response.json()["can_connect"])
+        self.assertTrue(response.json()["can_test_connection"])
         mock_profile.assert_called_once_with("stored-access-token")
         mock_mark.assert_called_once()
+
+    def test_connection_test_returns_ready_to_connect_when_credentials_exist_but_no_session(self):
+        with (
+            patch("backend.app.routers.zerodha.get_current_zerodha_session", return_value=None),
+            patch("backend.app.routers.zerodha.ZerodhaAuthService.resolve_access_token", return_value=None),
+        ):
+            response = self.client.get("/api/zerodha/test")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "Ready To Connect")
+        self.assertFalse(response.json()["connected"])
+        self.assertTrue(response.json()["credentials_configured"])
+        self.assertTrue(response.json()["can_connect"])
+        self.assertFalse(response.json()["can_test_connection"])
 
     def test_connection_test_returns_expired_when_stored_token_is_past_expiry(self):
         session = ZerodhaSession(
