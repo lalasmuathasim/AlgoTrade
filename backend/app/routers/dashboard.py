@@ -11,14 +11,11 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from backend.app.config import get_settings
-from backend.app.dependencies import require_approved_user
+from backend.app.dependencies import require_admin_user, require_approved_user
 from backend.app.database import get_db
-from backend.app.models import BreakoutEvent, Instrument, PaperTrade, TradingSignal, TriggerLine, Watchlist, WatchlistSymbol
-from backend.app.services.market_scanner import SwingDetector, UntouchedLevelValidator
-from backend.app.services.paper_trading_service import ensure_settings
+from backend.app.models import BreakoutEvent, Instrument, PaperTrade, ScanExecution, TradingSignal, TriggerLine, Watchlist, WatchlistSymbol
+from backend.app.services.market_scanner import DailyMarketScanner
 from backend.app.services.watchlists import get_selected_watchlist
-from backend.app.services.zerodha import HistoricalCandleProvider, ZerodhaApiClient, ZerodhaAuthService
-from backend.app.services.zerodha_sessions import get_current_zerodha_access_token
 from backend.app.ui import render_app_shell
 
 
@@ -199,7 +196,7 @@ def dashboard_home() -> str:
           </div>
           <div class="badge">Review</div>
         </div>
-        <div id="dashboardStatus" class="status-box">Loading market structure review...</div>
+        <div id="dashboardStatus" class="status-box">Loading stored market structure review...</div>
         <div class="stack">
           <div class="inline">
             <a class="button secondary" href="/dashboard/reports/daily-line-review">Daily Line Review API</a>
@@ -239,11 +236,11 @@ def dashboard_home() -> str:
       <div class="panel-header">
         <div>
           <h2>Market Structure Table</h2>
-          <p class="panel-copy">The daily structure output for the selected watchlist using the current runtime tuning values.</p>
+          <p class="panel-copy">Stored market structure rows from PostgreSQL. They refresh after the scheduled post-market scan or when you explicitly update the table.</p>
         </div>
-        <button id="refreshDailyReviewButton" class="secondary" type="button">Refresh Daily Review</button>
+        <button id="refreshDailyReviewButton" class="secondary" type="button">Update Table</button>
       </div>
-      <div id="dailyReviewStatus" class="status-box">Waiting to check Zerodha daily historical access for the active watchlist...</div>
+      <div id="dailyReviewStatus" class="status-box">Loading stored market structure rows for the active watchlist...</div>
       <table id="dailyReviewTable"></table>
     </section>
     """
@@ -259,7 +256,7 @@ def dashboard_home() -> str:
     }
 
     async function loadDailyLineReview() {
-      setBox("dailyReviewStatus", "Reviewing Zerodha daily candles and line candidates for the selected watchlist...", "");
+      setBox("dailyReviewStatus", "Loading stored market structure rows from PostgreSQL...", "");
       const review = await apiGet("/dashboard/reports/daily-line-review");
       const summary = review.summary;
       const selectedLabel = review.selected_watchlist
@@ -267,8 +264,8 @@ def dashboard_home() -> str:
         : "the selected watchlist";
       setBox(
         "dailyReviewStatus",
-        `Using ${selectedLabel}. ${summary.history_ready}/${summary.total_symbols} symbols returned daily history. ${summary.symbols_with_candidates} symbols produced candidate lines. Total review rows: ${summary.total_candidate_rows}. BUY candidates: ${summary.total_buy_candidates}. SELL candidates: ${summary.total_sell_candidates}.`,
-        summary.fetch_errors > 0 || summary.unmapped_symbols > 0 ? "warn" : "success",
+        `Using ${selectedLabel}. ${summary.total_candidate_rows} stored rows across ${summary.symbols_with_lines} symbols. ${summary.unmapped_symbols} configured symbols are still unmapped. Last scan: ${summary.last_scan_finished_at ? new Date(summary.last_scan_finished_at).toLocaleString() : "not run yet"}${summary.last_scan_status ? ` · ${summary.last_scan_status}` : ""}.`,
+        summary.total_candidate_rows > 0 ? "success" : "warn",
       );
       renderTable(
         document.getElementById("dailyReviewTable"),
@@ -285,6 +282,17 @@ def dashboard_home() -> str:
         ]),
       );
       return review;
+    }
+
+    async function updateDailyReview() {
+      setBox("dailyReviewStatus", "Running daily scan and updating stored market structure rows...", "");
+      const result = await apiSend("/dashboard/reports/daily-line-review/refresh", "POST", {});
+      setBox(
+        "dailyReviewStatus",
+        `Update complete. ${result.symbols_scanned} symbols scanned, ${result.trigger_lines_created} lines created, ${result.trigger_lines_updated} lines updated.`,
+        result.status === "COMPLETED" ? "success" : "warn",
+      );
+      return result;
     }
 
     async function init() {
@@ -306,6 +314,7 @@ def dashboard_home() -> str:
 
     document.getElementById("refreshDailyReviewButton").addEventListener("click", async () => {
       try {
+        await updateDailyReview();
         await loadDailyLineReview();
       } catch (error) {
         setBox("dailyReviewStatus", error.message, "error");
@@ -334,35 +343,14 @@ def dashboard_daily_line_review(db: Session = Depends(get_db)) -> dict:
             "selected_watchlist": None,
             "summary": {
                 "total_symbols": 0,
-                "history_ready": 0,
                 "unmapped_symbols": 0,
-                "fetch_errors": 0,
-                "symbols_with_candidates": 0,
-                "total_buy_candidates": 0,
-                "total_sell_candidates": 0,
+                "symbols_with_lines": 0,
                 "total_candidate_rows": 0,
+                "last_scan_status": None,
+                "last_scan_finished_at": None,
             },
             "rows": [],
         }
-
-    access_token = get_current_zerodha_access_token(db) or settings.zerodha_access_token
-    if not settings.zerodha_api_key or not access_token:
-        raise HTTPException(status_code=503, detail="Zerodha daily historical access is not ready")
-
-    provider = HistoricalCandleProvider(
-        client=ZerodhaApiClient(
-            auth_service=ZerodhaAuthService(),
-            access_token=access_token,
-        )
-    )
-    runtime_settings = ensure_settings(db)
-    swing_detector = SwingDetector(window=runtime_settings.swing_window)
-    validator = UntouchedLevelValidator(
-        swing_window=runtime_settings.swing_window,
-        daily_candle_lookback=runtime_settings.daily_candle_lookback,
-        max_gap_percent=runtime_settings.max_gap_percent,
-        min_swing_distance=runtime_settings.min_swing_distance,
-    )
 
     symbols = db.scalars(
         select(WatchlistSymbol)
@@ -372,89 +360,57 @@ def dashboard_daily_line_review(db: Session = Depends(get_db)) -> dict:
         )
         .order_by(WatchlistSymbol.symbol)
     ).all()
+    lines = db.scalars(
+        select(TriggerLine)
+        .where(
+            TriggerLine.watchlist_id == selected_watchlist_id,
+            TriggerLine.line_status == "ACTIVE",
+        )
+        .order_by(TriggerLine.symbol, TriggerLine.line_type, desc(TriggerLine.line_drawn_date), desc(TriggerLine.updated_at))
+    ).all()
+    latest_scan = db.scalar(
+        select(ScanExecution)
+        .where(ScanExecution.scan_name == "daily_market_scan")
+        .order_by(desc(ScanExecution.finished_at), desc(ScanExecution.created_at))
+        .limit(1)
+    )
 
     rows: list[dict] = []
-    history_ready = 0
-    unmapped_symbols = 0
-    fetch_errors = 0
-    symbols_with_candidates = 0
-    total_buy_candidates = 0
-    total_sell_candidates = 0
-
-    for symbol in symbols:
-        instrument_token = _resolve_instrument_token(db, symbol)
-        if instrument_token is None:
-            unmapped_symbols += 1
-            continue
-
-        try:
-            candles = provider.fetch_last_n_completed_daily_candles(
-                symbol.symbol,
-                instrument_token,
-                runtime_settings.daily_candle_lookback,
-            )
-        except Exception:  # noqa: BLE001
-            fetch_errors += 1
-            continue
-
-        history_ready += 1
-        swing_highs, swing_lows = swing_detector.detect(candles)
-        candidates = []
-        if len(candles) >= (runtime_settings.swing_window * 2) + 1:
-            candidates = validator.build_candidates(
-                symbol.symbol,
-                symbol.exchange,
-                candles,
-                swing_highs,
-                swing_lows,
-            )
+    for line in lines:
+        if line.line_type == "BUY":
+            swing_1 = {
+                "price": line.swing_high_1_price,
+                "date": line.swing_high_1_date.isoformat() if line.swing_high_1_date else None,
+            }
+            swing_2 = {
+                "price": line.swing_high_2_price,
+                "date": line.swing_high_2_date.isoformat() if line.swing_high_2_date else None,
+            }
+            nearest_target = line.nearest_daily_swing_high_target
         else:
-            continue
+            swing_1 = {
+                "price": line.swing_low_1_price,
+                "date": line.swing_low_1_date.isoformat() if line.swing_low_1_date else None,
+            }
+            swing_2 = {
+                "price": line.swing_low_2_price,
+                "date": line.swing_low_2_date.isoformat() if line.swing_low_2_date else None,
+            }
+            nearest_target = line.nearest_daily_swing_low_target
 
-        buy_candidates = [candidate for candidate in candidates if candidate.line_type == "BUY"]
-        sell_candidates = [candidate for candidate in candidates if candidate.line_type == "SELL"]
-        if candidates:
-            symbols_with_candidates += 1
-        total_buy_candidates += len(buy_candidates)
-        total_sell_candidates += len(sell_candidates)
-        for candidate in candidates:
-            if candidate.line_type == "BUY":
-                swing_1 = {
-                    "price": candidate.swing_high_1_price,
-                    "date": candidate.swing_high_1_date.isoformat() if candidate.swing_high_1_date else None,
-                }
-                swing_2 = {
-                    "price": candidate.swing_high_2_price,
-                    "date": candidate.swing_high_2_date.isoformat() if candidate.swing_high_2_date else None,
-                }
-                nearest_target = candidate.nearest_daily_swing_high_target
-            else:
-                swing_1 = {
-                    "price": candidate.swing_low_1_price,
-                    "date": candidate.swing_low_1_date.isoformat() if candidate.swing_low_1_date else None,
-                }
-                swing_2 = {
-                    "price": candidate.swing_low_2_price,
-                    "date": candidate.swing_low_2_date.isoformat() if candidate.swing_low_2_date else None,
-                }
-                nearest_target = candidate.nearest_daily_swing_low_target
-
-            rows.append(
-                {
-                    "exchange": symbol.exchange,
-                    "symbol": symbol.symbol,
-                    "company_name": symbol.company_name,
-                    "instrument_token": instrument_token,
-                    "line_type": candidate.line_type,
-                    "line_price": round(candidate.line_price, 2),
-                    "line_drawn_date": candidate.line_drawn_date.isoformat(),
-                    "swing_1": swing_1,
-                    "swing_2": swing_2,
-                    "swing_gap_percent": candidate.swing_gap_percent,
-                    "nearest_target": round(nearest_target, 2) if nearest_target is not None else None,
-                    "notes": candidate.notes,
-                }
-            )
+        rows.append(
+            {
+                "exchange": line.exchange,
+                "symbol": line.symbol,
+                "line_type": line.line_type,
+                "line_price": round(line.line_price, 2) if line.line_price is not None else None,
+                "line_drawn_date": line.line_drawn_date.isoformat() if line.line_drawn_date else None,
+                "swing_1": swing_1,
+                "swing_2": swing_2,
+                "swing_gap_percent": line.swing_gap_percent,
+                "nearest_target": round(nearest_target, 2) if nearest_target is not None else None,
+            }
+        )
 
     return {
         "selected_watchlist": {
@@ -464,15 +420,35 @@ def dashboard_daily_line_review(db: Session = Depends(get_db)) -> dict:
         },
         "summary": {
             "total_symbols": len(symbols),
-            "history_ready": history_ready,
-            "unmapped_symbols": unmapped_symbols,
-            "fetch_errors": fetch_errors,
-            "symbols_with_candidates": symbols_with_candidates,
-            "total_buy_candidates": total_buy_candidates,
-            "total_sell_candidates": total_sell_candidates,
+            "unmapped_symbols": sum(1 for symbol in symbols if _resolve_instrument_token(db, symbol) is None),
+            "symbols_with_lines": len({(row["exchange"], row["symbol"]) for row in rows}),
             "total_candidate_rows": len(rows),
+            "last_scan_status": latest_scan.status if latest_scan else None,
+            "last_scan_finished_at": _serialize_datetime(latest_scan.finished_at) if latest_scan else None,
         },
         "rows": rows,
+    }
+
+
+@router.post("/dashboard/reports/daily-line-review/refresh", dependencies=[Depends(require_admin_user)])
+def refresh_dashboard_daily_line_review(db: Session = Depends(get_db)) -> dict:
+    selected_watchlist, selected_watchlist_id = _selected_watchlist_filter(db)
+    if selected_watchlist_id is None:
+        raise HTTPException(status_code=404, detail="No watchlist is currently selected")
+
+    scanner = DailyMarketScanner()
+    execution = scanner.run(
+        db,
+        watchlist_id=selected_watchlist_id,
+        scan_date=datetime.now(UTC).date(),
+        dry_run=False,
+    )
+    return {
+        "execution_id": str(execution.id),
+        "status": execution.status,
+        "symbols_scanned": execution.symbols_scanned,
+        "trigger_lines_created": execution.trigger_lines_created,
+        "trigger_lines_updated": execution.trigger_lines_updated,
     }
 
 
