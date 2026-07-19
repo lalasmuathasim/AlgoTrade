@@ -328,6 +328,8 @@ def configuration_page() -> str:
     script = """
     let cachedValidation = null;
     let cachedWatchlists = [];
+    let latestReadiness = null;
+    let latestZerodhaStatus = null;
     const zerodhaStatusMessages = {
       connected: { message: "Zerodha connection established successfully.", tone: "success" },
       error: { message: "Zerodha login did not complete successfully.", tone: "error" },
@@ -381,6 +383,13 @@ def configuration_page() -> str:
       return items.map((item) => `<option value="${item.id}">${item.name} (${item.exchange})</option>`).join("");
     }
 
+    function scrollToSection(selector) {
+      const element = document.querySelector(selector);
+      if (element) {
+        element.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+
     function renderConfigCards(readiness, watchlists) {
       const totalSymbols = watchlists.reduce((sum, item) => sum + item.symbol_count, 0);
       const mappedSymbols = watchlists.reduce((sum, item) => sum + item.mapped_symbol_count, 0);
@@ -432,6 +441,8 @@ def configuration_page() -> str:
     }
 
     function renderReadiness(readiness, zerodhaStatus) {
+      latestReadiness = readiness;
+      latestZerodhaStatus = zerodhaStatus;
       const tone = readiness.database_connected && readiness.redis_connected && readiness.live_engine_ready
         ? "success"
         : readiness.database_connected && readiness.redis_connected
@@ -446,18 +457,23 @@ def configuration_page() -> str:
         tone,
       );
       const pillData = [
-        ["Zerodha credentials", readiness.zerodha_credentials_configured],
-        ["Connect flow", readiness.zerodha_can_connect],
-        ["Profile test", readiness.zerodha_profile_test_ready],
-        ["Instrument sync", readiness.instrument_master_ready],
-        ["Token ready", readiness.zerodha_access_token_configured],
-        ["Mapped watchlist", readiness.mapped_symbol_count > 0 && readiness.unmapped_symbol_count === 0],
-        ["Live-engine ready", readiness.live_engine_ready],
-        ["3-minute volume", readiness.three_minute_volume_ready],
+        ["zerodha-credentials", "Zerodha credentials", readiness.zerodha_credentials_configured],
+        ["connect-flow", "Connect flow", readiness.zerodha_can_connect],
+        ["profile-test", "Profile test", readiness.zerodha_profile_test_ready],
+        ["instrument-sync", "Instrument sync", readiness.instrument_master_ready],
+        ["token-ready", "Token ready", readiness.zerodha_access_token_configured],
+        ["mapped-watchlist", "Mapped watchlist", readiness.mapped_symbol_count > 0 && readiness.unmapped_symbol_count === 0],
+        ["live-engine-ready", "Live-engine ready", readiness.live_engine_ready],
+        ["three-minute-volume", "3-minute volume", readiness.three_minute_volume_ready],
       ];
-      document.getElementById("readinessPills").innerHTML = pillData.map(([label, ok]) => `
-        <span class="pill"><span class="badge ${ok ? "" : "warn"}">${ok ? "READY" : "CHECK"}</span>${label}</span>
+      document.getElementById("readinessPills").innerHTML = pillData.map(([key, label, ok]) => `
+        <button class="pill-button" type="button" data-readiness-action="${key}">
+          <span class="badge ${ok ? "" : "warn"}">${ok ? "READY" : "CHECK"}</span>${label}
+        </button>
       `).join("");
+      document.querySelectorAll("[data-readiness-action]").forEach((element) => {
+        element.addEventListener("click", handleReadinessAction);
+      });
       renderTable(
         document.getElementById("symbolActivityTable"),
         ["Symbol", "Token", "Latest 3-Min Candle", "Volume"],
@@ -468,6 +484,102 @@ def configuration_page() -> str:
           row.latest_3minute_volume ?? "N/A",
         ]),
       );
+    }
+
+    async function handleReadinessAction(event) {
+      const action = event.currentTarget.dataset.readinessAction;
+      if (!latestReadiness) {
+        return;
+      }
+
+      if (action === "zerodha-credentials") {
+        setBox(
+          "readinessStatus",
+          latestReadiness.zerodha_credentials_configured
+            ? "Zerodha credentials are present in the running backend environment."
+            : "Zerodha credentials are missing in the running backend environment. Redeploy after updating secrets.",
+          latestReadiness.zerodha_credentials_configured ? "success" : "error",
+        );
+        return;
+      }
+
+      if (action === "connect-flow") {
+        if (latestReadiness.zerodha_can_connect) {
+          window.location.href = "/api/zerodha/login";
+        } else {
+          setBox("readinessStatus", "Connect flow is blocked because Zerodha credentials are not configured on the backend.", "error");
+        }
+        return;
+      }
+
+      if (action === "profile-test") {
+        if (!latestReadiness.zerodha_can_connect) {
+          setBox("readinessStatus", "Profile test is unavailable until Zerodha credentials are configured.", "error");
+          return;
+        }
+        try {
+          const [readiness, zerodhaStatus] = await Promise.all([loadReadiness(), loadZerodhaConnectionStatus()]);
+          renderReadiness(readiness, zerodhaStatus);
+          setBox(
+            "readinessStatus",
+            `Zerodha profile test completed with status ${zerodhaStatus.status}.`,
+            zerodhaStatus.connected ? "success" : "warn",
+          );
+        } catch (error) {
+          setBox("readinessStatus", error.message, "error");
+        }
+        return;
+      }
+
+      if (action === "instrument-sync") {
+        document.getElementById("syncInstrumentsButton").click();
+        return;
+      }
+
+      if (action === "token-ready") {
+        if (latestReadiness.zerodha_access_token_configured) {
+          setBox("readinessStatus", "A Zerodha access token is available to the backend runtime.", "success");
+        } else if (latestReadiness.zerodha_can_connect) {
+          window.location.href = "/api/zerodha/login";
+        } else {
+          setBox("readinessStatus", "Token readiness is blocked until Zerodha credentials are configured.", "error");
+        }
+        return;
+      }
+
+      if (action === "mapped-watchlist") {
+        scrollToSection("#watchlistsTable");
+        setBox(
+          "watchlistStatus",
+          latestReadiness.mapped_symbol_count > 0 && latestReadiness.unmapped_symbol_count === 0
+            ? "All symbols in the active watchlist are mapped to instrument tokens."
+            : "Some watchlist symbols are not mapped yet. Review the watchlist and validate/sync symbols.",
+          latestReadiness.mapped_symbol_count > 0 && latestReadiness.unmapped_symbol_count === 0 ? "success" : "warn",
+        );
+        return;
+      }
+
+      if (action === "live-engine-ready") {
+        setBox(
+          "readinessStatus",
+          latestReadiness.live_engine_ready
+            ? "Live engine prerequisites are satisfied for subscriptions and monitoring."
+            : "Live engine is waiting for both a Zerodha token and fully mapped watchlist symbols.",
+          latestReadiness.live_engine_ready ? "success" : "warn",
+        );
+        return;
+      }
+
+      if (action === "three-minute-volume") {
+        scrollToSection("#symbolActivityTable");
+        setBox(
+          "readinessStatus",
+          latestReadiness.three_minute_volume_ready
+            ? "Recent 3-minute candle data is available for at least one watched symbol."
+            : "No recent 3-minute candle data is available yet. Check Zerodha login, subscriptions, and market hours.",
+          latestReadiness.three_minute_volume_ready ? "success" : "warn",
+        );
+      }
     }
 
     function renderValidation(result) {

@@ -290,6 +290,27 @@ def render_app_shell(
       color: var(--line);
       font-size: 0.88rem;
     }}
+    .pill-button {{
+      border: none;
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(22,51,47,0.06);
+      color: var(--line);
+      font-size: 0.88rem;
+      cursor: pointer;
+    }}
+    .pill-button:hover {{
+      transform: translateY(-1px);
+      background: rgba(22,51,47,0.1);
+    }}
+    .pill-button:disabled {{
+      cursor: not-allowed;
+      opacity: 0.72;
+      transform: none;
+    }}
     .two-col {{
       display: grid;
       grid-template-columns: 1fr 1fr;
