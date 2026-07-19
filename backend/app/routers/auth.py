@@ -126,16 +126,16 @@ def landing_page() -> str:
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-height: 76px;
-      padding: 0 28px;
-      border-radius: 22px;
+      min-height: 58px;
+      padding: 0 20px;
+      border-radius: 18px;
       border: 1px solid transparent;
       color: #26405f;
       text-decoration: none;
       font-family: "Space Grotesk", "Avenir Next", sans-serif;
-      font-size: clamp(1.05rem, 1.6vw, 1.45rem);
-      font-weight: 700;
-      letter-spacing: -0.03em;
+      font-size: clamp(0.94rem, 1.15vw, 1.15rem);
+      font-weight: 600;
+      letter-spacing: -0.02em;
       transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
     }
     .workspace-link:hover {
@@ -431,9 +431,9 @@ def landing_page() -> str:
       .masthead { grid-template-columns: 1fr; align-items: start; padding-bottom: 4px; }
       .workspace-nav { justify-content: flex-start; }
       .workspace-link {
-        min-height: 56px;
-        padding: 0 18px;
-        border-radius: 18px;
+        min-height: 48px;
+        padding: 0 16px;
+        border-radius: 14px;
       }
     }
   </style>
