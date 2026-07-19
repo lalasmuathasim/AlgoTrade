@@ -108,11 +108,12 @@ class ZerodhaAuthService:
 class ZerodhaApiClient:
     base_url = "https://api.kite.trade"
 
-    def __init__(self, auth_service: ZerodhaAuthService | None = None) -> None:
+    def __init__(self, auth_service: ZerodhaAuthService | None = None, access_token: str | None = None) -> None:
         self.auth_service = auth_service or ZerodhaAuthService()
+        self.access_token = access_token
 
     def _get(self, path: str, params: dict | None = None) -> dict:
-        headers = self.auth_service.build_auth_headers()
+        headers = self.auth_service.build_auth_headers(access_token=self.access_token)
         with httpx.Client(timeout=20.0) as client:
             response = client.get(f"{self.base_url}{path}", headers=headers, params=params)
             response.raise_for_status()
@@ -153,13 +154,24 @@ class ZerodhaApiClient:
 
     def fetch_exchange_instruments(self, exchange: str | None = None) -> list[InstrumentPayload]:
         path = f"/instruments/{exchange}" if exchange else "/instruments"
-        headers = self.auth_service.build_auth_headers()
-        response = httpx.get(
-            f"{self.base_url}{path}",
-            headers=headers,
-            timeout=40.0,
-        )
-        response.raise_for_status()
+        headers = self.auth_service.build_auth_headers(access_token=self.access_token)
+        try:
+            response = httpx.get(
+                f"{self.base_url}{path}",
+                headers=headers,
+                timeout=40.0,
+            )
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            if exchange and exc.response.status_code == 405:
+                response = httpx.get(
+                    f"{self.base_url}/instruments",
+                    headers=headers,
+                    timeout=40.0,
+                )
+                response.raise_for_status()
+            else:
+                raise
 
         reader = csv.DictReader(io.StringIO(response.text))
         instruments: list[InstrumentPayload] = []

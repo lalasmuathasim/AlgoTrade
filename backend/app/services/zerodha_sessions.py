@@ -11,6 +11,11 @@ def get_current_zerodha_session(db: Session) -> ZerodhaSession | None:
     return db.scalar(select(ZerodhaSession).order_by(desc(ZerodhaSession.updated_at), desc(ZerodhaSession.created_at)).limit(1))
 
 
+def get_current_zerodha_access_token(db: Session) -> str | None:
+    session = get_current_zerodha_session(db)
+    return session.access_token if session is not None else None
+
+
 def upsert_zerodha_session(
     db: Session,
     *,

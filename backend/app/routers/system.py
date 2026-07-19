@@ -18,7 +18,8 @@ from backend.app.schemas import (
 )
 from backend.app.services.market_scanner import DailyMarketScanner
 from backend.app.services.market_stream import MarketDataProcessor
-from backend.app.services.zerodha import InstrumentMasterSyncService
+from backend.app.services.zerodha import InstrumentMasterSyncService, ZerodhaApiClient, ZerodhaAuthService
+from backend.app.services.zerodha_sessions import get_current_zerodha_access_token
 from backend.app.queue import check_redis_connectivity
 
 
@@ -27,7 +28,7 @@ settings = get_settings()
 
 
 @router.get("/dependencies", response_model=DependencyStatusResponse)
-def dependency_status() -> DependencyStatusResponse:
+def dependency_status(db: Session = Depends(get_db)) -> DependencyStatusResponse:
     database_ok = False
     try:
         verify_database_connectivity()
@@ -35,10 +36,11 @@ def dependency_status() -> DependencyStatusResponse:
     except Exception:  # noqa: BLE001
         database_ok = False
 
+    access_token = get_current_zerodha_access_token(db) or settings.zerodha_access_token
     return DependencyStatusResponse(
         database=database_ok,
         redis=check_redis_connectivity(),
-        zerodha_credentials_configured=bool(settings.zerodha_api_key and settings.zerodha_access_token),
+        zerodha_credentials_configured=bool(settings.zerodha_api_key and access_token),
     )
 
 
@@ -47,7 +49,13 @@ def sync_instruments(
     payload: InstrumentSyncRequest,
     db: Session = Depends(get_db),
 ) -> InstrumentSyncResponse:
-    service = InstrumentMasterSyncService()
+    access_token = get_current_zerodha_access_token(db)
+    service = InstrumentMasterSyncService(
+        client=ZerodhaApiClient(
+            auth_service=ZerodhaAuthService(),
+            access_token=access_token,
+        )
+    )
     instruments = None
     if payload.instruments is not None:
         instruments = [InstrumentPayload.model_validate(row) for row in payload.instruments]

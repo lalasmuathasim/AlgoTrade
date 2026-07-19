@@ -14,7 +14,7 @@ from backend.app.models import Instrument, MarketCandle, Watchlist, WatchlistSym
 from backend.app.queue import check_redis_connectivity
 from backend.app.schemas import InstrumentPayload, SymbolValidationPayload, WatchlistCreatePayload, WatchlistSymbolCreatePayload
 from backend.app.services.watchlists import ensure_selected_watchlist, set_selected_watchlist
-from backend.app.services.zerodha_sessions import get_current_zerodha_session
+from backend.app.services.zerodha_sessions import get_current_zerodha_access_token, get_current_zerodha_session
 from backend.app.services.zerodha import InstrumentMasterSyncService, SubscriptionManager, ZerodhaApiClient, ZerodhaAuthService
 from backend.app.ui import render_app_shell
 
@@ -58,7 +58,10 @@ def _symbol_validation_result(db: Session, exchange: str, parsed_symbols: list[s
         raise HTTPException(status_code=503, detail="Zerodha is not configured for symbol validation")
 
     try:
-        remote_instruments = ZerodhaApiClient(auth_service=auth).fetch_exchange_instruments(exchange)
+        remote_instruments = ZerodhaApiClient(
+            auth_service=auth,
+            access_token=get_current_zerodha_access_token(db) if db is not None else None,
+        ).fetch_exchange_instruments(exchange)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail="Unable to validate symbols via Zerodha") from exc
 
