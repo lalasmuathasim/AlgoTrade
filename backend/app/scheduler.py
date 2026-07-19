@@ -1,14 +1,17 @@
 import logging
 import time
-from datetime import datetime
+from datetime import UTC, date, datetime
 from zoneinfo import ZoneInfo
 
+import httpx
 from sqlalchemy import select
 
 from backend.app.config import get_settings
 from backend.app.database import SessionLocal, initialize_runtime_state
 from backend.app.models import ScanExecution
 from backend.app.services.market_scanner import DailyMarketScanner
+from backend.app.services.zerodha import HistoricalCandleProvider, ZerodhaApiClient, ZerodhaAuthService
+from backend.app.services.zerodha_sessions import get_current_zerodha_access_token, get_current_zerodha_session
 
 
 settings = get_settings()
@@ -29,25 +32,113 @@ def _should_run(now_local: datetime) -> bool:
     return (now_local.hour, now_local.minute) >= (scan_hour, scan_minute)
 
 
+def _record_skipped_scan(db, scan_date: date, reason: str) -> None:
+    existing = db.scalar(
+        select(ScanExecution).where(
+            ScanExecution.scan_name == "daily_market_scan",
+            ScanExecution.scan_date == scan_date,
+            ScanExecution.status == "SKIPPED",
+            ScanExecution.error_message == reason,
+        )
+    )
+    if existing is not None:
+        return
+
+    now_utc = datetime.now(UTC)
+    db.add(
+        ScanExecution(
+            scan_name="daily_market_scan",
+            scan_date=scan_date,
+            status="SKIPPED",
+            symbols_scanned=0,
+            trigger_lines_created=0,
+            trigger_lines_updated=0,
+            started_at=now_utc,
+            finished_at=now_utc,
+            error_message=reason,
+        )
+    )
+    db.commit()
+
+
+def _zerodha_skip_reason(db, now_utc: datetime) -> str | None:
+    if not settings.zerodha_api_key:
+        return "Skipped daily scan: ZERODHA_API_KEY is not configured."
+
+    session = get_current_zerodha_session(db)
+    access_token = get_current_zerodha_access_token(db) or settings.zerodha_access_token
+    if not access_token:
+        return "Skipped daily scan: Zerodha access token is not configured."
+
+    if session is not None and session.access_token_expires_at and session.access_token_expires_at <= now_utc:
+        return "Skipped daily scan: Zerodha access token is expired."
+
+    return None
+
+
+def _skip_reason_from_exception(exc: Exception) -> str | None:
+    if isinstance(exc, RuntimeError) and "not configured" in str(exc).lower():
+        return "Skipped daily scan: Zerodha authentication is not configured."
+
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in {401, 403}:
+        return "Skipped daily scan: Zerodha access token is expired or invalid."
+
+    return None
+
+
+def _build_scheduler_scanner(db) -> DailyMarketScanner:
+    access_token = get_current_zerodha_access_token(db) or settings.zerodha_access_token
+    return DailyMarketScanner(
+        provider=HistoricalCandleProvider(
+            client=ZerodhaApiClient(
+                auth_service=ZerodhaAuthService(),
+                access_token=access_token,
+            )
+        )
+    )
+
+
+def _run_due_scan(db, now_local: datetime, scanner: DailyMarketScanner) -> str:
+    existing = db.scalar(
+        select(ScanExecution).where(
+            ScanExecution.scan_name == "daily_market_scan",
+            ScanExecution.scan_date == now_local.date(),
+            ScanExecution.status == "COMPLETED",
+        )
+    )
+    if existing is not None:
+        return "already_completed"
+
+    skip_reason = _zerodha_skip_reason(db, now_local.astimezone(UTC))
+    if skip_reason is not None:
+        logger.warning(skip_reason)
+        _record_skipped_scan(db, now_local.date(), skip_reason)
+        return "skipped"
+
+    logger.info("Running scheduled daily market scan for %s", now_local.date())
+    try:
+        scanner.run(db, scan_date=now_local.date())
+    except Exception as exc:  # noqa: BLE001
+        skip_reason = _skip_reason_from_exception(exc)
+        if skip_reason is None:
+            raise
+        logger.warning(skip_reason)
+        _record_skipped_scan(db, now_local.date(), skip_reason)
+        return "skipped"
+
+    return "completed"
+
+
 def run_scheduler() -> None:
     logger.info("Starting Qubitx scheduler")
     initialize_runtime_state()
-    scanner = DailyMarketScanner()
 
     while True:
         now_local = datetime.now(market_tz)
         if _should_run(now_local):
             with SessionLocal() as db:
-                existing = db.scalar(
-                    select(ScanExecution).where(
-                        ScanExecution.scan_name == "daily_market_scan",
-                        ScanExecution.scan_date == now_local.date(),
-                        ScanExecution.status == "COMPLETED",
-                    )
-                )
-                if existing is None:
-                    logger.info("Running scheduled daily market scan for %s", now_local.date())
-                    scanner.run(db, scan_date=now_local.date())
+                scanner = _build_scheduler_scanner(db)
+                _run_due_scan(db, now_local, scanner)
         time.sleep(settings.scheduler_poll_interval_seconds)
 
 
