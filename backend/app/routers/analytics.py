@@ -11,26 +11,15 @@ router = APIRouter(tags=["analytics"], dependencies=[Depends(require_approved_us
 @router.get("/analytics", response_class=HTMLResponse)
 def analytics_page() -> str:
     body_html = """
-    <section class="grid">
-      <article class="card">
-        <div class="label">Phase</div>
-        <div class="value">Next</div>
-        <div class="subvalue">Analytics is intentionally scaffolded now so we can plug in performance and quality studies without redesigning navigation later.</div>
-      </article>
-      <article class="card">
-        <div class="label">Planned Focus</div>
-        <div class="value">5 Areas</div>
-        <div class="subvalue">Signal quality, line-conversion performance, paper PnL analytics, scan coverage, and future live-order reconciliation.</div>
-      </article>
-      <article class="card">
-        <div class="label">Current State</div>
-        <div class="value">Placeholder</div>
-        <div class="subvalue">Use Dashboard for today’s reports and Configuration for watchlist and readiness setup.</div>
-      </article>
-    </section>
-    <section class="two-col">
+    <section id="analyticsStrip" class="metric-strip"></section>
+    <section class="layout-main-aside">
       <div class="panel">
-        <h2>Planned Analytics Modules</h2>
+        <div class="panel-header">
+          <div>
+            <h2>Planned Analytics Modules</h2>
+            <p class="panel-copy">This area is intentionally staged for the next build phase so we can add deeper studies without reworking the portal structure again.</p>
+          </div>
+        </div>
         <ul class="list">
           <li class="pill">Trigger-line conversion from draw to breakout</li>
           <li class="pill">Breakout volume quality by symbol and sector</li>
@@ -39,13 +28,38 @@ def analytics_page() -> str:
           <li class="pill">Future broker-order and reconciliation analytics</li>
         </ul>
       </div>
-      <div class="panel">
-        <h2>Data Foundations Already Available</h2>
-        <table id="analyticsReadyTable"></table>
+      <div class="rail-stack">
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Data Foundations Already Available</h2>
+              <p class="panel-copy">Core entities are already persisted and ready to power deeper performance views once we start this phase.</p>
+            </div>
+          </div>
+          <table id="analyticsReadyTable"></table>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Next Build Notes</h2>
+              <p class="panel-copy">Keep Dashboard for exports and Configuration for setup. Analytics stays focused on interpretation and optimization only.</p>
+            </div>
+          </div>
+          <ul class="list">
+            <li class="pill">No live execution UI here yet</li>
+            <li class="pill">No settings duplication from Configuration</li>
+            <li class="pill">Add charting only when signal studies begin</li>
+          </ul>
+        </div>
       </div>
     </section>
     """
     script = """
+    renderMetricStrip(document.getElementById("analyticsStrip"), [
+      { label: "Phase", value: "Next", meta: "Analytics is scaffolded and waiting for deeper signal-quality and performance work." },
+      { label: "Planned Focus", value: "5 Areas", meta: "Signal quality, conversion performance, paper PnL, scan coverage, and reconciliation." },
+      { label: "Current State", value: "Placeholder", meta: "Use Dashboard for reports and Configuration for runtime setup today." },
+    ]);
     renderTable(
       document.getElementById("analyticsReadyTable"),
       ["Domain", "Status", "Notes"],
@@ -67,4 +81,3 @@ def analytics_page() -> str:
         body_html=body_html,
         script=script,
     )
-

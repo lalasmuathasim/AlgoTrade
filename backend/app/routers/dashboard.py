@@ -174,10 +174,16 @@ def _serialize_paper_trade(trade: PaperTrade) -> dict:
 @router.get("/dashboard", response_class=HTMLResponse)
 def dashboard_home() -> str:
     body_html = """
-    <section class="grid" id="summaryCards"></section>
-    <section class="two-col">
+    <section id="summaryCards" class="metric-strip"></section>
+    <section class="layout-main-aside">
       <div class="panel">
-        <h2>Report Exports</h2>
+        <div class="panel-header">
+          <div>
+            <h2>Reports and Exports</h2>
+            <p class="panel-copy">Use this space for the daily review pass, CSV exports, and quick API inspection of the active market structure set.</p>
+          </div>
+          <div class="badge">Operations</div>
+        </div>
         <div id="dashboardStatus" class="status-box">Loading report summaries and exports...</div>
         <div class="stack">
           <div class="inline">
@@ -191,51 +197,86 @@ def dashboard_home() -> str:
           </div>
         </div>
       </div>
-      <div class="panel">
-        <h2>Report Scope</h2>
-        <ul class="list">
-          <li class="pill">Configured watchlists and watched symbols</li>
-          <li class="pill">Already-drawn symbols and active trigger lines</li>
-          <li class="pill">Breakout activity and recent paper-trading outcomes</li>
-          <li class="pill">Export-ready reports for reviews and handoffs</li>
-        </ul>
+      <div class="rail-stack">
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Report Scope</h2>
+              <p class="panel-copy">This dashboard is now the reporting layer, not the configuration cockpit.</p>
+            </div>
+          </div>
+          <ul class="list">
+            <li class="pill">Configured watchlists and watched symbols</li>
+            <li class="pill">Already-drawn symbols and active trigger lines</li>
+            <li class="pill">Breakout activity and recent paper-trading outcomes</li>
+            <li class="pill">Export-ready reports for reviews and handoffs</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Reading Priority</h2>
+              <p class="panel-copy">Start with coverage, then open lines, then recent breakout events for the latest market context.</p>
+            </div>
+          </div>
+          <ul class="list">
+            <li class="pill">1. Drawn symbols versus configured universe</li>
+            <li class="pill">2. Active line count and direction mix</li>
+            <li class="pill">3. Latest breakout or breakdown outcomes</li>
+          </ul>
+        </div>
       </div>
     </section>
-    <section class="split">
+    <section class="layout-main-aside">
       <div class="panel">
-        <h2>Watched Symbols Report</h2>
+        <div class="panel-header">
+          <div>
+            <h2>Watched Symbols Report</h2>
+            <p class="panel-copy">A clean view of the active universe, line readiness, and latest structure status per tracked symbol.</p>
+          </div>
+        </div>
         <table id="watchedSymbolsTable"></table>
       </div>
-      <div class="panel">
-        <h2>Paper Trading Summary</h2>
-        <table id="paperTable"></table>
+      <div class="rail-stack">
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Paper Trading Summary</h2>
+              <p class="panel-copy">The current paper-trading ledger snapshot for the selected watchlist.</p>
+            </div>
+          </div>
+          <table id="paperTable"></table>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Recent Breakout Events</h2>
+              <p class="panel-copy">Latest confirmations and failures from the 3-minute monitoring path.</p>
+            </div>
+          </div>
+          <table id="breakoutsTable"></table>
+        </div>
       </div>
     </section>
-    <section class="panel" style="margin-top: 18px;">
-      <h2>Active Trigger Lines</h2>
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Active Trigger Lines</h2>
+          <p class="panel-copy">The live resistance and support map that the scanner and live engine are currently monitoring.</p>
+        </div>
+      </div>
       <table id="linesTable"></table>
-    </section>
-    <section class="panel" style="margin-top: 18px;">
-      <h2>Recent Breakout Events</h2>
-      <table id="breakoutsTable"></table>
     </section>
     """
     script = """
     function renderCards(stats) {
-      const cards = [
-        ["Watchlists", stats.watchlists, "Saved watch universes"],
-        ["In Use", stats.current_watchlist_name || "None", "The watchlist currently used by scan and live monitoring"],
-        ["Watched Symbols", stats.configured_symbols, "Symbols scheduled for daily draw/redraw"],
-        ["Drawn Symbols", stats.drawn_symbols, "Symbols with at least one trigger line"],
-        ["Active Trigger Lines", stats.active_trigger_lines, "Current breakout / breakdown levels"],
-      ];
-      document.getElementById("summaryCards").innerHTML = cards.map(([label, value, subvalue]) => `
-        <article class="card">
-          <div class="label">${label}</div>
-          <div class="value">${value}</div>
-          <div class="subvalue">${subvalue}</div>
-        </article>
-      `).join("");
+      renderMetricStrip(document.getElementById("summaryCards"), [
+        { label: "Watchlists", value: stats.watchlists, meta: "Saved watch universes" },
+        { label: "In Use", value: stats.current_watchlist_name || "None", meta: "Runtime-selected market universe" },
+        { label: "Watched Symbols", value: stats.configured_symbols, meta: "Daily draw and redraw candidates" },
+        { label: "Drawn Symbols", value: stats.drawn_symbols, meta: "Symbols with stored line structures" },
+        { label: "Active Trigger Lines", value: stats.active_trigger_lines, meta: "Open structure levels" },
+      ]);
     }
 
     async function init() {

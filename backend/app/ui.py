@@ -30,227 +30,353 @@ def render_app_shell(
   <title>{escape(title)}</title>
   <style>
     :root {{
-      --bg: #f3efe5;
-      --panel: rgba(255,255,255,0.78);
-      --panel-strong: rgba(18, 35, 33, 0.95);
-      --line: #1d3a35;
-      --muted: #576662;
-      --accent: #ad5c2b;
-      --accent-soft: rgba(173, 92, 43, 0.12);
-      --ok: #0f766e;
-      --warn: #b45309;
-      --danger: #b42318;
-      --shadow: 0 16px 40px rgba(31, 48, 43, 0.1);
+      --bg: #07111b;
+      --bg-elevated: #0d1724;
+      --panel: rgba(11, 20, 31, 0.94);
+      --panel-soft: rgba(17, 28, 43, 0.92);
+      --panel-strong: rgba(10, 17, 27, 0.98);
+      --line: rgba(122, 151, 185, 0.18);
+      --line-strong: rgba(122, 151, 185, 0.3);
+      --text: #ebf2fb;
+      --muted: #90a2ba;
+      --accent: #00c2a8;
+      --accent-soft: rgba(0, 194, 168, 0.12);
+      --accent-alt: #5ca7ff;
+      --ok: #31d38b;
+      --warn: #ffb84d;
+      --danger: #ff7272;
+      --shadow: 0 24px 70px rgba(2, 8, 15, 0.36);
+      --radius-lg: 24px;
+      --radius-md: 18px;
+      --radius-sm: 14px;
     }}
     * {{ box-sizing: border-box; }}
+    html {{ color-scheme: dark; }}
     body {{
       margin: 0;
-      font-family: "Avenir Next", "Segoe UI", sans-serif;
-      color: var(--line);
       min-height: 100vh;
+      font-family: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+      color: var(--text);
       background:
-        radial-gradient(circle at top left, rgba(173,92,43,0.18), transparent 30%),
-        radial-gradient(circle at top right, rgba(15,118,110,0.08), transparent 28%),
-        linear-gradient(135deg, #ede4d3 0%, #f6f1e8 42%, #ecf4ef 100%);
+        radial-gradient(circle at top left, rgba(92,167,255,0.12), transparent 22%),
+        radial-gradient(circle at 82% 12%, rgba(0,194,168,0.08), transparent 24%),
+        linear-gradient(180deg, #09131e 0%, #060d15 100%);
     }}
     body::before {{
       content: "";
       position: fixed;
       inset: 0;
       background-image:
-        linear-gradient(rgba(22, 51, 47, 0.03) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(22, 51, 47, 0.03) 1px, transparent 1px);
-      background-size: 40px 40px;
+        linear-gradient(rgba(92,167,255,0.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(92,167,255,0.045) 1px, transparent 1px);
+      background-size: 28px 28px;
+      mask-image: linear-gradient(180deg, rgba(0,0,0,0.6), transparent 92%);
       pointer-events: none;
+      z-index: 0;
     }}
-    .wrap {{ max-width: 1320px; margin: 0 auto; padding: 28px 20px 52px; position: relative; }}
-    .hero {{
-      background: linear-gradient(135deg, rgba(29,58,53,0.96), rgba(14,22,21,0.95));
-      color: #f7f1e7;
-      padding: 28px;
-      border-radius: 24px;
-      box-shadow: 0 20px 50px rgba(18,35,33,0.18);
-      border: 1px solid rgba(255,255,255,0.08);
+    a {{
+      color: inherit;
     }}
-    .hero-top {{
-      display: flex;
-      justify-content: space-between;
-      gap: 16px;
-      flex-wrap: wrap;
-      align-items: flex-start;
-    }}
-    .hero h1 {{
-      margin: 0 0 10px;
-      font-size: clamp(2rem, 3vw, 3.2rem);
-      font-family: "Baskerville", "Palatino Linotype", serif;
-    }}
-    .hero p {{
-      margin: 0;
-      max-width: 760px;
-      color: rgba(247, 241, 231, 0.84);
-      line-height: 1.55;
-    }}
-    .hero-actions {{
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      align-items: center;
-    }}
-    .hero-actions a, .hero-actions button, button, .button {{
-      border: none;
-      border-radius: 999px;
-      padding: 10px 14px;
-      text-decoration: none;
-      cursor: pointer;
-      font-weight: 700;
-      font-size: 0.92rem;
-      transition: transform 0.16s ease, opacity 0.16s ease;
-    }}
-    .hero-actions a {{
-      background: rgba(255,255,255,0.09);
-      color: #f7f1e7;
-    }}
-    .hero-actions button, button.primary, .button.primary {{
-      background: #f7f1e7;
-      color: #16332f;
-    }}
-    button.secondary, .button.secondary {{
-      background: var(--accent-soft);
-      color: var(--accent);
-    }}
-    .nav {{
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-top: 18px;
-    }}
-    .nav-link {{
-      padding: 10px 14px;
-      border-radius: 999px;
-      text-decoration: none;
-      background: rgba(255,255,255,0.08);
-      color: rgba(247,241,231,0.84);
-      font-weight: 700;
-      font-size: 0.92rem;
-    }}
-    .nav-link.active {{
-      background: #f7f1e7;
-      color: #16332f;
-    }}
-    .grid {{
+    .app-shell {{
+      position: relative;
+      z-index: 1;
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 16px;
-      margin-top: 22px;
+      grid-template-columns: 248px minmax(0, 1fr);
+      min-height: 100vh;
     }}
-    .split {{
-      display: grid;
-      grid-template-columns: 1.15fr 0.85fr;
+    .sidebar {{
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 24px 18px;
+      background:
+        linear-gradient(180deg, rgba(8, 15, 24, 0.98), rgba(10, 17, 28, 0.92)),
+        var(--panel-strong);
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
       gap: 18px;
-      margin-top: 18px;
     }}
-    .panel {{
-      background: var(--panel);
-      backdrop-filter: blur(12px);
-      border: 1px solid rgba(29,58,53,0.12);
-      border-radius: 18px;
-      box-shadow: var(--shadow);
-      padding: 18px;
-      overflow: auto;
+    .brand {{
+      padding: 16px 16px 14px;
+      border-radius: 20px;
+      background: linear-gradient(180deg, rgba(22, 35, 53, 0.92), rgba(10, 18, 29, 0.96));
+      border: 1px solid var(--line);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
     }}
-    .panel h2, .panel h3 {{
-      margin: 0 0 12px;
-      font-size: 1.16rem;
-    }}
-    .card {{
-      background: var(--panel);
-      backdrop-filter: blur(12px);
-      border: 1px solid rgba(29,58,53,0.12);
-      border-radius: 18px;
-      box-shadow: var(--shadow);
-      padding: 18px;
-    }}
-    .label {{
-      font-size: 0.8rem;
+    .brand-mark {{
+      font-size: 0.78rem;
+      letter-spacing: 0.16em;
       text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--muted);
+      color: var(--accent);
+      font-weight: 700;
     }}
-    .value {{
+    .brand-title {{
       margin-top: 10px;
-      font-size: 2rem;
+      font-size: 1.4rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
     }}
-    .subvalue {{
+    .brand-copy {{
       margin-top: 8px;
       color: var(--muted);
       font-size: 0.92rem;
+      line-height: 1.5;
     }}
-    .status-box {{
-      min-height: 52px;
-      border-radius: 16px;
-      border: 1px solid rgba(29,58,53,0.1);
-      background: rgba(255,255,255,0.68);
+    .sidebar-label {{
+      padding: 0 10px;
+      color: var(--muted);
+      font-size: 0.74rem;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }}
+    .nav {{
+      display: grid;
+      gap: 8px;
+    }}
+    .nav-link {{
+      display: flex;
+      align-items: center;
+      min-height: 48px;
       padding: 12px 14px;
+      border-radius: 14px;
+      text-decoration: none;
+      color: #bfd0e4;
+      background: transparent;
+      border: 1px solid transparent;
+      font-weight: 600;
+      transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease, color 0.16s ease;
+    }}
+    .nav-link:hover {{
+      background: rgba(92, 167, 255, 0.08);
+      border-color: rgba(92, 167, 255, 0.14);
+      color: var(--text);
+      transform: translateX(2px);
+    }}
+    .nav-link.active {{
+      background: linear-gradient(90deg, rgba(0,194,168,0.18), rgba(92,167,255,0.12));
+      border-color: rgba(0, 194, 168, 0.25);
+      color: var(--text);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
+    }}
+    .sidebar-foot {{
+      margin-top: auto;
+      padding: 14px 16px;
+      border-radius: 18px;
+      background: rgba(18, 29, 45, 0.72);
+      border: 1px solid var(--line);
       color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.5;
     }}
-    .status-box.success {{ color: var(--ok); }}
-    .status-box.warn {{ color: var(--warn); }}
-    .status-box.error {{ color: var(--danger); }}
-    .badge {{
-      display: inline-block;
-      padding: 4px 10px;
-      border-radius: 999px;
-      background: rgba(15,118,110,0.12);
-      color: var(--ok);
-      font-size: 0.8rem;
+    .main-shell {{
+      min-width: 0;
+      padding: 22px;
+    }}
+    .topbar {{
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 20px;
+      padding: 22px 24px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(135deg, rgba(11, 20, 31, 0.98), rgba(14, 24, 38, 0.92)),
+        var(--panel);
+      box-shadow: var(--shadow);
+    }}
+    .topbar-copy {{
+      min-width: 0;
+    }}
+    .eyebrow {{
+      margin: 0 0 10px;
+      color: var(--accent);
+      font-size: 0.76rem;
       font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
     }}
-    .badge.warn {{
-      background: rgba(180,83,9,0.12);
-      color: var(--warn);
+    .topbar h1 {{
+      margin: 0;
+      font-family: "Space Grotesk", "Avenir Next", sans-serif;
+      font-size: clamp(2rem, 3vw, 3rem);
+      line-height: 1.02;
+      letter-spacing: -0.03em;
     }}
-    .badge.danger {{
-      background: rgba(180,35,24,0.12);
-      color: var(--danger);
-    }}
-    table {{
-      width: 100%;
-      border-collapse: collapse;
-    }}
-    th, td {{
-      text-align: left;
-      padding: 10px 8px;
-      border-bottom: 1px solid rgba(29,58,53,0.1);
-      font-size: 0.94rem;
-      vertical-align: top;
-    }}
-    th {{
+    .topbar p {{
+      margin: 12px 0 0;
+      max-width: 840px;
       color: var(--muted);
-      font-weight: 700;
+      font-size: 1rem;
+      line-height: 1.65;
     }}
-    .field {{
-      margin-bottom: 12px;
+    .topbar-actions {{
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
     }}
-    label {{
-      display: block;
-      font-size: 0.84rem;
-      color: var(--muted);
-      margin-bottom: 6px;
-      font-weight: 700;
-    }}
-    input, select, textarea {{
-      width: 100%;
+    button,
+    .button {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 42px;
+      padding: 10px 14px;
       border-radius: 12px;
-      border: 1px solid rgba(29,58,53,0.14);
-      padding: 12px 13px;
-      font-size: 0.95rem;
-      background: rgba(255,255,255,0.85);
-      color: var(--line);
-      font-family: inherit;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.03);
+      color: var(--text);
+      text-decoration: none;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+      transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, opacity 0.16s ease;
     }}
-    textarea {{
-      min-height: 132px;
-      resize: vertical;
+    button:hover,
+    .button:hover {{
+      transform: translateY(-1px);
+      border-color: var(--line-strong);
+      background: rgba(255,255,255,0.06);
+    }}
+    button.primary,
+    .button.primary {{
+      background: linear-gradient(135deg, rgba(0, 194, 168, 0.94), rgba(23, 165, 140, 0.94));
+      border-color: rgba(0,194,168,0.35);
+      color: #031413;
+      box-shadow: 0 10px 24px rgba(0, 194, 168, 0.18);
+    }}
+    button.secondary,
+    .button.secondary {{
+      background: rgba(92, 167, 255, 0.08);
+      border-color: rgba(92, 167, 255, 0.14);
+      color: #dce9ff;
+    }}
+    button.ghost,
+    .button.ghost {{
+      background: transparent;
+      color: var(--muted);
+    }}
+    button:disabled,
+    .button:disabled {{
+      opacity: 0.56;
+      cursor: not-allowed;
+      transform: none;
+    }}
+    .content {{
+      display: grid;
+      gap: 18px;
+      margin-top: 18px;
+      min-width: 0;
+    }}
+    .metric-strip {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 1px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: var(--line);
+      box-shadow: var(--shadow);
+    }}
+    .metric {{
+      min-height: 118px;
+      padding: 18px 18px 16px;
+      background:
+        linear-gradient(180deg, rgba(18, 29, 44, 0.98), rgba(10, 18, 29, 0.96)),
+        var(--panel-soft);
+    }}
+    .metric-label {{
+      color: var(--muted);
+      font-size: 0.74rem;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }}
+    .metric-value {{
+      margin-top: 14px;
+      font-family: "Space Grotesk", "Avenir Next", sans-serif;
+      font-size: clamp(1.55rem, 2vw, 2.25rem);
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }}
+    .metric-meta {{
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.45;
+    }}
+    .layout-main-aside,
+    .layout-halves,
+    .layout-thirds {{
+      display: grid;
+      gap: 18px;
+      align-items: start;
+    }}
+    .layout-main-aside {{
+      grid-template-columns: minmax(0, 1.38fr) minmax(320px, 0.92fr);
+    }}
+    .layout-halves {{
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }}
+    .layout-thirds {{
+      grid-template-columns: 1.15fr 0.85fr 0.85fr;
+    }}
+    .rail-stack {{
+      display: grid;
+      gap: 18px;
+      align-content: start;
+    }}
+    .panel {{
+      min-width: 0;
+      padding: 18px;
+      border-radius: 22px;
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(180deg, rgba(15, 25, 38, 0.96), rgba(9, 17, 28, 0.96)),
+        var(--panel);
+      box-shadow: var(--shadow);
+      overflow: auto;
+    }}
+    .panel-header {{
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 14px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }}
+    .panel-header h2,
+    .panel-header h3,
+    .panel h2,
+    .panel h3 {{
+      margin: 0;
+      font-size: 1.08rem;
+      letter-spacing: -0.02em;
+    }}
+    .panel-copy {{
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.55;
+    }}
+    .panel-actions {{
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }}
+    .panel hr {{
+      border: none;
+      border-top: 1px solid var(--line);
+      margin: 16px 0;
+    }}
+    .stack {{
+      display: grid;
+      gap: 12px;
     }}
     .inline {{
       display: flex;
@@ -258,20 +384,96 @@ def render_app_shell(
       flex-wrap: wrap;
       align-items: center;
     }}
-    .stack {{
-      display: grid;
-      gap: 10px;
-    }}
-    .mono {{
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      word-break: break-all;
-    }}
-    .muted {{
+    .status-box {{
+      min-height: 52px;
+      border-radius: 16px;
+      border: 1px solid rgba(122, 151, 185, 0.14);
+      background: rgba(8, 15, 24, 0.72);
+      padding: 12px 14px;
       color: var(--muted);
+      line-height: 1.55;
     }}
-    .empty {{
+    .status-box.success {{ color: var(--ok); border-color: rgba(49,211,139,0.24); }}
+    .status-box.warn {{ color: var(--warn); border-color: rgba(255,184,77,0.22); }}
+    .status-box.error {{ color: var(--danger); border-color: rgba(255,114,114,0.24); }}
+    .badge {{
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(49, 211, 139, 0.12);
+      color: var(--ok);
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }}
+    .badge.warn {{
+      background: rgba(255, 184, 77, 0.12);
+      color: var(--warn);
+    }}
+    .badge.danger {{
+      background: rgba(255, 114, 114, 0.12);
+      color: var(--danger);
+    }}
+    .field {{
+      margin-bottom: 12px;
+    }}
+    label {{
+      display: block;
+      margin-bottom: 7px;
       color: var(--muted);
-      font-style: italic;
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }}
+    input,
+    select,
+    textarea {{
+      width: 100%;
+      border-radius: 14px;
+      border: 1px solid rgba(122, 151, 185, 0.16);
+      padding: 12px 13px;
+      background: rgba(8, 15, 24, 0.92);
+      color: var(--text);
+      font: inherit;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+    }}
+    input:focus,
+    select:focus,
+    textarea:focus {{
+      outline: none;
+      border-color: rgba(0, 194, 168, 0.32);
+      box-shadow: 0 0 0 3px rgba(0, 194, 168, 0.08);
+    }}
+    textarea {{
+      min-height: 140px;
+      resize: vertical;
+    }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 0;
+    }}
+    th,
+    td {{
+      padding: 11px 8px;
+      border-bottom: 1px solid rgba(122, 151, 185, 0.12);
+      text-align: left;
+      vertical-align: top;
+      font-size: 0.93rem;
+    }}
+    th {{
+      color: var(--muted);
+      font-size: 0.76rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }}
+    tbody tr:hover {{
+      background: rgba(92, 167, 255, 0.035);
     }}
     .list {{
       display: grid;
@@ -282,63 +484,112 @@ def render_app_shell(
     }}
     .pill {{
       display: inline-flex;
-      gap: 8px;
       align-items: center;
-      padding: 6px 10px;
+      gap: 8px;
+      min-height: 34px;
+      padding: 8px 12px;
       border-radius: 999px;
-      background: rgba(22,51,47,0.06);
-      color: var(--line);
+      background: rgba(92, 167, 255, 0.08);
+      border: 1px solid rgba(92, 167, 255, 0.08);
+      color: #dbe8fb;
       font-size: 0.88rem;
     }}
     .pill-button {{
-      border: none;
       display: inline-flex;
-      gap: 8px;
       align-items: center;
-      padding: 6px 10px;
+      gap: 8px;
+      min-height: 38px;
+      padding: 8px 12px;
+      border: 1px solid rgba(92, 167, 255, 0.1);
       border-radius: 999px;
-      background: rgba(22,51,47,0.06);
-      color: var(--line);
+      background: rgba(92, 167, 255, 0.08);
+      color: #dbe8fb;
+      font: inherit;
       font-size: 0.88rem;
       cursor: pointer;
+      transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease;
     }}
     .pill-button:hover {{
       transform: translateY(-1px);
-      background: rgba(22,51,47,0.1);
+      background: rgba(92, 167, 255, 0.12);
+      border-color: rgba(92, 167, 255, 0.18);
     }}
     .pill-button:disabled {{
+      opacity: 0.56;
       cursor: not-allowed;
-      opacity: 0.72;
       transform: none;
     }}
-    .two-col {{
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 18px;
+    .mono {{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      word-break: break-word;
+    }}
+    .muted {{
+      color: var(--muted);
+    }}
+    .empty {{
+      color: var(--muted);
+      font-style: italic;
+      padding: 20px 8px;
+    }}
+    .hidden {{
+      display: none !important;
+    }}
+    @media (max-width: 1120px) {{
+      .app-shell {{
+        grid-template-columns: 1fr;
+      }}
+      .sidebar {{
+        position: relative;
+        height: auto;
+        border-right: none;
+        border-bottom: 1px solid var(--line);
+      }}
     }}
     @media (max-width: 960px) {{
-      .split, .two-col {{
+      .layout-main-aside,
+      .layout-halves,
+      .layout-thirds {{
         grid-template-columns: 1fr;
+      }}
+      .main-shell {{
+        padding: 18px;
+      }}
+      .topbar {{
+        padding: 18px;
       }}
     }}
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <section class="hero">
-      <div class="hero-top">
-        <div>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <section class="brand">
+        <div class="brand-mark">Qubitx</div>
+        <div class="brand-title">Market Control</div>
+        <div class="brand-copy">A focused trading workspace for watchlists, structure tracking, runtime readiness, and review-grade reporting.</div>
+      </section>
+      <div class="sidebar-label">Workspace</div>
+      <nav class="nav">{nav_html}</nav>
+      <section class="sidebar-foot">
+        Use Configuration for runtime setup, Dashboard for operational reporting, and Analytics for the next phase of strategy studies.
+      </section>
+    </aside>
+    <main class="main-shell">
+      <section class="topbar">
+        <div class="topbar-copy">
+          <div class="eyebrow">Trading Workspace</div>
           <h1>{escape(heading)}</h1>
           <p>{escape(subtitle)}</p>
         </div>
-        <div class="hero-actions">
-          <a href="/">Landing Page</a>
-          <button id="logoutButton" type="button">Log Out</button>
+        <div class="topbar-actions">
+          <a href="/" class="button ghost">Landing Page</a>
+          <button id="logoutButton" class="secondary" type="button">Log Out</button>
         </div>
+      </section>
+      <div class="content">
+        {body_html}
       </div>
-      <nav class="nav">{nav_html}</nav>
-    </section>
-    {body_html}
+    </main>
   </div>
   <script>
     async function apiGet(url) {{
@@ -361,6 +612,15 @@ def render_app_shell(
         throw new Error(data.detail || data.message || "Request failed");
       }}
       return data;
+    }}
+    function renderMetricStrip(element, items) {{
+      element.innerHTML = items.map((item) => `
+        <article class="metric">
+          <div class="metric-label">${{item.label}}</div>
+          <div class="metric-value">${{item.value ?? "-"}}</div>
+          <div class="metric-meta">${{item.meta ?? ""}}</div>
+        </article>
+      `).join("");
     }}
     function renderTable(element, headers, rows) {{
       const head = `<tr>${{headers.map((header) => `<th>${{header}}</th>`).join("")}}</tr>`;

@@ -368,10 +368,16 @@ def _readiness_payload(db: Session) -> dict:
 @router.get("/configuration", response_class=HTMLResponse)
 def configuration_page() -> str:
     body_html = """
-    <section class="grid" id="configSummary"></section>
-    <section class="two-col">
+    <section id="configSummary" class="metric-strip"></section>
+    <section class="layout-main-aside">
       <div class="panel">
-        <h2>Watchlist Setup</h2>
+        <div class="panel-header">
+          <div>
+            <h2>Watchlist Control</h2>
+            <p class="panel-copy">Create and switch the runtime universe that the daily scan and live 3-minute monitor should care about.</p>
+          </div>
+          <div class="badge">Control</div>
+        </div>
         <div id="watchlistStatus" class="status-box">Create a watchlist first, then validate and add NSE or BSE symbols.</div>
         <div id="selectedWatchlistBox" class="status-box" style="margin-top: 12px;">No watchlist is currently selected.</div>
         <div class="field">
@@ -391,23 +397,45 @@ def configuration_page() -> str:
         </div>
         <button id="createWatchlistButton" class="primary" type="button">Create Watchlist</button>
       </div>
-      <div class="panel">
-        <h2>External Readiness</h2>
-        <div id="readinessStatus" class="status-box">Checking Zerodha, Redis, and 3-minute data readiness...</div>
-        <div id="zerodhaConnectionStatus" class="status-box" style="margin-top: 12px;">Checking Zerodha connection status...</div>
-        <div id="zerodhaConnectionBadge" class="inline" style="margin-top: 10px;"></div>
-        <div id="readinessPills" class="inline"></div>
-        <div class="inline" style="margin-top: 12px;">
-          <button id="connectZerodhaButton" class="primary" type="button">Connect Zerodha</button>
-          <button id="testZerodhaButton" class="secondary" type="button">Test Connection</button>
-          <button id="syncInstrumentsButton" class="secondary" type="button">Sync Instruments From Zerodha</button>
-          <button id="refreshReadinessButton" class="secondary" type="button">Refresh Readiness</button>
+      <div class="rail-stack">
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>External Readiness</h2>
+              <p class="panel-copy">This rail tracks Zerodha session health, mapping coverage, and the 3-minute monitoring readiness path.</p>
+            </div>
+          </div>
+          <div id="readinessStatus" class="status-box">Checking Zerodha, Redis, and 3-minute data readiness...</div>
+          <div id="zerodhaConnectionStatus" class="status-box" style="margin-top: 12px;">Checking Zerodha connection status...</div>
+          <div id="zerodhaConnectionBadge" class="inline" style="margin-top: 10px;"></div>
+          <div id="readinessPills" class="inline"></div>
+          <div class="inline" style="margin-top: 12px;">
+            <button id="connectZerodhaButton" class="primary" type="button">Connect Zerodha</button>
+            <button id="testZerodhaButton" class="secondary" type="button">Test Connection</button>
+            <button id="syncInstrumentsButton" class="secondary" type="button">Sync Instruments From Zerodha</button>
+            <button id="refreshReadinessButton" class="secondary" type="button">Refresh Readiness</button>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Watchlist Detail</h2>
+              <p class="panel-copy">Inspect the selected or opened watchlist with mapped symbols, companies, and latest available market price reference.</p>
+            </div>
+          </div>
+          <div id="watchlistDetailStatus" class="status-box">Select a watchlist to inspect its tracked symbols and current prices.</div>
+          <table id="watchlistDetailTable"></table>
         </div>
       </div>
     </section>
-    <section class="two-col" style="margin-top: 18px;">
+    <section class="layout-main-aside">
       <div class="panel">
-        <h2>Validate Symbols</h2>
+        <div class="panel-header">
+          <div>
+            <h2>Validate Symbols</h2>
+            <p class="panel-copy">Paste one symbol per line or comma-separated values, validate against Zerodha, then add only the clean set.</p>
+          </div>
+        </div>
         <div id="validationStatus" class="status-box">Paste one symbol per line or comma-separated values, then validate before saving.</div>
         <div class="field">
           <label for="targetWatchlist">Target watchlist</label>
@@ -430,24 +458,47 @@ def configuration_page() -> str:
         </div>
       </div>
       <div class="panel">
-        <h2>Validation Result</h2>
+        <div class="panel-header">
+          <div>
+            <h2>Validation Result</h2>
+            <p class="panel-copy">Review the matched company name and instrument token before committing symbols into the active data model.</p>
+          </div>
+        </div>
         <div id="validationBreakdown" class="status-box">No validation run yet.</div>
         <table id="validationTable"></table>
       </div>
     </section>
-    <section class="split">
+    <section class="layout-main-aside">
       <div class="panel">
-        <h2>Configured Watchlists</h2>
+        <div class="panel-header">
+          <div>
+            <h2>Configured Watchlists</h2>
+            <p class="panel-copy">Open a list to inspect it, or switch the runtime focus with a single action.</p>
+          </div>
+        </div>
         <table id="watchlistsTable"></table>
       </div>
       <div class="panel">
-        <h2>Watchlist Detail</h2>
-        <div id="watchlistDetailStatus" class="status-box">Select a watchlist to inspect its tracked symbols and current prices.</div>
-        <table id="watchlistDetailTable"></table>
+        <div class="panel-header">
+          <div>
+            <h2>3-Minute Coverage Notes</h2>
+            <p class="panel-copy">This quick reference helps explain if the live engine is ready, partially mapped, or still waiting on instrument and candle activity.</p>
+          </div>
+        </div>
+        <ul class="list">
+          <li class="pill">Mapped watchlist symbols improve live-engine readiness</li>
+          <li class="pill">Recent 3-minute candles confirm that market monitoring is active</li>
+          <li class="pill">Use Zerodha connection and sync controls from the readiness rail</li>
+        </ul>
       </div>
     </section>
-    <section class="panel" style="margin-top: 18px;">
-      <h2>3-Minute Coverage Snapshot</h2>
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>3-Minute Coverage Snapshot</h2>
+          <p class="panel-copy">Recent candle visibility for the currently watched symbols. This is the fastest way to confirm that monitoring is producing fresh market data.</p>
+        </div>
+      </div>
       <table id="symbolActivityTable"></table>
     </section>
     """
@@ -521,20 +572,13 @@ def configuration_page() -> str:
       const totalSymbols = watchlists.reduce((sum, item) => sum + item.symbol_count, 0);
       const mappedSymbols = watchlists.reduce((sum, item) => sum + item.mapped_symbol_count, 0);
       const selected = watchlists.find((item) => item.is_selected);
-      const cards = [
-        ["Watchlists", watchlists.length, "Configured draw/redraw groups"],
-        ["In Use", selected ? selected.name : "None", "The only watchlist used for scan and live monitoring"],
-        ["Watched Symbols", totalSymbols, "Symbols queued for daily structure scanning"],
-        ["Mapped Symbols", mappedSymbols, "Symbols linked to Zerodha instrument tokens"],
-        ["3-Minute Coverage", readiness.symbols_with_recent_3minute_data, "Watched symbols with recent candle volume"],
-      ];
-      document.getElementById("configSummary").innerHTML = cards.map(([label, value, subvalue]) => `
-        <article class="card">
-          <div class="label">${label}</div>
-          <div class="value">${value}</div>
-          <div class="subvalue">${subvalue}</div>
-        </article>
-      `).join("");
+      renderMetricStrip(document.getElementById("configSummary"), [
+        { label: "Watchlists", value: watchlists.length, meta: "Configured draw and redraw groups" },
+        { label: "In Use", value: selected ? selected.name : "None", meta: "The only watchlist used for scan and live monitoring" },
+        { label: "Watched Symbols", value: totalSymbols, meta: "Symbols queued for daily structure scanning" },
+        { label: "Mapped Symbols", value: mappedSymbols, meta: "Symbols linked to Zerodha instrument tokens" },
+        { label: "3-Minute Coverage", value: readiness.symbols_with_recent_3minute_data, meta: "Watched symbols with recent candle volume" },
+      ]);
     }
 
     function renderWatchlists(watchlists) {
