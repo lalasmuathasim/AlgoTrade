@@ -18,7 +18,7 @@ def render_app_shell(
     ]
     nav_html = "".join(
         (
-            f'<a href="{href}" class="nav-link{" active" if key == active_nav else ""}">{label}</a>'
+            f'<a href="{href}" class="workspace-link{" active" if key == active_nav else ""}">{label}</a>'
             for label, href, key in nav_items
         )
     )
@@ -81,24 +81,24 @@ def render_app_shell(
     .app-shell {{
       position: relative;
       z-index: 1;
-      display: grid;
-      grid-template-columns: 232px minmax(0, 1fr);
       min-height: 100vh;
     }}
-    .sidebar {{
-      position: sticky;
-      top: 0;
-      height: 100vh;
-      padding: 24px 18px;
-      background:
-        linear-gradient(180deg, rgba(251, 253, 255, 0.98), rgba(243, 247, 252, 0.94)),
-        var(--panel-strong);
-      border-right: 1px solid var(--line);
-      display: flex;
-      flex-direction: column;
-      gap: 18px;
+    .wrap {{
+      max-width: 1380px;
+      margin: 0 auto;
+      padding: 24px 20px 56px;
+      position: relative;
+    }}
+    .masthead {{
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 16px;
+      margin-bottom: 18px;
+      align-items: center;
     }}
     .brand {{
+      display: grid;
+      gap: 4px;
       padding: 16px 16px 14px;
       border-radius: 20px;
       background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 247, 252, 0.98));
@@ -124,24 +124,20 @@ def render_app_shell(
       font-size: 0.92rem;
       line-height: 1.5;
     }}
-    .sidebar-label {{
-      padding: 0 10px;
-      color: var(--muted);
-      font-size: 0.74rem;
-      font-weight: 700;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-    }}
-    .nav {{
-      display: grid;
-      gap: 8px;
-    }}
-    .nav-link {{
+    .workspace-nav {{
       display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: center;
+      min-width: 0;
+    }}
+    .workspace-link {{
+      display: inline-flex;
       align-items: center;
-      min-height: 48px;
-      padding: 12px 14px;
-      border-radius: 14px;
+      justify-content: center;
+      min-height: 42px;
+      padding: 10px 14px;
+      border-radius: 12px;
       text-decoration: none;
       color: #26405f;
       background: transparent;
@@ -149,31 +145,25 @@ def render_app_shell(
       font-weight: 600;
       transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease, color 0.16s ease;
     }}
-    .nav-link:hover {{
+    .workspace-link:hover {{
       background: rgba(61, 126, 240, 0.08);
       border-color: rgba(61, 126, 240, 0.14);
       color: #0d2137;
-      transform: translateX(2px);
+      transform: translateY(-1px);
     }}
-    .nav-link.active {{
+    .workspace-link.active {{
       background: linear-gradient(90deg, rgba(15,155,142,0.14), rgba(61,126,240,0.12));
       border-color: rgba(15, 155, 142, 0.22);
       color: #0e1f33;
       box-shadow: inset 0 0 0 1px rgba(255,255,255,0.5);
     }}
-    .sidebar-foot {{
-      margin-top: auto;
-      padding: 14px 16px;
-      border-radius: 18px;
-      background: rgba(245, 248, 252, 0.9);
-      border: 1px solid var(--line);
-      color: var(--muted);
-      font-size: 0.88rem;
-      line-height: 1.5;
+    .mast-actions {{
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
     }}
     .main-shell {{
       min-width: 0;
-      padding: 22px;
     }}
     .topbar {{
       display: flex;
@@ -541,25 +531,18 @@ def render_app_shell(
     .hidden {{
       display: none !important;
     }}
-    @media (max-width: 1120px) {{
-      .app-shell {{
-        grid-template-columns: 1fr;
-      }}
-      .sidebar {{
-        position: relative;
-        height: auto;
-        border-right: none;
-        border-bottom: 1px solid var(--line);
-      }}
-    }}
     @media (max-width: 960px) {{
+      .masthead {{
+        grid-template-columns: 1fr;
+        align-items: start;
+      }}
+      .workspace-nav {{
+        justify-content: flex-start;
+      }}
       .layout-main-aside,
       .layout-halves,
       .layout-thirds {{
         grid-template-columns: 1fr;
-      }}
-      .main-shell {{
-        padding: 18px;
       }}
       .topbar {{
         padding: 18px;
@@ -569,34 +552,31 @@ def render_app_shell(
 </head>
 <body>
   <div class="app-shell">
-    <aside class="sidebar">
-      <section class="brand">
+    <div class="wrap">
+      <section class="masthead">
+        <div class="brand">
         <div class="brand-mark">Qubitx</div>
         <div class="brand-title">Market Control</div>
         <div class="brand-copy">A focused trading workspace for watchlists, structure tracking, runtime readiness, and review-grade reporting.</div>
+        </div>
+        <nav class="workspace-nav">{nav_html}</nav>
+        <div class="mast-actions">
+          <button id="logoutButton" class="secondary" type="button">Log Out</button>
+        </div>
       </section>
-      <div class="sidebar-label">Workspace</div>
-      <nav class="nav">{nav_html}</nav>
-      <section class="sidebar-foot">
-        Use Configuration for runtime setup, Dashboard for operational reporting, and Analytics for the next phase of strategy studies.
-      </section>
-    </aside>
-    <main class="main-shell">
+      <main class="main-shell">
       <section class="topbar">
         <div class="topbar-copy">
           <div class="eyebrow">Trading Workspace</div>
           <h1>{escape(heading)}</h1>
           <p>{escape(subtitle)}</p>
         </div>
-        <div class="topbar-actions">
-          <a href="/" class="button ghost">Landing Page</a>
-          <button id="logoutButton" class="secondary" type="button">Log Out</button>
-        </div>
       </section>
       <div class="content">
         {body_html}
       </div>
-    </main>
+      </main>
+    </div>
   </div>
   <script>
     async function apiGet(url) {{

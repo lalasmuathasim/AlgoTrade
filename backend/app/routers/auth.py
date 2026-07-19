@@ -445,8 +445,7 @@ def landing_page() -> str:
         <a class="workspace-link" href="/analytics">Analytics</a>
       </nav>
       <div class="mast-actions">
-        <a class="shell-action" href="/health">Health</a>
-        <a class="shell-action" href="/paper-trading/settings">Paper Settings</a>
+        <a class="shell-action" href="/dashboard">Open Dashboard</a>
       </div>
     </section>
     <section class="hero">
@@ -586,9 +585,8 @@ def landing_page() -> str:
           </div>
         </div>
         <div class="inline-actions">
-          <a class="inline-button" href="/health">Health</a>
           <a class="inline-button" href="/dashboard">Dashboard</a>
-          <a class="inline-button" href="/paper-trading/settings">Paper Settings</a>
+          <a class="inline-button" href="/configuration">Configuration</a>
         </div>
         <p class="muted-note">Two-factor authentication can be enabled after login from the dashboard security panel. Market scanning and signal generation remain separate and unaffected by user sign-in.</p>
       </article>
