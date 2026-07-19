@@ -194,22 +194,15 @@ def dashboard_home() -> str:
       <div class="panel">
         <div class="panel-header">
           <div>
-            <h2>Reports and Exports</h2>
-            <p class="panel-copy">Use this space for the daily review pass, CSV exports, and quick API inspection of the active market structure set.</p>
+            <h2>Daily Structure Review</h2>
+            <p class="panel-copy">Use one clean table to review the support and resistance lines produced from Zerodha daily candles for the watchlist currently in use.</p>
           </div>
-          <div class="badge">Operations</div>
+          <div class="badge">Review</div>
         </div>
-        <div id="dashboardStatus" class="status-box">Loading report summaries and exports...</div>
+        <div id="dashboardStatus" class="status-box">Loading market structure review...</div>
         <div class="stack">
           <div class="inline">
-            <a class="button secondary" href="/dashboard/reports/watched-symbols.csv">Export Watched Symbols CSV</a>
-            <a class="button secondary" href="/dashboard/reports/active-trigger-lines.csv">Export Active Lines CSV</a>
-          </div>
-          <div class="inline">
-            <a class="button secondary" href="/dashboard/watchlists">Watchlist Summary API</a>
             <a class="button secondary" href="/dashboard/reports/daily-line-review">Daily Line Review API</a>
-            <a class="button secondary" href="/dashboard/trigger-lines">Trigger Lines API</a>
-            <a class="button secondary" href="/dashboard/breakout-events">Breakout Events API</a>
           </div>
         </div>
       </div>
@@ -217,28 +210,27 @@ def dashboard_home() -> str:
         <div class="panel">
           <div class="panel-header">
             <div>
-              <h2>Report Scope</h2>
-              <p class="panel-copy">This dashboard is now the reporting layer, not the configuration cockpit.</p>
+              <h2>Single Table Scope</h2>
+              <p class="panel-copy">This view now focuses only on the line details needed to verify the daily structure logic.</p>
             </div>
           </div>
           <ul class="list">
-            <li class="pill">Configured watchlists and watched symbols</li>
-            <li class="pill">Already-drawn symbols and active trigger lines</li>
-            <li class="pill">Breakout activity and recent paper-trading outcomes</li>
-            <li class="pill">Export-ready reports for reviews and handoffs</li>
+            <li class="pill">One row per detected support or resistance line</li>
+            <li class="pill">Multiple lines for the same symbol stay in separate rows</li>
+            <li class="pill">Swing references stay visible for manual cross-checking</li>
           </ul>
         </div>
         <div class="panel">
           <div class="panel-header">
             <div>
               <h2>Reading Priority</h2>
-              <p class="panel-copy">Start with coverage, then open lines, then recent breakout events for the latest market context.</p>
+              <p class="panel-copy">Read each row as a candidate structure level that can be checked against TradingView or later persisted into live monitoring.</p>
             </div>
           </div>
           <ul class="list">
-            <li class="pill">1. Drawn symbols versus configured universe</li>
-            <li class="pill">2. Active line count and direction mix</li>
-            <li class="pill">3. Latest breakout or breakdown outcomes</li>
+            <li class="pill">1. Symbol and line type</li>
+            <li class="pill">2. Swing pair and gap percent</li>
+            <li class="pill">3. Nearest target above or below the line</li>
           </ul>
         </div>
       </div>
@@ -246,53 +238,13 @@ def dashboard_home() -> str:
     <section class="panel">
       <div class="panel-header">
         <div>
-          <h2>Daily Line Review</h2>
-          <p class="panel-copy">Fetch the latest completed daily candles from Zerodha for the selected watchlist and preview the support or resistance lines we can draw before persisting anything.</p>
+          <h2>Market Structure Table</h2>
+          <p class="panel-copy">The daily structure output for the selected watchlist using the current runtime tuning values.</p>
         </div>
         <button id="refreshDailyReviewButton" class="secondary" type="button">Refresh Daily Review</button>
       </div>
       <div id="dailyReviewStatus" class="status-box">Waiting to check Zerodha daily historical access for the active watchlist...</div>
       <table id="dailyReviewTable"></table>
-    </section>
-    <section class="layout-main-aside">
-      <div class="panel">
-        <div class="panel-header">
-          <div>
-            <h2>Watched Symbols Report</h2>
-            <p class="panel-copy">A clean view of the active universe, line readiness, and latest structure status per tracked symbol.</p>
-          </div>
-        </div>
-        <table id="watchedSymbolsTable"></table>
-      </div>
-      <div class="rail-stack">
-        <div class="panel">
-          <div class="panel-header">
-            <div>
-              <h2>Paper Trading Summary</h2>
-              <p class="panel-copy">The current paper-trading ledger snapshot for the selected watchlist.</p>
-            </div>
-          </div>
-          <table id="paperTable"></table>
-        </div>
-        <div class="panel">
-          <div class="panel-header">
-            <div>
-              <h2>Recent Breakout Events</h2>
-              <p class="panel-copy">Latest confirmations and failures from the 3-minute monitoring path.</p>
-            </div>
-          </div>
-          <table id="breakoutsTable"></table>
-        </div>
-      </div>
-    </section>
-    <section class="panel">
-      <div class="panel-header">
-        <div>
-          <h2>Active Trigger Lines</h2>
-          <p class="panel-copy">The live resistance and support map that the scanner and live engine are currently monitoring.</p>
-        </div>
-      </div>
-      <table id="linesTable"></table>
     </section>
     """
     script = """
@@ -320,9 +272,9 @@ def dashboard_home() -> str:
       );
       renderTable(
         document.getElementById("dailyReviewTable"),
-        ["Symbol", "Line Type", "Line Price", "Line Drawn Date", "Swing 1", "Swing 2", "Gap %", "Nearest Target", "Notes"],
+        ["Symbol", "Line Type", "Line Price", "Line Drawn Date", "Swing 1", "Swing 2", "Gap %", "Nearest Target"],
         review.rows.map((item) => [
-          `${item.exchange}:${item.symbol}`,
+          item.symbol,
           `<span class="badge">${item.line_type}</span>`,
           item.line_price ?? "N/A",
           item.line_drawn_date ?? "N/A",
@@ -330,72 +282,20 @@ def dashboard_home() -> str:
           item.swing_2 ? `${item.swing_2.price} · ${item.swing_2.date}` : "N/A",
           item.swing_gap_percent ?? "N/A",
           item.nearest_target ?? "N/A",
-          item.notes || item.company_name || "Ready",
         ]),
       );
       return review;
     }
 
     async function init() {
-      const [overview, watchedSymbols, paper, lines, breakouts] = await Promise.all([
+      const [overview] = await Promise.all([
         apiGet("/dashboard/reports/overview"),
-        apiGet("/dashboard/reports/watched-symbols"),
-        apiGet("/dashboard/paper-trades"),
-        apiGet("/dashboard/trigger-lines?line_status=ACTIVE"),
-        apiGet("/dashboard/breakout-events"),
       ]);
       renderCards(overview);
       setBox(
         "dashboardStatus",
-        `${overview.current_watchlist_name ? `Using ${overview.current_watchlist_name} for runtime monitoring. ` : ""}${overview.drawn_symbols} watched symbols already have drawn trigger structures. ${overview.configured_symbols} symbols are in the daily draw/redraw universe.`,
+        `${overview.current_watchlist_name ? `Using ${overview.current_watchlist_name} for runtime monitoring. ` : ""}${overview.active_trigger_lines} active stored trigger lines exist, and ${overview.configured_symbols} symbols are available for daily review.`,
         "success",
-      );
-      renderTable(
-        document.getElementById("watchedSymbolsTable"),
-        ["Symbol", "Watchlists", "Mapped", "Active Lines", "Latest Line Status"],
-        watchedSymbols.map((item) => [
-          `${item.exchange}:${item.symbol}`,
-          item.watchlists.join(", "),
-          item.instrument_token ?? "Unmapped",
-          item.active_line_count,
-          item.latest_line_status ?? "No lines yet",
-        ]),
-      );
-      renderTable(
-        document.getElementById("paperTable"),
-        ["Total", "Open", "Closed", "Win Rate", "PnL", "Profit Factor"],
-        [[
-          paper.summary.total_trades,
-          paper.summary.open_trades,
-          paper.summary.closed_trades,
-          `${paper.summary.win_rate}%`,
-          paper.summary.total_pnl.toFixed(2),
-          paper.summary.profit_factor ?? "N/A",
-        ]],
-      );
-      renderTable(
-        document.getElementById("linesTable"),
-        ["Symbol", "Type", "Price", "Status", "Gap %", "Target", "Drawn Date"],
-        lines.map((item) => [
-          `${item.exchange}:${item.symbol}`,
-          `<span class="badge">${item.line_type}</span>`,
-          item.line_price,
-          item.line_status,
-          item.swing_gap_percent ?? "N/A",
-          item.nearest_daily_swing_high_target ?? item.nearest_daily_swing_low_target ?? "N/A",
-          item.line_drawn_date ?? "N/A",
-        ]),
-      );
-      renderTable(
-        document.getElementById("breakoutsTable"),
-        ["Symbol", "Event", "Time", "Volume Ratio", "Status"],
-        breakouts.slice(0, 12).map((item) => [
-          `${item.exchange}:${item.symbol}`,
-          item.event_type,
-          new Date(item.event_time).toLocaleString(),
-          item.volume_ratio ?? "N/A",
-          item.status,
-        ]),
       );
       try {
         await loadDailyLineReview();
