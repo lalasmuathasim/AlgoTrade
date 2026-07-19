@@ -1,7 +1,9 @@
 import logging
 from collections.abc import Callable, Iterable
+import csv
 from datetime import UTC, date, datetime, time, timedelta
 import hashlib
+import io
 import uuid
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
@@ -147,24 +149,37 @@ class ZerodhaApiClient:
         return candles
 
     def fetch_instruments(self) -> list[InstrumentPayload]:
-        payload = self._get("/instruments")
-        rows = payload.get("data")
-        if not isinstance(rows, list):
-            raise RuntimeError("Unexpected Zerodha instrument response")
+        return self.fetch_exchange_instruments()
 
+    def fetch_exchange_instruments(self, exchange: str | None = None) -> list[InstrumentPayload]:
+        path = f"/instruments/{exchange}" if exchange else "/instruments"
+        headers = self.auth_service.build_auth_headers()
+        response = httpx.get(
+            f"{self.base_url}{path}",
+            headers=headers,
+            timeout=40.0,
+        )
+        response.raise_for_status()
+
+        reader = csv.DictReader(io.StringIO(response.text))
         instruments: list[InstrumentPayload] = []
-        for row in rows:
+        for row in reader:
+            tradingsymbol = (row.get("tradingsymbol") or "").strip()
+            exchange_value = (row.get("exchange") or exchange or "").strip()
+            instrument_token = (row.get("instrument_token") or "").strip()
+            if not tradingsymbol or not exchange_value or not instrument_token:
+                continue
             instruments.append(
                 InstrumentPayload(
-                    instrument_token=row["instrument_token"],
-                    exchange_token=str(row.get("exchange_token", "")) or None,
-                    tradingsymbol=row["tradingsymbol"],
-                    name=row.get("name"),
-                    exchange=row.get("exchange", "NSE"),
-                    segment=row.get("segment"),
-                    instrument_type=row.get("instrument_type"),
-                    tick_size=row.get("tick_size"),
-                    lot_size=row.get("lot_size"),
+                    instrument_token=int(instrument_token),
+                    exchange_token=(row.get("exchange_token") or "").strip() or None,
+                    tradingsymbol=tradingsymbol,
+                    name=(row.get("name") or "").strip() or None,
+                    exchange=exchange_value,
+                    segment=(row.get("segment") or "").strip() or None,
+                    instrument_type=(row.get("instrument_type") or "").strip() or None,
+                    tick_size=float(row["tick_size"]) if row.get("tick_size") else None,
+                    lot_size=int(float(row["lot_size"])) if row.get("lot_size") else None,
                 )
             )
         return instruments

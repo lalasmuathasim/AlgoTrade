@@ -12,10 +12,10 @@ from backend.app.database import get_db, verify_database_connectivity
 from backend.app.dependencies import require_admin_user
 from backend.app.models import Instrument, MarketCandle, Watchlist, WatchlistSymbol
 from backend.app.queue import check_redis_connectivity
-from backend.app.schemas import SymbolValidationPayload, WatchlistCreatePayload, WatchlistSymbolCreatePayload
+from backend.app.schemas import InstrumentPayload, SymbolValidationPayload, WatchlistCreatePayload, WatchlistSymbolCreatePayload
 from backend.app.services.watchlists import ensure_selected_watchlist, set_selected_watchlist
 from backend.app.services.zerodha_sessions import get_current_zerodha_session
-from backend.app.services.zerodha import SubscriptionManager, ZerodhaAuthService
+from backend.app.services.zerodha import InstrumentMasterSyncService, SubscriptionManager, ZerodhaApiClient, ZerodhaAuthService
 from backend.app.ui import render_app_shell
 
 
@@ -53,16 +53,20 @@ def _symbol_validation_result(db: Session, exchange: str, parsed_symbols: list[s
             "invalid_count": 0,
         }
 
-    instruments = db.scalars(
-        select(Instrument)
-        .where(
-            Instrument.exchange == exchange,
-            Instrument.is_active.is_(True),
-            Instrument.tradingsymbol.in_(parsed_symbols),
-        )
-        .order_by(Instrument.tradingsymbol)
-    ).all()
-    instrument_map = {instrument.tradingsymbol.upper(): instrument for instrument in instruments}
+    auth = ZerodhaAuthService()
+    if not auth.has_credentials():
+        raise HTTPException(status_code=503, detail="Zerodha is not configured for symbol validation")
+
+    try:
+        remote_instruments = ZerodhaApiClient(auth_service=auth).fetch_exchange_instruments(exchange)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail="Unable to validate symbols via Zerodha") from exc
+
+    instrument_map = {
+        instrument.tradingsymbol.upper(): instrument
+        for instrument in remote_instruments
+        if instrument.exchange.upper() == exchange
+    }
 
     valid_symbols = [symbol for symbol in parsed_symbols if symbol in instrument_map]
     invalid_symbols = [symbol for symbol in parsed_symbols if symbol not in instrument_map]
@@ -70,7 +74,7 @@ def _symbol_validation_result(db: Session, exchange: str, parsed_symbols: list[s
         {
             "symbol": symbol,
             "instrument_token": instrument_map[symbol].instrument_token,
-            "company_name": instrument_map[symbol].name,
+            "company_name": instrument_map[symbol].name or instrument_map[symbol].tradingsymbol,
             "segment": instrument_map[symbol].segment,
             "instrument_type": instrument_map[symbol].instrument_type,
         }
@@ -84,7 +88,33 @@ def _symbol_validation_result(db: Session, exchange: str, parsed_symbols: list[s
         "instrument_matches": matches,
         "valid_count": len(valid_symbols),
         "invalid_count": len(invalid_symbols),
+        "source": "zerodha",
     }
+
+
+def _upsert_validated_instruments(db: Session, exchange: str, validation: dict) -> dict[str, Instrument]:
+    matches_by_symbol = {
+        row["symbol"]: InstrumentPayload(
+            instrument_token=row["instrument_token"],
+            tradingsymbol=row["symbol"],
+            exchange=exchange,
+            name=row.get("company_name"),
+            segment=row.get("segment"),
+            instrument_type=row.get("instrument_type"),
+        )
+        for row in validation["instrument_matches"]
+    }
+    if not matches_by_symbol:
+        return {}
+
+    InstrumentMasterSyncService().sync(db, instruments=matches_by_symbol.values())
+    instruments = db.scalars(
+        select(Instrument).where(
+            Instrument.exchange == exchange,
+            Instrument.tradingsymbol.in_(list(matches_by_symbol.keys())),
+        )
+    ).all()
+    return {instrument.tradingsymbol.upper(): instrument for instrument in instruments}
 
 
 def _watchlist_payload(db: Session) -> list[dict]:
@@ -817,14 +847,7 @@ def add_watchlist_symbols(
             "validation": validation,
         }
 
-    instruments = db.scalars(
-        select(Instrument).where(
-            Instrument.exchange == exchange,
-            Instrument.is_active.is_(True),
-            Instrument.tradingsymbol.in_(valid_symbols),
-        )
-    ).all()
-    instrument_map = {instrument.tradingsymbol.upper(): instrument for instrument in instruments}
+    instrument_map = _upsert_validated_instruments(db, exchange, validation)
     existing_members = db.scalars(
         select(WatchlistSymbol).where(
             WatchlistSymbol.watchlist_id == watchlist.id,
