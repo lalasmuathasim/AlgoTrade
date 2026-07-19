@@ -5,7 +5,9 @@ from fastapi import FastAPI
 
 from backend.app.config import get_settings
 from backend.app.database import initialize_runtime_state
+from backend.app.routers.analytics import router as analytics_router
 from backend.app.routers.auth import router as auth_router
+from backend.app.routers.configuration import router as configuration_router
 from backend.app.routers.dashboard import router as dashboard_router
 from backend.app.routers.paper_trading import router as paper_trading_router
 from backend.app.routers.system import router as system_router
@@ -40,6 +42,8 @@ app = FastAPI(
 
 app.include_router(auth_router)
 app.include_router(dashboard_router)
+app.include_router(configuration_router)
+app.include_router(analytics_router)
 app.include_router(system_router)
 app.include_router(paper_trading_router)
 

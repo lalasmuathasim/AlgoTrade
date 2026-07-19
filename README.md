@@ -372,7 +372,10 @@ The GitHub Actions deployment workflow has been updated to:
 
 - build the updated backend bundle
 - generate `.env` from individual secrets
+- map legacy repository secrets to the new Zerodha-native variable names where possible
 - run migrations before starting services
+- tear down the active Qubitx Compose stack before restart
+- remove only known legacy Qubitx containers when they block the configured API port
 - start only Qubitx services
 - verify internal health on the server
 - verify reverse-proxy health through `https://qubitx.ai/health`
@@ -381,6 +384,44 @@ See:
 
 - [AWS_DEPLOYMENT.md](/Users/lalasmuathasim/Works/AlgoTrade/AWS_DEPLOYMENT.md)
 - [.github/workflows/deploy-linode.yml](/Users/lalasmuathasim/Works/AlgoTrade/.github/workflows/deploy-linode.yml)
+
+## Linode Deployment Notes
+
+Current production host:
+
+- `qubitx.ai`
+- Linode VPS behind Apache reverse proxy
+- Qubitx API expected on `127.0.0.1:${API_HOST_PORT}`
+
+### Legacy-container port conflict
+
+During the July 18, 2026 deployment work, the main blocker was not another application but an older Qubitx-era container still holding the API port:
+
+- legacy API container: `trading-webhook-api`
+- legacy worker container: `trading-worker`
+- expected new API container: `qubitx-api-1`
+
+Observed VPS state at that point:
+
+- `qubitx-worker-1`, `qubitx-scheduler-1`, and `qubitx-live-engine-1` were already running
+- `qubitx-api-1` could not start because `trading-webhook-api` still owned `127.0.0.1:8095`
+
+The deployment workflow now handles this case by:
+
+1. running `docker compose down --remove-orphans`
+2. removing `trading-webhook-api` and `trading-worker` if they still exist
+3. refusing to kill unrelated containers automatically
+4. failing with the exact port owner if some non-Qubitx container still holds the port
+
+If manual recovery is needed on the VPS:
+
+```bash
+docker rm -f trading-webhook-api trading-worker
+cd /var/www/clients/client0/web13/private/qubitx
+docker compose up -d api
+docker compose ps
+curl http://127.0.0.1:8095/health
+```
 
 ## Rollback Guidance
 
@@ -391,6 +432,60 @@ If deployment health checks fail:
 3. Re-run `python -m backend.app.migrate status` if needed.
 4. Check the last known good commit.
 5. Redeploy that commit and rebuild only the Qubitx services.
+
+## GitHub Actions Secrets
+
+The deployment workflow now supports a mix of current and legacy secret names.
+
+### Required existing secrets
+
+- `LINODE_HOST`
+- `LINODE_USERNAME`
+- `LINODE_PORT`
+- `LINODE_SSH_KEY`
+- `DATABASE_URL`
+- `REDIS_URL`
+- `JWT_SECRET`
+- `INITIAL_ADMIN_EMAIL`
+- `INITIAL_ADMIN_PASSWORD`
+- `INITIAL_ADMIN_NAME`
+- `SESSION_COOKIE_NAME`
+- `SESSION_COOKIE_SECURE`
+- `ACCESS_TOKEN_EXPIRE_MINUTES`
+- `LOG_LEVEL`
+- `MOCK_DATA`
+- `TOTP_ISSUER`
+
+### Preferred new secrets
+
+- `REDIS_QUEUE_PREFIX`
+- `API_HOST_PORT`
+- `ZERODHA_API_KEY`
+- `ZERODHA_API_SECRET`
+- `ZERODHA_ACCESS_TOKEN`
+- `ZERODHA_REDIRECT_URL`
+- `ZERODHA_LIVE_TRADING_ENABLED`
+- `PAPER_TRADING_ENABLED`
+- `DAILY_SCAN_TIME`
+- `MARKET_TIMEZONE`
+- `BUY_VOLUME_MULTIPLIER`
+- `SELL_VOLUME_MULTIPLIER`
+- `ENTRY_BUFFER_TICKS`
+- `STOP_BUFFER_TICKS`
+- `DAILY_CANDLE_LOOKBACK`
+- `SWING_WINDOW`
+- `MAX_GAP_PERCENT`
+- `MIN_SWING_DISTANCE`
+
+### Legacy secrets still accepted by the workflow
+
+- `APP_PORT` -> `API_HOST_PORT`
+- `STRATEGY_TUNING__BUYVOLUMEMULTIPLIER` -> `BUY_VOLUME_MULTIPLIER`
+- `STRATEGY_TUNING__SELLVOLUMEMULTIPLIER` -> `SELL_VOLUME_MULTIPLIER`
+- `STRATEGY_TUNING__ENTRYBUFFERTICKS` -> `ENTRY_BUFFER_TICKS`
+- `STRATEGY_TUNING__STOPLOSSBUFFERTICKS` -> `STOP_BUFFER_TICKS`
+- `STRATEGY_TUNING__MAXGAPPERCENT` -> `MAX_GAP_PERCENT`
+- `STRATEGY_TUNING__MINSWINGDISTANCE` -> `MIN_SWING_DISTANCE`
 
 ## Validation Status In This Refactor
 
@@ -406,6 +501,15 @@ Not completed in this workspace yet:
 - migration run against a real local Qubitx PostgreSQL database
 - live Redis connectivity verification from this sandbox
 - Docker build and Compose startup validation from this sandbox
-- production push and GitHub Actions deployment
+- production push to `main`
 
-Those remaining checks depend on local Docker and network permissions plus an available PostgreSQL and Redis target configured for Qubitx.
+Completed outside the local sandbox:
+
+- GitHub Actions workflow syntax fixes and deployment-secret fallback updates were pushed to `main`
+- Linode reverse proxy for `qubitx.ai` was confirmed to forward to the internal Qubitx API port
+- VPS container inspection confirmed the July 18, 2026 deployment blocker was the legacy `trading-webhook-api` container owning `127.0.0.1:8095`
+
+Not yet confirmed end-to-end:
+
+- a clean GitHub Actions deployment with `qubitx-api-1` successfully replacing the legacy API container
+- post-deploy production health after the legacy container is removed and the new API is up

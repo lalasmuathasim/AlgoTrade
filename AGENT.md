@@ -30,6 +30,18 @@ Build and operate a Zerodha-native trading platform that:
 - `live-engine`
 - `migrate`
 
+## Current Operational Status
+
+As of July 18, 2026:
+
+- the Zerodha-native refactor is merged on `main`
+- Linode deploy automation has been updated to build `.env` from individual GitHub secrets
+- the VPS is running `qubitx-worker-1`, `qubitx-scheduler-1`, and `qubitx-live-engine-1`
+- the main deployment blocker identified on the VPS is the legacy container `trading-webhook-api` holding `127.0.0.1:8095`
+- `qubitx-api-1` cannot start until that legacy API container is removed or replaced
+
+Do not assume port conflicts on Linode come from unrelated projects first. On July 18, 2026, the actual conflict was inside the project's own transition from the old AlgoTrade deployment to the new Qubitx stack.
+
 ## Primary Runtime Flow
 
 ### After market close
@@ -92,6 +104,25 @@ Build and operate a Zerodha-native trading platform that:
 - `API_HOST_PORT`
 - `JWT_SECRET`
 
+## Deployment Notes For Agents
+
+- production host domain is `qubitx.ai`
+- Apache reverse proxy forwards traffic to the internal Qubitx API port on `127.0.0.1`
+- do not introduce public host bindings for worker, scheduler, or live-engine
+- preserve the current strategy of generating `.env` on deploy from GitHub Actions secrets
+- when changing deployment workflow, protect unrelated VPS containers from accidental cleanup
+
+The deployment workflow now intentionally:
+
+1. supports fallback from legacy secret names such as `APP_PORT` and `STRATEGY_TUNING__*`
+2. shuts down the current Qubitx Compose stack before restart
+3. removes only known legacy Qubitx containers:
+   - `trading-webhook-api`
+   - `trading-worker`
+4. refuses to force-remove unknown containers occupying the API port
+
+If deployment fails with a port-allocation error again, inspect `docker ps` first and confirm the exact container name before changing the workflow further.
+
 ## Database Guidance
 
 - Use a dedicated Qubitx database such as `qubitx`
@@ -115,11 +146,12 @@ They represent different stages of the trading lifecycle and are required for an
 
 ## Near-Term Priorities
 
-1. Replace placeholder Zerodha credential management with a safer token workflow.
-2. Connect the live engine to the actual Zerodha websocket transport.
-3. Run migrations and Docker validation against a real local Qubitx PostgreSQL and Redis target.
-4. Add richer integration tests once shared infra access is available.
-5. Extend the dashboard with instrument sync and scan-execution visibility.
+1. Finish the Qubitx API cutover on Linode by fully replacing the legacy `trading-webhook-api` container.
+2. Replace placeholder Zerodha credential management with a safer token workflow.
+3. Connect the live engine to the actual Zerodha websocket transport.
+4. Run migrations and Docker validation against a real local Qubitx PostgreSQL and Redis target.
+5. Add richer integration tests once shared infra access is available.
+6. Extend the dashboard with instrument sync and scan-execution visibility.
 
 ## Non-Goals For This Stage
 

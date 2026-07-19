@@ -1,16 +1,19 @@
+import csv
 from collections import defaultdict
 from datetime import UTC, date, datetime
+from io import StringIO
 from statistics import mean
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from backend.app.dependencies import require_approved_user
 from backend.app.database import get_db
 from backend.app.models import BreakoutEvent, PaperTrade, TradingSignal, TriggerLine, Watchlist, WatchlistSymbol
+from backend.app.ui import render_app_shell
 
 
 router = APIRouter(tags=["dashboard"], dependencies=[Depends(require_approved_user)])
@@ -164,255 +167,38 @@ def _serialize_paper_trade(trade: PaperTrade) -> dict:
 
 @router.get("/dashboard", response_class=HTMLResponse)
 def dashboard_home() -> str:
-    return """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Qubitx Dashboard</title>
-  <style>
-    :root {
-      --bg: #f3efe5;
-      --panel: rgba(255,255,255,0.72);
-      --line: #1e3a34;
-      --muted: #52625e;
-      --accent: #ad5c2b;
-      --ok: #0f766e;
-      --warn: #b45309;
-      --danger: #b42318;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: "Avenir Next", "Segoe UI", sans-serif;
-      background:
-        radial-gradient(circle at top left, rgba(173,92,43,0.18), transparent 28%),
-        linear-gradient(135deg, #ede4d3 0%, #f6f1e8 42%, #ecf4ef 100%);
-      color: var(--line);
-      min-height: 100vh;
-    }
-    .wrap { max-width: 1280px; margin: 0 auto; padding: 28px 20px 48px; }
-    .hero {
-      background: linear-gradient(135deg, rgba(30,58,52,0.94), rgba(18,25,24,0.94));
-      color: #f7f1e7;
-      padding: 28px;
-      border-radius: 22px;
-      box-shadow: 0 20px 50px rgba(30,58,52,0.18);
-    }
-    .hero h1 {
-      margin: 0 0 10px;
-      font-size: clamp(2rem, 3vw, 3rem);
-      font-family: "Baskerville", "Palatino Linotype", serif;
-    }
-    .hero p { margin: 0; color: rgba(247,241,231,0.84); max-width: 760px; line-height: 1.5; }
-    .hero-top {
-      display: flex;
-      justify-content: space-between;
-      gap: 16px;
-      align-items: flex-start;
-      flex-wrap: wrap;
-    }
-    .hero-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      align-items: center;
-    }
-    .hero-actions button, .hero-actions a, .action-button {
-      border: none;
-      text-decoration: none;
-      cursor: pointer;
-      border-radius: 999px;
-      padding: 10px 14px;
-      font-weight: 700;
-      font-size: 0.92rem;
-      transition: opacity 0.16s ease, transform 0.16s ease;
-    }
-    .hero-actions a {
-      background: rgba(255,255,255,0.09);
-      color: #f7f1e7;
-    }
-    .hero-actions button, .action-button.primary {
-      background: #f7f1e7;
-      color: #16332f;
-    }
-    .action-button.ghost {
-      background: rgba(22,51,47,0.08);
-      color: var(--line);
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 16px;
-      margin: 22px 0;
-    }
-    .card, .panel {
-      background: var(--panel);
-      backdrop-filter: blur(12px);
-      border: 1px solid rgba(30,58,52,0.12);
-      border-radius: 18px;
-      box-shadow: 0 10px 24px rgba(44,54,49,0.08);
-    }
-    .card { padding: 18px; }
-    .card .label { font-size: 0.85rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
-    .card .value { font-size: 2rem; margin-top: 10px; }
-    .layout {
-      display: grid;
-      grid-template-columns: 1.1fr 0.9fr;
-      gap: 18px;
-    }
-    .security-grid {
-      display: grid;
-      grid-template-columns: 0.95fr 1.05fr;
-      gap: 18px;
-      margin-bottom: 18px;
-    }
-    .panel { padding: 18px; overflow: auto; }
-    .panel h2 { margin: 0 0 12px; font-size: 1.2rem; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid rgba(30,58,52,0.1); font-size: 0.95rem; }
-    th { color: var(--muted); font-weight: 600; }
-    .badge {
-      display: inline-block;
-      padding: 4px 10px;
-      border-radius: 999px;
-      background: rgba(15,118,110,0.12);
-      color: var(--ok);
-      font-size: 0.8rem;
-    }
-    .badge.warn {
-      background: rgba(180,83,9,0.12);
-      color: var(--warn);
-    }
-    .badge.danger {
-      background: rgba(180,35,24,0.12);
-      color: var(--danger);
-    }
-    .links { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 10px; }
-    .links a {
-      color: var(--accent);
-      text-decoration: none;
-      border-bottom: 1px solid rgba(173,92,43,0.3);
-    }
-    .status-box {
-      min-height: 52px;
-      border-radius: 16px;
-      border: 1px solid rgba(30,58,52,0.1);
-      background: rgba(255,255,255,0.62);
-      padding: 12px 14px;
-      color: var(--muted);
-      margin-bottom: 12px;
-    }
-    .status-box.success { color: var(--ok); }
-    .status-box.error { color: var(--danger); }
-    .field { margin-bottom: 12px; }
-    label {
-      display: block;
-      font-size: 0.84rem;
-      color: var(--muted);
-      margin-bottom: 6px;
-      font-weight: 600;
-    }
-    input {
-      width: 100%;
-      border-radius: 12px;
-      border: 1px solid rgba(30,58,52,0.14);
-      padding: 12px 13px;
-      font-size: 0.95rem;
-      background: rgba(255,255,255,0.85);
-      color: var(--line);
-    }
-    .stack { display: grid; gap: 10px; }
-    .inline { display: flex; flex-wrap: wrap; gap: 10px; }
-    .hidden { display: none; }
-    .mono {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      word-break: break-all;
-    }
-    .pending-empty {
-      color: var(--muted);
-      font-style: italic;
-      padding: 10px 0 2px;
-    }
-    @media (max-width: 900px) {
-      .layout, .security-grid { grid-template-columns: 1fr; }
-    }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <section class="hero">
-      <div class="hero-top">
-        <div>
-          <h1>Qubitx Trading Dashboard</h1>
-          <p>Study watchlists, Zerodha-native trigger structures, market breakouts, generated signals, and paper-trading performance from a protected control center built for staged live execution.</p>
-        </div>
-        <div class="hero-actions">
-          <a href="/">Landing Page</a>
-          <button id="logoutButton" type="button">Log Out</button>
-        </div>
-      </div>
-      <div class="links">
-        <a href="/dashboard/watchlists">Watchlist Summary API</a>
-        <a href="/dashboard/trigger-lines">Trigger Lines API</a>
-        <a href="/dashboard/breakout-events">Breakout Events API</a>
-        <a href="/dashboard/paper-trades">Paper Trades API</a>
-        <a href="/paper-trading/settings">Paper Settings API</a>
-      </div>
-    </section>
+    body_html = """
     <section class="grid" id="summaryCards"></section>
-    <section class="security-grid">
+    <section class="two-col">
       <div class="panel">
-        <h2>Account Security</h2>
-        <div id="accountStatus" class="status-box">Loading account details...</div>
+        <h2>Report Exports</h2>
+        <div id="dashboardStatus" class="status-box">Loading report summaries and exports...</div>
         <div class="stack">
-          <div id="twoFactorStatus"></div>
           <div class="inline">
-            <button id="setup2faButton" class="action-button primary" type="button">Generate 2FA Secret</button>
-            <button id="disable2faButton" class="action-button ghost" type="button">Disable 2FA</button>
+            <a class="button secondary" href="/dashboard/reports/watched-symbols.csv">Export Watched Symbols CSV</a>
+            <a class="button secondary" href="/dashboard/reports/active-trigger-lines.csv">Export Active Lines CSV</a>
           </div>
-        </div>
-        <div id="twoFactorSetupPanel" class="hidden" style="margin-top: 14px;">
-          <div class="field">
-            <label>Authenticator secret</label>
-            <div id="twoFactorSecret" class="status-box mono"></div>
+          <div class="inline">
+            <a class="button secondary" href="/dashboard/watchlists">Watchlist Summary API</a>
+            <a class="button secondary" href="/dashboard/trigger-lines">Trigger Lines API</a>
+            <a class="button secondary" href="/dashboard/breakout-events">Breakout Events API</a>
           </div>
-          <div class="field">
-            <label>Provisioning URI</label>
-            <div id="twoFactorUri" class="status-box mono"></div>
-          </div>
-          <div class="field">
-            <label for="enable2faCode">Verification code</label>
-            <input id="enable2faCode" type="text" inputmode="numeric" maxlength="6" placeholder="123456" />
-          </div>
-          <button id="enable2faButton" class="action-button primary" type="button">Enable 2FA</button>
-        </div>
-        <div id="disable2faPanel" class="hidden" style="margin-top: 14px;">
-          <div class="field">
-            <label for="disablePassword">Password</label>
-            <input id="disablePassword" type="password" autocomplete="current-password" />
-          </div>
-          <div class="field">
-            <label for="disableCode">Current 2FA code</label>
-            <input id="disableCode" type="text" inputmode="numeric" maxlength="6" placeholder="123456" />
-          </div>
-          <button id="confirmDisable2faButton" class="action-button ghost" type="button">Confirm Disable</button>
         </div>
       </div>
       <div class="panel">
-        <h2>Admin Approvals</h2>
-        <div id="adminStatus" class="status-box">Loading role-specific tools...</div>
-        <div id="pendingUsersContainer" class="hidden">
-          <table id="pendingUsersTable"></table>
-          <div id="pendingUsersEmpty" class="pending-empty hidden">No pending signups right now.</div>
-        </div>
+        <h2>Report Scope</h2>
+        <ul class="list">
+          <li class="pill">Configured watchlists and watched symbols</li>
+          <li class="pill">Already-drawn symbols and active trigger lines</li>
+          <li class="pill">Breakout activity and recent paper-trading outcomes</li>
+          <li class="pill">Export-ready reports for reviews and handoffs</li>
+        </ul>
       </div>
     </section>
-    <section class="layout">
+    <section class="split">
       <div class="panel">
-        <h2>Watchlists</h2>
-        <table id="watchlistsTable"></table>
+        <h2>Watched Symbols Report</h2>
+        <table id="watchedSymbolsTable"></table>
       </div>
       <div class="panel">
         <h2>Paper Trading Summary</h2>
@@ -423,160 +209,69 @@ def dashboard_home() -> str:
       <h2>Active Trigger Lines</h2>
       <table id="linesTable"></table>
     </section>
-  </div>
-  <script>
-    async function loadJson(url) {
-      const res = await fetch(url);
-      if (!res.ok) {
-        throw new Error((await res.json()).detail || "Request failed");
-      }
-      return res.json();
-    }
-    async function sendJson(url, method, payload) {
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: payload ? JSON.stringify(payload) : undefined,
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.detail || data.message || "Request failed");
-      }
-      return data;
-    }
+    <section class="panel" style="margin-top: 18px;">
+      <h2>Recent Breakout Events</h2>
+      <table id="breakoutsTable"></table>
+    </section>
+    """
+    script = """
     function renderCards(stats) {
       const cards = [
-        ["Watchlists", stats.watchlists],
-        ["Active Lines", stats.activeLines],
-        ["Triggered Lines", stats.triggeredLines],
-        ["Paper PnL", stats.totalPnl.toFixed(2)],
+        ["Watchlists", stats.watchlists, "Saved watch universes"],
+        ["Watched Symbols", stats.configured_symbols, "Symbols scheduled for daily draw/redraw"],
+        ["Drawn Symbols", stats.drawn_symbols, "Symbols with at least one trigger line"],
+        ["Active Trigger Lines", stats.active_trigger_lines, "Current breakout / breakdown levels"],
       ];
-      document.getElementById("summaryCards").innerHTML = cards.map(([label, value]) => `
+      document.getElementById("summaryCards").innerHTML = cards.map(([label, value, subvalue]) => `
         <article class="card">
           <div class="label">${label}</div>
           <div class="value">${value}</div>
+          <div class="subvalue">${subvalue}</div>
         </article>
       `).join("");
     }
-    function renderTable(el, headers, rows) {
-      const head = `<tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr>`;
-      const body = rows.map(row => `<tr>${row.map(cell => `<td>${cell ?? ""}</td>`).join("")}</tr>`).join("");
-      el.innerHTML = `<thead>${head}</thead><tbody>${body}</tbody>`;
-    }
-    function setBox(id, message, tone = "") {
-      const el = document.getElementById(id);
-      el.textContent = message;
-      el.className = `status-box ${tone}`;
-    }
-    function setTwoFactorState(user, setup) {
-      const tone = user.two_factor_enabled ? "success" : "";
-      const badgeClass = user.two_factor_enabled ? "badge" : "badge warn";
-      document.getElementById("twoFactorStatus").innerHTML = `
-        <span class="${badgeClass}">${user.two_factor_enabled ? "2FA ENABLED" : "2FA OPTIONAL"}</span>
-      `;
-      if (setup) {
-        document.getElementById("twoFactorSetupPanel").classList.remove("hidden");
-        document.getElementById("twoFactorSecret").textContent = setup.secret;
-        document.getElementById("twoFactorUri").textContent = setup.provisioning_uri;
-      }
-      setBox("accountStatus", `${user.email} · role ${user.role} · approval ${user.approval_status}`, tone);
-    }
-    async function loadPendingUsers() {
-      try {
-        const users = await loadJson("/admin/users/pending");
-        document.getElementById("pendingUsersContainer").classList.remove("hidden");
-        if (!users.length) {
-          document.getElementById("pendingUsersTable").innerHTML = "";
-          document.getElementById("pendingUsersEmpty").classList.remove("hidden");
-          setBox("adminStatus", "Admin access active. No pending approvals at the moment.", "success");
-          return;
-        }
-        document.getElementById("pendingUsersEmpty").classList.add("hidden");
-        renderTable(
-          document.getElementById("pendingUsersTable"),
-          ["Email", "Name", "Requested", "Actions"],
-          users.map(user => [
-            user.email,
-            user.full_name || "N/A",
-            new Date(user.created_at).toLocaleString(),
-            `
-              <div class="inline">
-                <button class="action-button primary" type="button" onclick="approveUser('${user.id}')">Approve</button>
-                <button class="action-button ghost" type="button" onclick="rejectUser('${user.id}')">Reject</button>
-              </div>
-            `,
-          ]),
-        );
-        setBox("adminStatus", `Admin access active. ${users.length} signup request(s) awaiting review.`, "success");
-      } catch (error) {
-        document.getElementById("pendingUsersContainer").classList.add("hidden");
-        setBox("adminStatus", "This account does not have admin approval tools.", "");
-      }
-    }
-    async function approveUser(id) {
-      try {
-        await sendJson(`/admin/users/${id}/approve`, "POST");
-        await loadPendingUsers();
-      } catch (error) {
-        setBox("adminStatus", error.message, "error");
-      }
-    }
-    async function rejectUser(id) {
-      try {
-        await sendJson(`/admin/users/${id}/reject`, "POST");
-        await loadPendingUsers();
-      } catch (error) {
-        setBox("adminStatus", error.message, "error");
-      }
-    }
-    window.approveUser = approveUser;
-    window.rejectUser = rejectUser;
+
     async function init() {
-      const [user, watchlists, paper, lines] = await Promise.all([
-        loadJson("/auth/me"),
-        loadJson("/dashboard/watchlists"),
-        loadJson("/dashboard/paper-trades"),
-        loadJson("/dashboard/trigger-lines?line_status=ACTIVE"),
+      const [overview, watchedSymbols, paper, lines, breakouts] = await Promise.all([
+        apiGet("/dashboard/reports/overview"),
+        apiGet("/dashboard/reports/watched-symbols"),
+        apiGet("/dashboard/paper-trades"),
+        apiGet("/dashboard/trigger-lines?line_status=ACTIVE"),
+        apiGet("/dashboard/breakout-events"),
       ]);
-      setTwoFactorState(user);
-      loadPendingUsers();
-      renderCards({
-        watchlists: watchlists.length,
-        activeLines: watchlists.reduce((sum, item) => sum + item.active_trigger_lines, 0),
-        triggeredLines: watchlists.reduce((sum, item) => sum + item.triggered_lines, 0),
-        totalPnl: watchlists.reduce((sum, item) => sum + item.total_paper_pnl, 0),
-      });
+      renderCards(overview);
+      setBox(
+        "dashboardStatus",
+        `${overview.drawn_symbols} watched symbols already have drawn trigger structures. ${overview.configured_symbols} symbols are in the daily draw/redraw universe.`,
+        "success",
+      );
       renderTable(
-        document.getElementById("watchlistsTable"),
-        ["Name", "Symbols", "Active Buy", "Active Sell", "Active Lines", "Paper Trades", "Paper PnL"],
-        watchlists.map(item => [
-          item.name,
-          item.symbol_count,
-          item.symbols_with_active_buy_lines,
-          item.symbols_with_active_sell_lines,
-          item.active_trigger_lines,
-          item.paper_trades,
-          item.total_paper_pnl.toFixed(2),
+        document.getElementById("watchedSymbolsTable"),
+        ["Symbol", "Watchlists", "Mapped", "Active Lines", "Latest Line Status"],
+        watchedSymbols.map((item) => [
+          `${item.exchange}:${item.symbol}`,
+          item.watchlists.join(", "),
+          item.instrument_token ?? "Unmapped",
+          item.active_line_count,
+          item.latest_line_status ?? "No lines yet",
         ]),
       );
       renderTable(
         document.getElementById("paperTable"),
-        ["Total", "Open", "Closed", "Win Rate", "PnL", "Avg Profit", "Avg Loss", "Profit Factor"],
+        ["Total", "Open", "Closed", "Win Rate", "PnL", "Profit Factor"],
         [[
           paper.summary.total_trades,
           paper.summary.open_trades,
           paper.summary.closed_trades,
           `${paper.summary.win_rate}%`,
           paper.summary.total_pnl.toFixed(2),
-          paper.summary.average_profit.toFixed(2),
-          paper.summary.average_loss.toFixed(2),
           paper.summary.profit_factor ?? "N/A",
         ]],
       );
       renderTable(
         document.getElementById("linesTable"),
         ["Symbol", "Type", "Price", "Status", "Gap %", "Target", "Drawn Date"],
-        lines.map(item => [
+        lines.map((item) => [
           `${item.exchange}:${item.symbol}`,
           `<span class="badge">${item.line_type}</span>`,
           item.line_price,
@@ -586,59 +281,176 @@ def dashboard_home() -> str:
           item.line_drawn_date ?? "N/A",
         ]),
       );
+      renderTable(
+        document.getElementById("breakoutsTable"),
+        ["Symbol", "Event", "Time", "Volume Ratio", "Status"],
+        breakouts.slice(0, 12).map((item) => [
+          `${item.exchange}:${item.symbol}`,
+          item.event_type,
+          new Date(item.event_time).toLocaleString(),
+          item.volume_ratio ?? "N/A",
+          item.status,
+        ]),
+      );
     }
-    document.getElementById("logoutButton").addEventListener("click", async () => {
-      await sendJson("/auth/logout", "POST");
-      window.location.href = "/";
-    });
-    document.getElementById("setup2faButton").addEventListener("click", async () => {
-      try {
-        const setup = await sendJson("/auth/2fa/setup", "POST");
-        const user = await loadJson("/auth/me");
-        setTwoFactorState(user, setup);
-        setBox("accountStatus", "Authenticator secret generated. Verify with your app, then enable 2FA.", "");
-      } catch (error) {
-        setBox("accountStatus", error.message, "error");
-      }
-    });
-    document.getElementById("enable2faButton").addEventListener("click", async () => {
-      try {
-        await sendJson("/auth/2fa/enable", "POST", {
-          code: document.getElementById("enable2faCode").value,
-        });
-        const user = await loadJson("/auth/me");
-        setTwoFactorState(user);
-        setBox("accountStatus", "Two-factor authentication is now enabled.", "success");
-      } catch (error) {
-        setBox("accountStatus", error.message, "error");
-      }
-    });
-    document.getElementById("disable2faButton").addEventListener("click", async () => {
-      document.getElementById("disable2faPanel").classList.toggle("hidden");
-    });
-    document.getElementById("confirmDisable2faButton").addEventListener("click", async () => {
-      try {
-        await sendJson("/auth/2fa/disable", "POST", {
-          password: document.getElementById("disablePassword").value,
-          code: document.getElementById("disableCode").value || null,
-        });
-        const user = await loadJson("/auth/me");
-        document.getElementById("twoFactorSetupPanel").classList.add("hidden");
-        document.getElementById("disable2faPanel").classList.add("hidden");
-        setTwoFactorState(user);
-        setBox("accountStatus", "Two-factor authentication has been disabled.", "success");
-      } catch (error) {
-        setBox("accountStatus", error.message, "error");
-      }
-    });
+
     init().catch((error) => {
-      setBox("accountStatus", error.message, "error");
-      setBox("adminStatus", "Dashboard initialization failed.", "error");
+      setBox("dashboardStatus", error.message, "error");
     });
-  </script>
-</body>
-</html>
-"""
+    """
+    return render_app_shell(
+        title="Qubitx Dashboard",
+        heading="Dashboard",
+        subtitle="Review watch coverage, already-drawn trigger structures, recent breakout activity, and export-ready reports built on the Zerodha-native data path.",
+        active_nav="dashboard",
+        body_html=body_html,
+        script=script,
+    )
+
+
+@router.get("/dashboard/reports/overview")
+def dashboard_report_overview(db: Session = Depends(get_db)) -> dict:
+    watchlists = db.scalars(select(Watchlist)).all()
+    watchlist_symbols = db.scalars(select(WatchlistSymbol).where(WatchlistSymbol.is_active.is_(True))).all()
+    trigger_lines = db.scalars(select(TriggerLine)).all()
+
+    configured_symbol_keys = {(symbol.exchange, symbol.symbol) for symbol in watchlist_symbols}
+    drawn_symbol_keys = {(line.exchange, line.symbol) for line in trigger_lines}
+
+    return {
+        "watchlists": len(watchlists),
+        "configured_symbols": len(configured_symbol_keys),
+        "drawn_symbols": len(drawn_symbol_keys),
+        "active_trigger_lines": sum(1 for line in trigger_lines if line.line_status == "ACTIVE"),
+        "triggered_lines": sum(1 for line in trigger_lines if line.line_status == "TRIGGERED"),
+    }
+
+
+@router.get("/dashboard/reports/watched-symbols")
+def dashboard_watched_symbols_report(db: Session = Depends(get_db)) -> list[dict]:
+    watchlists = {watchlist.id: watchlist for watchlist in db.scalars(select(Watchlist)).all()}
+    symbols = db.scalars(
+        select(WatchlistSymbol).where(WatchlistSymbol.is_active.is_(True)).order_by(WatchlistSymbol.exchange, WatchlistSymbol.symbol)
+    ).all()
+    lines = db.scalars(
+        select(TriggerLine).order_by(desc(TriggerLine.updated_at), desc(TriggerLine.created_at))
+    ).all()
+
+    lines_by_symbol: dict[tuple[str, str], list[TriggerLine]] = defaultdict(list)
+    for line in lines:
+        lines_by_symbol[(line.exchange, line.symbol)].append(line)
+
+    grouped_symbols: dict[tuple[str, str], dict] = {}
+    for symbol in symbols:
+        key = (symbol.exchange, symbol.symbol)
+        grouped = grouped_symbols.setdefault(
+            key,
+            {
+                "exchange": symbol.exchange,
+                "symbol": symbol.symbol,
+                "company_name": symbol.company_name,
+                "instrument_token": symbol.instrument_token,
+                "watchlists": [],
+            },
+        )
+        watchlist_name = watchlists[symbol.watchlist_id].name if symbol.watchlist_id in watchlists else "Unknown"
+        if watchlist_name not in grouped["watchlists"]:
+            grouped["watchlists"].append(watchlist_name)
+
+    payload: list[dict] = []
+    for key, grouped in sorted(grouped_symbols.items()):
+        symbol_lines = lines_by_symbol.get(key, [])
+        payload.append(
+            {
+                "exchange": grouped["exchange"],
+                "symbol": grouped["symbol"],
+                "company_name": grouped["company_name"],
+                "instrument_token": grouped["instrument_token"],
+                "watchlists": sorted(grouped["watchlists"]),
+                "active_line_count": sum(1 for line in symbol_lines if line.line_status == "ACTIVE"),
+                "historical_line_count": len(symbol_lines),
+                "latest_line_status": symbol_lines[0].line_status if symbol_lines else None,
+            }
+        )
+    return payload
+
+
+@router.get("/dashboard/reports/watched-symbols.csv")
+def dashboard_watched_symbols_export(db: Session = Depends(get_db)) -> StreamingResponse:
+    rows = dashboard_watched_symbols_report(db)
+    buffer = StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(
+        [
+            "exchange",
+            "symbol",
+            "company_name",
+            "instrument_token",
+            "watchlists",
+            "active_line_count",
+            "historical_line_count",
+            "latest_line_status",
+        ]
+    )
+    for row in rows:
+        writer.writerow(
+            [
+                row["exchange"],
+                row["symbol"],
+                row["company_name"] or "",
+                row["instrument_token"] or "",
+                ", ".join(row["watchlists"]),
+                row["active_line_count"],
+                row["historical_line_count"],
+                row["latest_line_status"] or "",
+            ]
+        )
+    return StreamingResponse(
+        iter([buffer.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="watched-symbols-report.csv"'},
+    )
+
+
+@router.get("/dashboard/reports/active-trigger-lines.csv")
+def dashboard_active_trigger_lines_export(db: Session = Depends(get_db)) -> StreamingResponse:
+    lines = db.scalars(
+        select(TriggerLine)
+        .where(TriggerLine.line_status == "ACTIVE")
+        .order_by(TriggerLine.exchange, TriggerLine.symbol, TriggerLine.line_type)
+    ).all()
+    buffer = StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(
+        [
+            "exchange",
+            "symbol",
+            "line_type",
+            "line_price",
+            "line_status",
+            "line_drawn_date",
+            "swing_gap_percent",
+            "nearest_target",
+        ]
+    )
+    for line in lines:
+        writer.writerow(
+            [
+                line.exchange,
+                line.symbol,
+                line.line_type,
+                line.line_price,
+                line.line_status,
+                _serialize_date(line.line_drawn_date) or "",
+                line.swing_gap_percent or "",
+                line.nearest_daily_swing_high_target or line.nearest_daily_swing_low_target or "",
+            ]
+        )
+    return StreamingResponse(
+        iter([buffer.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="active-trigger-lines.csv"'},
+    )
 
 
 @router.get("/dashboard/watchlists")
