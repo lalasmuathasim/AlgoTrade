@@ -10,3 +10,4 @@ passlib
 python-jose[cryptography]
 pyotp
 email-validator
+kiteconnect

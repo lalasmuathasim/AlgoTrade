@@ -3,6 +3,7 @@ from collections.abc import Callable, Iterable
 import csv
 from datetime import UTC, date, datetime, time, timedelta
 import hashlib
+from importlib import import_module
 import io
 import uuid
 from urllib.parse import urlencode
@@ -347,41 +348,206 @@ class SubscriptionManager:
 class ZerodhaWebSocketClient:
     def __init__(self) -> None:
         self._logger = logging.getLogger(f"{__name__}.websocket")
+        self._subscription_map: dict[int, dict] = {}
 
-    def connect_forever(self, subscriptions: list[dict], on_ticks: Callable[[list[TickPayload]], None]) -> dict:
+    def _emit_state(
+        self,
+        callback: Callable[[dict], None] | None,
+        *,
+        status: str,
+        message: str,
+        transport: str,
+        **extra,
+    ) -> dict:
+        payload = {
+            "status": status,
+            "message": message,
+            "transport": transport,
+            **extra,
+        }
+        if callback is not None:
+            callback(payload.copy())
+        return payload
+
+    def _load_kite_ticker_class(self):
+        module = import_module("kiteconnect")
+        ticker_cls = getattr(module, "KiteTicker", None)
+        if ticker_cls is None:
+            raise RuntimeError("kiteconnect.KiteTicker is unavailable")
+        return ticker_cls
+
+    def _normalize_tick_timestamp(self, tick: dict) -> datetime:
+        timestamp = tick.get("exchange_timestamp") or tick.get("last_trade_time")
+        if timestamp is None:
+            return datetime.now(UTC)
+        if timestamp.tzinfo is None:
+            return timestamp.replace(tzinfo=india_tz).astimezone(UTC)
+        return timestamp.astimezone(UTC)
+
+    def _build_tick_payloads(self, ticks: list[dict]) -> list[TickPayload]:
+        payloads: list[TickPayload] = []
+        for tick in ticks:
+            instrument_token = tick.get("instrument_token")
+            last_price = tick.get("last_price")
+            if instrument_token is None or last_price is None:
+                continue
+            mapping = self._subscription_map.get(int(instrument_token))
+            if mapping is None:
+                continue
+            payloads.append(
+                TickPayload(
+                    instrument_token=int(instrument_token),
+                    symbol=mapping["symbol"],
+                    exchange=mapping["exchange"],
+                    timestamp=self._normalize_tick_timestamp(tick),
+                    last_price=float(last_price),
+                    volume_traded=float(tick["volume_traded"]) if tick.get("volume_traded") is not None else None,
+                )
+            )
+        return payloads
+
+    def connect_forever(
+        self,
+        subscriptions: list[dict],
+        on_ticks: Callable[[list[TickPayload]], None],
+        on_state_change: Callable[[dict], None] | None = None,
+    ) -> dict:
         auth = ZerodhaAuthService()
         if not auth.has_credentials():
             self._logger.warning("Zerodha credentials are not configured; websocket client is idle")
-            return {
-                "status": "IDLE_NOT_CONFIGURED",
-                "message": "Zerodha credentials are not configured.",
-                "transport": "placeholder",
-            }
+            return self._emit_state(
+                on_state_change,
+                status="IDLE_NOT_CONFIGURED",
+                message="Zerodha credentials are not configured.",
+                transport="kite_ticker",
+            )
         if not auth.has_access_token():
             self._logger.warning("ZERODHA_ACCESS_TOKEN is not configured; websocket client is idle")
-            return {
-                "status": "IDLE_NO_TOKEN",
-                "message": "Zerodha access token is not configured.",
-                "transport": "placeholder",
-            }
+            return self._emit_state(
+                on_state_change,
+                status="IDLE_NO_TOKEN",
+                message="Zerodha access token is not configured.",
+                transport="kite_ticker",
+            )
         if not subscriptions:
             self._logger.info("No active selected-watchlist subscriptions are available; websocket client is idle")
-            return {
-                "status": "IDLE_NO_SUBSCRIPTIONS",
-                "message": "No mapped symbols or active trigger-line subscriptions are available.",
-                "transport": "placeholder",
-            }
+            return self._emit_state(
+                on_state_change,
+                status="IDLE_NO_SUBSCRIPTIONS",
+                message="No mapped symbols or active trigger-line subscriptions are available.",
+                transport="kite_ticker",
+            )
 
-        self._logger.info(
-            "Prepared Zerodha websocket subscription plan for %s instruments; transport hookup remains placeholder-only",
-            len(subscriptions),
-        )
-        self._logger.info("No real websocket transport is executed during local validation")
-        return {
-            "status": "SUBSCRIPTION_PLAN_READY",
-            "message": f"Prepared {len(subscriptions)} instrument subscriptions for the selected watchlist.",
-            "transport": "placeholder",
+        try:
+            kite_ticker_cls = self._load_kite_ticker_class()
+        except Exception as exc:  # noqa: BLE001
+            self._logger.warning("kiteconnect is unavailable for ticker transport: %s", exc)
+            return self._emit_state(
+                on_state_change,
+                status="IDLE_DEPENDENCY_MISSING",
+                message="kiteconnect is unavailable for Zerodha ticker transport.",
+                transport="kite_ticker",
+                error=exc.__class__.__name__,
+            )
+
+        access_token = auth.resolve_access_token()
+        if not settings.zerodha_api_key or not access_token:
+            return self._emit_state(
+                on_state_change,
+                status="IDLE_NO_TOKEN",
+                message="Zerodha access token is not configured.",
+                transport="kite_ticker",
+            )
+
+        self._subscription_map = {
+            int(row["instrument_token"]): row
+            for row in subscriptions
+            if row.get("instrument_token") is not None
         }
+        instrument_tokens = list(self._subscription_map.keys())
+        self._logger.info(
+            "Starting KiteTicker transport for %s selected-watchlist subscriptions",
+            len(instrument_tokens),
+        )
+
+        runtime_state = self._emit_state(
+            on_state_change,
+            status="CONNECTING",
+            message=f"Connecting KiteTicker for {len(instrument_tokens)} subscriptions.",
+            transport="kite_ticker",
+        )
+        kws = kite_ticker_cls(settings.zerodha_api_key, access_token)
+
+        def on_connect(ws, response):
+            ws.subscribe(instrument_tokens)
+            ws.set_mode(ws.MODE_FULL, instrument_tokens)
+            self._logger.info("KiteTicker connected and subscribed to %s instruments", len(instrument_tokens))
+            runtime_state.update(
+                self._emit_state(
+                    on_state_change,
+                    status="CONNECTED_SUBSCRIBED",
+                    message=f"Connected and subscribed to {len(instrument_tokens)} instruments.",
+                    transport="kite_ticker",
+                )
+            )
+
+        def on_ticks_callback(_ws, ticks):
+            payloads = self._build_tick_payloads(ticks)
+            if payloads:
+                on_ticks(payloads)
+
+        def on_error(_ws, code, reason):
+            self._logger.warning("KiteTicker error: code=%s reason=%s", code, reason)
+            runtime_state.update(
+                self._emit_state(
+                    on_state_change,
+                    status="ERROR",
+                    message=f"KiteTicker error {code}: {reason}",
+                    transport="kite_ticker",
+                )
+            )
+
+        def on_close(_ws, code, reason):
+            self._logger.warning("KiteTicker closed: code=%s reason=%s", code, reason)
+            runtime_state.update(
+                self._emit_state(
+                    on_state_change,
+                    status="CLOSED",
+                    message=f"KiteTicker closed with code {code}.",
+                    transport="kite_ticker",
+                )
+            )
+
+        def on_reconnect(_ws, attempts_count):
+            self._logger.info("KiteTicker reconnect attempt %s", attempts_count)
+            runtime_state.update(
+                self._emit_state(
+                    on_state_change,
+                    status="RECONNECTING",
+                    message=f"KiteTicker reconnect attempt {attempts_count}.",
+                    transport="kite_ticker",
+                )
+            )
+
+        def on_noreconnect(_ws):
+            self._logger.warning("KiteTicker exhausted reconnect attempts")
+            runtime_state.update(
+                self._emit_state(
+                    on_state_change,
+                    status="NO_RECONNECT",
+                    message="KiteTicker exhausted reconnect attempts.",
+                    transport="kite_ticker",
+                )
+            )
+
+        kws.on_connect = on_connect
+        kws.on_ticks = on_ticks_callback
+        kws.on_error = on_error
+        kws.on_close = on_close
+        kws.on_reconnect = on_reconnect
+        kws.on_noreconnect = on_noreconnect
+        kws.connect(threaded=False)
+        return runtime_state
 
     def process_ticks(self, ticks: list[TickPayload], on_ticks: Callable[[list[TickPayload]], None]) -> None:
         on_ticks(ticks)
