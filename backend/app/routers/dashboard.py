@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from backend.app.config import get_settings
 from backend.app.dependencies import require_admin_user, require_approved_user
 from backend.app.database import get_db
-from backend.app.models import BreakoutEvent, Instrument, PaperTrade, ScanExecution, TradingSignal, TriggerLine, Watchlist, WatchlistSymbol
+from backend.app.models import BrokerOrder, BreakoutEvent, Instrument, PaperTrade, ScanExecution, TradingSignal, TriggerLine, Watchlist, WatchlistSymbol
 from backend.app.services.market_scanner import DailyMarketScanner
 from backend.app.services.paper_trading_service import ensure_settings
 from backend.app.services.watchlists import get_selected_watchlist
@@ -187,6 +187,143 @@ def _serialize_paper_trade(trade: PaperTrade) -> dict:
     }
 
 
+def _serialize_broker_order(order: BrokerOrder, signal: TradingSignal | None = None) -> dict:
+    return {
+        "id": str(order.id),
+        "signal_id": str(order.signal_id) if order.signal_id else None,
+        "exchange": order.exchange,
+        "symbol": order.symbol,
+        "action": order.action,
+        "quantity": order.quantity,
+        "average_price": order.average_price,
+        "mode": order.mode,
+        "status": order.status,
+        "broker_order_id": order.broker_order_id,
+        "trigger_price": signal.trigger_price if signal else None,
+        "entry_price": signal.entry_price if signal else None,
+        "stop_loss": signal.stop_loss if signal else None,
+        "target": signal.target if signal else None,
+        "volume_ratio": signal.volume_ratio if signal else None,
+        "created_at": _serialize_datetime(order.created_at),
+        "updated_at": _serialize_datetime(order.updated_at),
+    }
+
+
+def _trade_history_summary(rows: list[dict]) -> dict:
+    paper_rows = [row for row in rows if row["trade_mode"] == "PAPER"]
+    live_rows = [row for row in rows if row["trade_mode"] == "LIVE"]
+    return {
+        "total_rows": len(rows),
+        "paper_rows": len(paper_rows),
+        "live_rows": len(live_rows),
+        "paper_open": sum(1 for row in paper_rows if row["status"] == "OPEN"),
+        "paper_closed": sum(1 for row in paper_rows if row["status"] != "OPEN"),
+        "live_placed": sum(1 for row in live_rows if row["status"] == "PLACED"),
+        "live_skipped_or_rejected": sum(1 for row in live_rows if row["status"] != "PLACED"),
+        "paper_total_pnl": round(sum(float(row.get("pnl") or 0.0) for row in paper_rows), 2),
+        "latest_activity_at": next(
+            (
+                row.get("activity_time")
+                for row in rows
+                if row.get("activity_time") is not None
+            ),
+            None,
+        ),
+    }
+
+
+def _dashboard_trade_history_payload(db: Session, mode: str = "combined") -> dict:
+    selected_watchlist, selected_watchlist_id = _selected_watchlist_filter(db)
+    watchlist_symbols: set[tuple[str, str]] = set()
+    if selected_watchlist_id:
+        watchlist_symbols = {
+            (item.exchange, item.symbol)
+            for item in db.scalars(select(WatchlistSymbol).where(WatchlistSymbol.watchlist_id == selected_watchlist_id)).all()
+        }
+
+    signals = db.scalars(select(TradingSignal).order_by(desc(TradingSignal.created_at))).all()
+    signal_map = {signal.id: signal for signal in signals}
+
+    rows: list[dict] = []
+
+    if mode in {"combined", "paper"}:
+        paper_trades = db.scalars(select(PaperTrade).order_by(desc(PaperTrade.entry_time), desc(PaperTrade.created_at))).all()
+        for trade in paper_trades:
+            if watchlist_symbols and (trade.exchange, trade.symbol) not in watchlist_symbols:
+                continue
+            rows.append(
+                {
+                    "trade_mode": "PAPER",
+                    "record_id": str(trade.id),
+                    "signal_id": str(trade.signal_id) if trade.signal_id else None,
+                    "exchange": trade.exchange,
+                    "symbol": trade.symbol,
+                    "action": trade.action,
+                    "quantity": trade.quantity,
+                    "reference_price": trade.simulated_entry_price,
+                    "trigger_price": signal_map.get(trade.signal_id).trigger_price if trade.signal_id in signal_map else None,
+                    "stop_loss": trade.simulated_stop_loss,
+                    "target": trade.simulated_target,
+                    "volume_ratio": signal_map.get(trade.signal_id).volume_ratio if trade.signal_id in signal_map else None,
+                    "status": trade.status,
+                    "order_ref": None,
+                    "capital_used": trade.capital_used,
+                    "risk_amount": trade.risk_amount,
+                    "pnl": trade.pnl,
+                    "pnl_percent": trade.pnl_percent,
+                    "activity_time": _serialize_datetime(trade.entry_time or trade.created_at),
+                    "updated_time": _serialize_datetime(trade.exit_time or trade.created_at),
+                }
+            )
+
+    if mode in {"combined", "live"}:
+        broker_orders = db.scalars(select(BrokerOrder).order_by(desc(BrokerOrder.created_at))).all()
+        for order in broker_orders:
+            if order.mode != "LIVE":
+                continue
+            if watchlist_symbols and (order.exchange, order.symbol) not in watchlist_symbols:
+                continue
+            signal = signal_map.get(order.signal_id) if order.signal_id else None
+            rows.append(
+                {
+                    "trade_mode": "LIVE",
+                    "record_id": str(order.id),
+                    "signal_id": str(order.signal_id) if order.signal_id else None,
+                    "exchange": order.exchange,
+                    "symbol": order.symbol,
+                    "action": order.action,
+                    "quantity": order.quantity,
+                    "reference_price": order.average_price or (signal.entry_price if signal else None),
+                    "trigger_price": signal.trigger_price if signal else None,
+                    "stop_loss": signal.stop_loss if signal else None,
+                    "target": signal.target if signal else None,
+                    "volume_ratio": signal.volume_ratio if signal else None,
+                    "status": order.status,
+                    "order_ref": order.broker_order_id,
+                    "capital_used": signal.capital_used if signal else None,
+                    "risk_amount": signal.risk_amount if signal else None,
+                    "pnl": None,
+                    "pnl_percent": None,
+                    "activity_time": _serialize_datetime(order.created_at),
+                    "updated_time": _serialize_datetime(order.updated_at),
+                }
+            )
+
+    rows.sort(key=lambda item: item.get("activity_time") or "", reverse=True)
+    return {
+        "selected_watchlist": {
+            "id": str(selected_watchlist.id),
+            "name": selected_watchlist.name,
+            "exchange": selected_watchlist.exchange,
+        }
+        if selected_watchlist
+        else None,
+        "mode": mode,
+        "summary": _trade_history_summary(rows),
+        "rows": rows,
+    }
+
+
 @router.get("/dashboard", response_class=HTMLResponse)
 def dashboard_home() -> str:
     body_html = """
@@ -261,9 +398,34 @@ def dashboard_home() -> str:
         </div>
       </div>
     </section>
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Trade History</h2>
+          <p class="panel-copy">Review simulated and live execution history from one place. Switch between paper results, live Zerodha orders, or a combined view for later analytics and model training.</p>
+        </div>
+      </div>
+      <div id="tradeHistorySummary" class="table-toolbar-copy" style="margin-bottom: 14px;">Loading trade history...</div>
+      <div class="table-shell">
+        <div class="table-toolbar">
+          <p class="table-toolbar-copy">Trade history stays collapsed by default so long lists remain readable while still supporting full horizontal inspection when expanded.</p>
+          <div class="table-toolbar-actions">
+            <button id="tradeHistoryCombinedButton" class="primary table-toggle" type="button">Combined</button>
+            <button id="tradeHistoryPaperButton" class="secondary table-toggle" type="button">Paper</button>
+            <button id="tradeHistoryLiveButton" class="secondary table-toggle" type="button">Live</button>
+            <button id="refreshTradeHistoryButton" class="secondary table-toggle" type="button">Refresh Table</button>
+            <button id="tradeHistoryToggle" class="secondary table-toggle hidden" type="button" aria-expanded="false">Expand table</button>
+          </div>
+        </div>
+        <div id="tradeHistoryFrame" class="table-scroll-frame is-collapsed" style="--table-min-width: 1540px;">
+          <table id="tradeHistoryTable"></table>
+        </div>
+      </div>
+    </section>
     """
     script = """
     let latestOverview = null;
+    let currentTradeHistoryMode = "combined";
     const syncDailyReviewPreview = bindCollapsibleTable({
       buttonId: "dailyReviewToggle",
       frameId: "dailyReviewFrame",
@@ -274,6 +436,12 @@ def dashboard_home() -> str:
       buttonId: "breakoutReviewToggle",
       frameId: "breakoutReviewFrame",
       tableId: "breakoutReviewTable",
+      previewRows: 8,
+    });
+    const syncTradeHistoryPreview = bindCollapsibleTable({
+      buttonId: "tradeHistoryToggle",
+      frameId: "tradeHistoryFrame",
+      tableId: "tradeHistoryTable",
       previewRows: 8,
     });
 
@@ -366,6 +534,61 @@ def dashboard_home() -> str:
       return review;
     }
 
+    function renderTradeHistorySummary(payload) {
+      const element = document.getElementById("tradeHistorySummary");
+      if (!payload || !payload.summary) {
+        element.textContent = "No trade history is available yet.";
+        element.className = "table-toolbar-copy";
+        return;
+      }
+      const watchlistLabel = payload.selected_watchlist ? `${payload.selected_watchlist.name} · ` : "";
+      const modeLabel = payload.mode ? `${payload.mode.toUpperCase()} view · ` : "";
+      element.textContent = `${watchlistLabel}${modeLabel}${payload.summary.total_rows} rows · ${payload.summary.paper_rows} paper · ${payload.summary.live_rows} live · paper PnL ${payload.summary.paper_total_pnl} · latest activity ${payload.summary.latest_activity_at ? new Date(payload.summary.latest_activity_at).toLocaleString() : "not recorded yet"}`;
+      element.className = "table-toolbar-copy";
+    }
+
+    function setTradeHistoryMode(mode) {
+      currentTradeHistoryMode = mode;
+      const mapping = {
+        combined: "tradeHistoryCombinedButton",
+        paper: "tradeHistoryPaperButton",
+        live: "tradeHistoryLiveButton",
+      };
+      Object.entries(mapping).forEach(([key, id]) => {
+        const button = document.getElementById(id);
+        button.className = `${key === mode ? "primary" : "secondary"} table-toggle`;
+      });
+    }
+
+    async function loadTradeHistory(mode = currentTradeHistoryMode) {
+      setTradeHistoryMode(mode);
+      const payload = await apiGet(`/dashboard/reports/trade-history?mode=${encodeURIComponent(mode)}`);
+      renderTradeHistorySummary(payload);
+      renderTable(
+        document.getElementById("tradeHistoryTable"),
+        ["Mode", "Symbol", "Action", "Reference Price", "Trigger", "Stop Loss", "Target", "Qty", "Volume Ratio", "Status", "Capital Used", "Risk", "PnL", "Order Ref", "Activity Time"],
+        payload.rows.map((item) => [
+          `<span class="badge ${item.trade_mode === "LIVE" ? "warn" : ""}">${item.trade_mode}</span>`,
+          `${item.exchange}:${item.symbol}`,
+          item.action,
+          item.reference_price ?? "N/A",
+          item.trigger_price ?? "N/A",
+          item.stop_loss ?? "N/A",
+          item.target ?? "N/A",
+          item.quantity ?? "N/A",
+          item.volume_ratio ?? "N/A",
+          item.status,
+          item.capital_used ?? "N/A",
+          item.risk_amount ?? "N/A",
+          item.pnl ?? "N/A",
+          item.order_ref ?? "N/A",
+          item.activity_time ? new Date(item.activity_time).toLocaleString() : "N/A",
+        ]),
+      );
+      syncTradeHistoryPreview();
+      return payload;
+    }
+
     async function updateDailyReview() {
       renderDashboardSummary(
         latestOverview,
@@ -397,7 +620,7 @@ def dashboard_home() -> str:
       renderCards(overview);
       renderDashboardSummary(overview);
       try {
-        await Promise.all([loadDailyLineReview(), loadBreakoutReview()]);
+        await Promise.all([loadDailyLineReview(), loadBreakoutReview(), loadTradeHistory("combined")]);
       } catch (error) {
         renderDashboardSummary(
           overview,
@@ -434,6 +657,38 @@ def dashboard_home() -> str:
       } catch (error) {
         renderBreakoutReviewSummary(null);
         document.getElementById("breakoutReviewSummary").textContent = `Unable to load breakout review: ${error.message}`;
+      }
+    });
+
+    document.getElementById("tradeHistoryCombinedButton").addEventListener("click", async () => {
+      try {
+        await loadTradeHistory("combined");
+      } catch (error) {
+        document.getElementById("tradeHistorySummary").textContent = `Unable to load combined trade history: ${error.message}`;
+      }
+    });
+
+    document.getElementById("tradeHistoryPaperButton").addEventListener("click", async () => {
+      try {
+        await loadTradeHistory("paper");
+      } catch (error) {
+        document.getElementById("tradeHistorySummary").textContent = `Unable to load paper trade history: ${error.message}`;
+      }
+    });
+
+    document.getElementById("tradeHistoryLiveButton").addEventListener("click", async () => {
+      try {
+        await loadTradeHistory("live");
+      } catch (error) {
+        document.getElementById("tradeHistorySummary").textContent = `Unable to load live trade history: ${error.message}`;
+      }
+    });
+
+    document.getElementById("refreshTradeHistoryButton").addEventListener("click", async () => {
+      try {
+        await loadTradeHistory(currentTradeHistoryMode);
+      } catch (error) {
+        document.getElementById("tradeHistorySummary").textContent = `Unable to refresh trade history: ${error.message}`;
       }
     });
 
@@ -1078,3 +1333,14 @@ def get_paper_trades(
         "summary": _paper_trade_summary(filtered),
         "trades": [_serialize_paper_trade(trade) for trade in filtered],
     }
+
+
+@router.get("/dashboard/reports/trade-history")
+def dashboard_trade_history(
+    mode: str = "combined",
+    db: Session = Depends(get_db),
+) -> dict:
+    normalized_mode = mode.strip().lower()
+    if normalized_mode not in {"combined", "paper", "live"}:
+        raise HTTPException(status_code=422, detail="Mode must be one of combined, paper, or live")
+    return _dashboard_trade_history_payload(db, mode=normalized_mode)
