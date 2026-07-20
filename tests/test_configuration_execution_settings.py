@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import SQLAlchemyError
 
 from tests.support import configure_test_env
 
@@ -65,6 +66,19 @@ class ConfigurationExecutionSettingsTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["detail"], "Connect Zerodha before enabling live trading")
+
+    def test_get_execution_settings_returns_fallback_when_runtime_settings_fail(self):
+        with (
+            patch(
+                "backend.app.routers.configuration.get_execution_mode_payload",
+                side_effect=SQLAlchemyError("column missing"),
+            ),
+            patch("backend.app.routers.configuration.get_current_zerodha_session", return_value=None),
+        ):
+            response = self.client.get("/configuration/execution-settings")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["effective_mode"], "PAPER_ONLY")
 
 
 if __name__ == "__main__":

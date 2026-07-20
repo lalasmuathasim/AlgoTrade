@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from sqlalchemy import desc, func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from backend.app.config import get_settings
@@ -830,6 +831,20 @@ def configuration_page() -> str:
       document.getElementById("toggleLiveTradingButton").textContent = liveEnabled ? "Disable Live Trading" : "Enable Live Trading";
     }
 
+    function renderExecutionSettingsUnavailable(message) {
+      latestExecutionSettings = null;
+      document.getElementById("executionModeBadge").className = "badge warn";
+      document.getElementById("executionModeBadge").textContent = "Unavailable";
+      setInlineMessage("executionModeStatus", message, "warn");
+      document.getElementById("executionModeDetails").innerHTML = [
+        "Paper trading remains available through the existing backend runtime.",
+        "Live trading controls could not be loaded right now.",
+        "Run the latest database migrations, then refresh this page if the issue persists.",
+      ].map((line) => `<li>${line}</li>`).join("");
+      document.getElementById("toggleLiveTradingButton").textContent = "Enable Live Trading";
+      document.getElementById("toggleLiveTradingButton").disabled = true;
+    }
+
     function renderWatchlists(watchlists) {
       cachedWatchlists = watchlists;
       document.getElementById("targetWatchlist").innerHTML = watchlists.length
@@ -1118,9 +1133,15 @@ def configuration_page() -> str:
     }
 
     async function loadExecutionSettings() {
-      const executionSettings = await apiGet("/configuration/execution-settings");
-      renderExecutionSettings(executionSettings);
-      return executionSettings;
+      try {
+        const executionSettings = await apiGet("/configuration/execution-settings");
+        renderExecutionSettings(executionSettings);
+        document.getElementById("toggleLiveTradingButton").disabled = false;
+        return executionSettings;
+      } catch (error) {
+        renderExecutionSettingsUnavailable(error.message);
+        return null;
+      }
     }
 
     async function loadZerodhaConnectionStatus() {
@@ -1131,17 +1152,16 @@ def configuration_page() -> str:
 
     async function refreshAll(preferredWatchlistId = null) {
       activeBuilderWatchlistId = preferredWatchlistId || activeBuilderWatchlistId;
-      const [readiness, watchlists, zerodhaStatus, strategySettings, executionSettings] = await Promise.all([
+      const [readiness, watchlists, zerodhaStatus, strategySettings] = await Promise.all([
         loadReadiness(),
         loadWatchlists(),
         loadZerodhaConnectionStatus(),
         loadStrategySettings(),
-        loadExecutionSettings(),
       ]);
+      await loadExecutionSettings();
       renderReadiness(readiness, zerodhaStatus);
       renderConfigCards(readiness, watchlists);
       renderStrategySettings(strategySettings);
-      renderExecutionSettings(executionSettings);
       const detailWatchlist = watchlists.find((item) => item.id === preferredWatchlistId)
         || watchlists.find((item) => item.id === currentWatchlistDetailId)
         || watchlists.find((item) => item.is_selected)
@@ -1474,7 +1494,21 @@ def save_configuration_strategy_settings(
 
 @router.get("/configuration/execution-settings", response_model=ExecutionModeResponse)
 def configuration_execution_settings(db: Session = Depends(get_db)) -> ExecutionModeResponse:
-    return get_execution_mode_payload(db)
+    try:
+        return get_execution_mode_payload(db)
+    except SQLAlchemyError:
+        logger.exception("Execution settings could not be loaded")
+        zerodha_session = get_current_zerodha_session(db)
+        return ExecutionModeResponse(
+            paper_trading_enabled=settings.paper_trading_enabled,
+            live_trading_enabled=settings.zerodha_live_trading_enabled,
+            effective_mode="PAPER_ONLY",
+            zerodha_credentials_configured=bool(
+                settings.zerodha_api_key and settings.zerodha_api_secret and settings.zerodha_redirect_url
+            ),
+            zerodha_session_present=zerodha_session is not None,
+            zerodha_access_token_expires_at=zerodha_session.access_token_expires_at if zerodha_session else None,
+        )
 
 
 @router.post("/configuration/execution-settings", response_model=ExecutionModeResponse)
@@ -1489,5 +1523,12 @@ def save_configuration_execution_settings(
         if get_current_zerodha_session(db) is None:
             raise HTTPException(status_code=503, detail="Connect Zerodha before enabling live trading")
 
-    update_live_trading_enabled(db, payload.live_trading_enabled)
-    return get_execution_mode_payload(db)
+    try:
+        update_live_trading_enabled(db, payload.live_trading_enabled)
+        return get_execution_mode_payload(db)
+    except SQLAlchemyError as exc:
+        logger.exception("Execution settings could not be updated")
+        raise HTTPException(
+            status_code=503,
+            detail="Live trading controls are unavailable until the latest database migrations are applied",
+        ) from exc
