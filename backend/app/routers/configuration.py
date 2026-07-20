@@ -381,29 +381,11 @@ def configuration_page() -> str:
       <div class="panel">
         <div class="panel-header">
           <div>
-            <h2>Watchlist Control</h2>
-            <p class="panel-copy">Create and switch the runtime universe that the daily scan and live 3-minute monitor should care about.</p>
+            <h2>Configured Watchlists</h2>
+            <p class="panel-copy">Open a list to inspect it, or switch the runtime focus with a single action.</p>
           </div>
-          <div class="badge">Control</div>
         </div>
-        <div id="watchlistStatus" class="status-box">Create a watchlist first, then validate and add NSE or BSE symbols.</div>
-        <div id="selectedWatchlistBox" class="status-box" style="margin-top: 12px;">No watchlist is currently selected.</div>
-        <div class="field">
-          <label for="watchlistName">Watchlist name</label>
-          <input id="watchlistName" type="text" placeholder="NSE Core Swing Watchlist" />
-        </div>
-        <div class="field">
-          <label for="watchlistDescription">Description</label>
-          <input id="watchlistDescription" type="text" placeholder="Daily draw/redraw universe for swing structures" />
-        </div>
-        <div class="field">
-          <label for="watchlistExchange">Default exchange</label>
-          <select id="watchlistExchange">
-            <option value="NSE">NSE</option>
-            <option value="BSE">BSE</option>
-          </select>
-        </div>
-        <button id="createWatchlistButton" class="primary" type="button">Create Watchlist</button>
+        <table id="watchlistsTable"></table>
       </div>
       <div class="rail-stack">
         <div class="panel">
@@ -423,16 +405,6 @@ def configuration_page() -> str:
             <button id="syncInstrumentsButton" class="secondary" type="button">Sync Instruments From Zerodha</button>
             <button id="refreshReadinessButton" class="secondary" type="button">Refresh Readiness</button>
           </div>
-        </div>
-        <div class="panel">
-          <div class="panel-header">
-            <div>
-              <h2>Watchlist Detail</h2>
-              <p class="panel-copy">Inspect the selected or opened watchlist with mapped symbols, companies, and latest available market price reference.</p>
-            </div>
-          </div>
-          <div id="watchlistDetailStatus" class="status-box">Select a watchlist to inspect its tracked symbols and current prices.</div>
-          <table id="watchlistDetailTable"></table>
         </div>
       </div>
     </section>
@@ -551,11 +523,29 @@ def configuration_page() -> str:
       <div class="panel">
         <div class="panel-header">
           <div>
-            <h2>Configured Watchlists</h2>
-            <p class="panel-copy">Open a list to inspect it, or switch the runtime focus with a single action.</p>
+            <h2>Watchlist Control</h2>
+            <p class="panel-copy">Create and switch the runtime universe that the daily scan and live 3-minute monitor should care about.</p>
           </div>
+          <div class="badge">Control</div>
         </div>
-        <table id="watchlistsTable"></table>
+        <div id="watchlistStatus" class="status-box">Create a watchlist first, then validate and add NSE or BSE symbols.</div>
+        <div id="selectedWatchlistBox" class="status-box" style="margin-top: 12px;">No watchlist is currently selected.</div>
+        <div class="field">
+          <label for="watchlistName">Watchlist name</label>
+          <input id="watchlistName" type="text" placeholder="NSE Core Swing Watchlist" />
+        </div>
+        <div class="field">
+          <label for="watchlistDescription">Description</label>
+          <input id="watchlistDescription" type="text" placeholder="Daily draw/redraw universe for swing structures" />
+        </div>
+        <div class="field">
+          <label for="watchlistExchange">Default exchange</label>
+          <select id="watchlistExchange">
+            <option value="NSE">NSE</option>
+            <option value="BSE">BSE</option>
+          </select>
+        </div>
+        <button id="createWatchlistButton" class="primary" type="button">Create Watchlist</button>
       </div>
       <div class="panel">
         <div class="panel-header">
@@ -570,6 +560,16 @@ def configuration_page() -> str:
           <li class="pill">Use Zerodha connection and sync controls from the readiness rail</li>
         </ul>
       </div>
+    </section>
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Watchlist Detail</h2>
+          <p class="panel-copy">Inspect the selected or opened watchlist with mapped symbols, companies, and latest available market price reference.</p>
+        </div>
+      </div>
+      <div id="watchlistDetailStatus" class="status-box">Select a watchlist to inspect its tracked symbols and current prices.</div>
+      <table id="watchlistDetailTable"></table>
     </section>
     <section class="panel">
       <div class="panel-header">
