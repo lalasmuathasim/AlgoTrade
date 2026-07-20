@@ -120,13 +120,16 @@ def _serialize_breakout_event(event: BreakoutEvent) -> dict:
         "breakout_candle_low": event.breakout_candle_low,
         "breakout_candle_volume": event.breakout_candle_volume,
         "previous_candle_volume": event.previous_candle_volume,
+        "required_volume_multiplier": event.required_volume_multiplier,
         "volume_ratio": event.volume_ratio,
         "volume_condition_required": event.volume_condition_required,
         "volume_condition_passed": event.volume_condition_passed,
         "entry_price": event.entry_price,
         "stop_loss": event.stop_loss,
         "target": event.target,
+        "signal_generated": event.signal_generated,
         "status": event.status,
+        "rejection_reason": event.rejection_reason,
         "created_at": _serialize_datetime(event.created_at),
     }
 
@@ -237,6 +240,27 @@ def dashboard_home() -> str:
         </div>
       </div>
     </section>
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>3-Minute Breakout Review</h2>
+          <p class="panel-copy">Review every saved breakout or breakdown attempt for the selected watchlist, including the previous candle volume, the required multiplier, and whether the event converted into a signal.</p>
+        </div>
+      </div>
+      <div id="breakoutReviewSummary" class="table-toolbar-copy" style="margin-bottom: 14px;">Loading breakout review summary...</div>
+      <div class="table-shell">
+        <div class="table-toolbar">
+          <p class="table-toolbar-copy">This review stays collapsed by default so you can scan the latest breakout attempts without stretching the dashboard.</p>
+          <div class="table-toolbar-actions">
+            <button id="refreshBreakoutReviewButton" class="secondary table-toggle" type="button">Refresh Table</button>
+            <button id="breakoutReviewToggle" class="secondary table-toggle hidden" type="button" aria-expanded="false">Expand table</button>
+          </div>
+        </div>
+        <div id="breakoutReviewFrame" class="table-scroll-frame is-collapsed" style="--table-min-width: 1480px;">
+          <table id="breakoutReviewTable"></table>
+        </div>
+      </div>
+    </section>
     """
     script = """
     let latestOverview = null;
@@ -245,6 +269,12 @@ def dashboard_home() -> str:
       frameId: "dailyReviewFrame",
       tableId: "dailyReviewTable",
       previewRows: 9,
+    });
+    const syncBreakoutReviewPreview = bindCollapsibleTable({
+      buttonId: "breakoutReviewToggle",
+      frameId: "breakoutReviewFrame",
+      tableId: "breakoutReviewTable",
+      previewRows: 8,
     });
 
     function renderCards(stats) {
@@ -297,6 +327,45 @@ def dashboard_home() -> str:
       return review;
     }
 
+    function renderBreakoutReviewSummary(summary) {
+      const element = document.getElementById("breakoutReviewSummary");
+      if (!summary || !summary.selected_watchlist) {
+        element.textContent = "No selected watchlist is available for breakout review yet.";
+        element.className = "table-toolbar-copy";
+        return;
+      }
+      element.textContent = `${summary.selected_watchlist.name} · ${summary.total_events} breakout attempts · ${summary.passed_events} volume-confirmed · ${summary.failed_events} rejected · latest event ${summary.latest_event_time ? new Date(summary.latest_event_time).toLocaleString() : "not recorded yet"}`;
+      element.className = "table-toolbar-copy";
+    }
+
+    async function loadBreakoutReview() {
+      const review = await apiGet("/dashboard/reports/breakout-review");
+      renderBreakoutReviewSummary(review.summary);
+      renderTable(
+        document.getElementById("breakoutReviewTable"),
+        ["Symbol", "Line Type", "Line Price", "Event", "Breakout Time", "Prev Volume", "Breakout Volume", "Required", "Ratio", "Passed", "Entry", "Stop Loss", "Target", "Signal", "Status"],
+        review.rows.map((item) => [
+          item.symbol,
+          `<span class="badge">${item.line_type}</span>`,
+          item.line_price ?? "N/A",
+          item.event_type,
+          item.event_time ? new Date(item.event_time).toLocaleString() : "N/A",
+          item.previous_candle_volume ?? "N/A",
+          item.breakout_candle_volume ?? "N/A",
+          item.required_volume_multiplier ? `${item.required_volume_multiplier}x` : "N/A",
+          item.volume_ratio ?? "N/A",
+          item.volume_condition_passed ? '<span class="badge">YES</span>' : '<span class="badge warn">NO</span>',
+          item.entry_price ?? "N/A",
+          item.stop_loss ?? "N/A",
+          item.target ?? "N/A",
+          item.signal_generated ? '<span class="badge">CREATED</span>' : '<span class="badge warn">SKIPPED</span>',
+          item.rejection_reason ? `${item.status} · ${item.rejection_reason}` : item.status,
+        ]),
+      );
+      syncBreakoutReviewPreview();
+      return review;
+    }
+
     async function updateDailyReview() {
       renderDashboardSummary(
         latestOverview,
@@ -328,7 +397,7 @@ def dashboard_home() -> str:
       renderCards(overview);
       renderDashboardSummary(overview);
       try {
-        await loadDailyLineReview();
+        await Promise.all([loadDailyLineReview(), loadBreakoutReview()]);
       } catch (error) {
         renderDashboardSummary(
           overview,
@@ -356,6 +425,15 @@ def dashboard_home() -> str:
             error.message,
           ],
         );
+      }
+    });
+
+    document.getElementById("refreshBreakoutReviewButton").addEventListener("click", async () => {
+      try {
+        await loadBreakoutReview();
+      } catch (error) {
+        renderBreakoutReviewSummary(null);
+        document.getElementById("breakoutReviewSummary").textContent = `Unable to load breakout review: ${error.message}`;
       }
     });
 
@@ -478,6 +556,79 @@ def dashboard_daily_line_review(db: Session = Depends(get_db)) -> dict:
                 "swing_window": runtime_settings.swing_window,
                 "min_swing_distance": runtime_settings.min_swing_distance,
             },
+        },
+        "rows": rows,
+    }
+
+
+@router.get("/dashboard/reports/breakout-review")
+def dashboard_breakout_review(db: Session = Depends(get_db)) -> dict:
+    selected_watchlist, selected_watchlist_id = _selected_watchlist_filter(db)
+    if selected_watchlist is None or selected_watchlist_id is None:
+        return {
+            "selected_watchlist": None,
+            "summary": {
+                "selected_watchlist": None,
+                "total_events": 0,
+                "passed_events": 0,
+                "failed_events": 0,
+                "latest_event_time": None,
+            },
+            "rows": [],
+        }
+
+    lines = db.scalars(
+        select(TriggerLine)
+        .where(TriggerLine.watchlist_id == selected_watchlist_id)
+        .order_by(TriggerLine.symbol, TriggerLine.line_type)
+    ).all()
+    line_map = {line.id: line for line in lines}
+    events = db.scalars(select(BreakoutEvent).order_by(desc(BreakoutEvent.event_time), desc(BreakoutEvent.created_at))).all()
+
+    rows: list[dict] = []
+    for event in events:
+        line = line_map.get(event.trigger_line_id) if event.trigger_line_id else None
+        if line is None:
+            continue
+        rows.append(
+            {
+                "id": str(event.id),
+                "symbol": event.symbol,
+                "exchange": event.exchange,
+                "line_type": line.line_type,
+                "line_price": line.line_price,
+                "event_type": event.event_type,
+                "event_time": _serialize_datetime(event.event_time),
+                "breakout_candle_volume": event.breakout_candle_volume,
+                "previous_candle_volume": event.previous_candle_volume,
+                "required_volume_multiplier": event.required_volume_multiplier,
+                "volume_ratio": event.volume_ratio,
+                "volume_condition_passed": event.volume_condition_passed,
+                "entry_price": event.entry_price,
+                "stop_loss": event.stop_loss,
+                "target": event.target,
+                "signal_generated": event.signal_generated,
+                "status": event.status,
+                "rejection_reason": event.rejection_reason,
+            }
+        )
+
+    return {
+        "selected_watchlist": {
+            "id": str(selected_watchlist.id),
+            "name": selected_watchlist.name,
+            "exchange": selected_watchlist.exchange,
+        },
+        "summary": {
+            "selected_watchlist": {
+                "id": str(selected_watchlist.id),
+                "name": selected_watchlist.name,
+                "exchange": selected_watchlist.exchange,
+            },
+            "total_events": len(rows),
+            "passed_events": sum(1 for row in rows if row["volume_condition_passed"]),
+            "failed_events": sum(1 for row in rows if not row["volume_condition_passed"]),
+            "latest_event_time": rows[0]["event_time"] if rows else None,
         },
         "rows": rows,
     }

@@ -92,6 +92,7 @@ class BreakoutCandidatePayload(BaseModel):
     trigger_line_id: uuid.UUID
     symbol: str
     exchange: str = "NSE"
+    line_type: Literal["BUY", "SELL"]
     event_type: Literal["BREAKOUT", "BREAKDOWN"]
     event_time: datetime
     breakout_or_breakdown_price: float
@@ -99,12 +100,14 @@ class BreakoutCandidatePayload(BaseModel):
     breakout_candle_low: float
     breakout_candle_volume: float
     previous_candle_volume: float | None = None
+    required_volume_multiplier: float
     volume_ratio: float | None = None
     volume_condition_passed: bool
     entry_price: float
     stop_loss: float
     target: float
     market_candle_id: uuid.UUID | None = None
+    rejection_reason: str | None = None
 
 
 class TradeSetupPayload(BaseModel):
