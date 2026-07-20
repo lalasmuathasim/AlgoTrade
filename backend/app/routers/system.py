@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from backend.app.config import get_settings
 from backend.app.database import get_db, verify_database_connectivity
 from backend.app.dependencies import require_admin_user
+from backend.app.queue import check_redis_connectivity, get_live_engine_runtime
 from backend.app.models import WatchlistSymbol
 from backend.app.schemas import (
     DailyScanRequest,
@@ -16,16 +17,18 @@ from backend.app.schemas import (
     InstrumentPayload,
     InstrumentSyncRequest,
     InstrumentSyncResponse,
+    LiveEngineRuntimeResponse,
     ScanExecutionResponse,
     TickPayload,
     TickReplayRequest,
 )
 from backend.app.services.market_scanner import DailyMarketScanner
+from backend.app.services.live_engine_runtime import build_live_engine_runtime_snapshot
 from backend.app.services.market_stream import MarketDataProcessor
 from backend.app.services.zerodha import InstrumentMasterSyncService, ZerodhaApiClient, ZerodhaAuthService
 from backend.app.services.zerodha_sessions import get_current_zerodha_access_token
 from backend.app.services.watchlists import get_selected_watchlist
-from backend.app.queue import check_redis_connectivity
+from backend.app.services.zerodha import SubscriptionManager
 
 
 router = APIRouter(prefix="/system", tags=["system"], dependencies=[Depends(require_admin_user)])
@@ -68,6 +71,23 @@ def dependency_status(db: Session = Depends(get_db)) -> DependencyStatusResponse
         redis=check_redis_connectivity(),
         zerodha_credentials_configured=bool(settings.zerodha_api_key and access_token),
     )
+
+
+@router.get("/live-engine/runtime", response_model=LiveEngineRuntimeResponse)
+def live_engine_runtime(db: Session = Depends(get_db)) -> LiveEngineRuntimeResponse:
+    snapshot = get_live_engine_runtime()
+    if snapshot is None:
+        selected_watchlist = get_selected_watchlist(db)
+        subscriptions = SubscriptionManager().describe_active_subscriptions(db)
+        snapshot = build_live_engine_runtime_snapshot(
+            status="NOT_PUBLISHED",
+            message="Live engine has not published runtime state yet.",
+            selected_watchlist=selected_watchlist,
+            subscriptions=subscriptions,
+            credentials_configured=bool(settings.zerodha_api_key and settings.zerodha_api_secret and settings.zerodha_redirect_url),
+            access_token_configured=bool(get_current_zerodha_access_token(db) or settings.zerodha_access_token),
+        )
+    return LiveEngineRuntimeResponse.model_validate(snapshot)
 
 
 @router.post("/instruments/sync", response_model=InstrumentSyncResponse)

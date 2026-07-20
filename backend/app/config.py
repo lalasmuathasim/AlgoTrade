@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     worker_max_retries: int = 3
     scheduler_poll_interval_seconds: int = 30
     reconciliation_poll_interval_seconds: int = 300
+    live_engine_runtime_ttl_seconds: int = 180
 
     access_token_expire_minutes: int = 720
     session_cookie_name: str = "qubitx_session"
@@ -67,6 +68,10 @@ class Settings(BaseSettings):
     @property
     def scheduler_queue_name(self) -> str:
         return f"{self.redis_queue_prefix}:scheduler"
+
+    @property
+    def live_engine_runtime_key(self) -> str:
+        return f"{self.redis_queue_prefix}:live_engine_runtime"
 
 
 class DependencyStatus(BaseModel):

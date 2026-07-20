@@ -1,10 +1,14 @@
 import logging
 import time
+from datetime import UTC, datetime
 
 from backend.app.config import get_settings
 from backend.app.database import SessionLocal, initialize_runtime_state
+from backend.app.queue import publish_live_engine_runtime
 from backend.app.services.market_stream import MarketDataProcessor
-from backend.app.services.zerodha import ZerodhaWebSocketClient
+from backend.app.services.live_engine_runtime import build_live_engine_runtime_snapshot
+from backend.app.services.watchlists import get_selected_watchlist
+from backend.app.services.zerodha import SubscriptionManager, ZerodhaAuthService, ZerodhaWebSocketClient
 
 
 settings = get_settings()
@@ -24,13 +28,44 @@ def run_live_engine() -> None:
     initialize_runtime_state()
     processor = MarketDataProcessor()
     client = ZerodhaWebSocketClient()
+    subscription_manager = SubscriptionManager()
+    auth = ZerodhaAuthService()
 
     def handle_ticks(ticks):
+        latest_tick = max(ticks, key=lambda item: item.timestamp) if ticks else None
         with SessionLocal() as db:
             processor.process_ticks(db, ticks)
+            subscriptions = subscription_manager.describe_active_subscriptions(db)
+            publish_live_engine_runtime(
+                build_live_engine_runtime_snapshot(
+                    status="STREAMING",
+                    message=f"Processed {len(ticks)} ticks for the selected watchlist.",
+                    selected_watchlist=get_selected_watchlist(db),
+                    subscriptions=subscriptions,
+                    transport="placeholder",
+                    credentials_configured=auth.has_credentials(),
+                    access_token_configured=auth.has_access_token(),
+                    last_tick_at=latest_tick.timestamp if latest_tick else datetime.now(UTC),
+                    last_tick_symbol=latest_tick.symbol if latest_tick else None,
+                )
+            )
 
     while True:
-        client.connect_forever(handle_ticks)
+        with SessionLocal() as db:
+            selected_watchlist = get_selected_watchlist(db)
+            subscriptions = subscription_manager.describe_active_subscriptions(db)
+        result = client.connect_forever(subscriptions, handle_ticks)
+        publish_live_engine_runtime(
+            build_live_engine_runtime_snapshot(
+                status=result["status"],
+                message=result["message"],
+                selected_watchlist=selected_watchlist,
+                subscriptions=subscriptions,
+                transport=result.get("transport", "placeholder"),
+                credentials_configured=auth.has_credentials(),
+                access_token_configured=auth.has_access_token(),
+            )
+        )
         time.sleep(settings.scheduler_poll_interval_seconds)
 
 
