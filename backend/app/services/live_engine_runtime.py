@@ -24,6 +24,11 @@ def build_live_engine_runtime_snapshot(
     access_token_configured: bool = False,
     last_tick_at: datetime | None = None,
     last_tick_symbol: str | None = None,
+    finalized_candles_count: int = 0,
+    signals_created_count: int = 0,
+    last_finalized_candle: dict | None = None,
+    last_signal_id: str | None = None,
+    last_signal_symbol: str | None = None,
 ) -> dict:
     return {
         "status": status,
@@ -36,4 +41,9 @@ def build_live_engine_runtime_snapshot(
         "access_token_configured": access_token_configured,
         "last_tick_at": last_tick_at.astimezone(UTC).isoformat() if last_tick_at else None,
         "last_tick_symbol": last_tick_symbol,
+        "finalized_candles_count": finalized_candles_count,
+        "signals_created_count": signals_created_count,
+        "last_finalized_candle": last_finalized_candle,
+        "last_signal_id": last_signal_id,
+        "last_signal_symbol": last_signal_symbol,
     }

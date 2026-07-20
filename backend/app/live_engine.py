@@ -58,16 +58,35 @@ def run_live_engine() -> None:
     def handle_ticks(ticks):
         latest_tick = max(ticks, key=lambda item: item.timestamp) if ticks else None
         with SessionLocal() as db:
-            processor.process_ticks(db, ticks)
+            result = processor.process_ticks(db, ticks)
             subscriptions = subscription_manager.describe_active_subscriptions(db)
+            last_finalized_candle = result.finalized_candles[-1] if result.finalized_candles else None
+            last_signal = result.signals[-1] if result.signals else None
             publish_runtime_state(
                 status="STREAMING",
-                message=f"Processed {len(ticks)} ticks for the selected watchlist.",
+                message=f"Processed {result.ticks_processed} ticks, finalized {result.finalized_candles_count} candles, and created {result.signals_created_count} signals.",
                 selected_watchlist=get_selected_watchlist(db),
                 subscriptions=subscriptions,
                 transport="kite_ticker",
                 last_tick_at=latest_tick.timestamp if latest_tick else datetime.now(UTC),
                 last_tick_symbol=latest_tick.symbol if latest_tick else None,
+                finalized_candles_count=result.finalized_candles_count,
+                signals_created_count=result.signals_created_count,
+                last_finalized_candle={
+                    "symbol": last_finalized_candle.symbol,
+                    "exchange": last_finalized_candle.exchange,
+                    "candle_start": last_finalized_candle.candle_start.astimezone(UTC).isoformat(),
+                    "candle_end": last_finalized_candle.candle_end.astimezone(UTC).isoformat(),
+                    "open": last_finalized_candle.open,
+                    "high": last_finalized_candle.high,
+                    "low": last_finalized_candle.low,
+                    "close": last_finalized_candle.close,
+                    "volume": last_finalized_candle.volume,
+                }
+                if last_finalized_candle
+                else None,
+                last_signal_id=str(last_signal.id) if last_signal else None,
+                last_signal_symbol=last_signal.symbol if last_signal else None,
             )
 
     while True:
