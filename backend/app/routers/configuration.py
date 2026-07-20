@@ -12,7 +12,7 @@ from backend.app.config import get_settings
 from backend.app.database import get_db, verify_database_connectivity
 from backend.app.dependencies import require_admin_user
 from backend.app.models import Instrument, MarketCandle, Watchlist, WatchlistSymbol
-from backend.app.queue import check_redis_connectivity
+from backend.app.queue import check_redis_connectivity, get_live_engine_runtime
 from backend.app.schemas import (
     InstrumentPayload,
     StrategySettingsPayload,
@@ -22,6 +22,7 @@ from backend.app.schemas import (
     WatchlistSymbolCreatePayload,
 )
 from backend.app.services.paper_trading_service import ensure_settings, update_strategy_settings
+from backend.app.services.live_engine_runtime import build_live_engine_runtime_snapshot
 from backend.app.services.watchlists import ensure_selected_watchlist, set_selected_watchlist
 from backend.app.services.zerodha_sessions import get_current_zerodha_access_token, get_current_zerodha_session
 from backend.app.services.zerodha import InstrumentMasterSyncService, SubscriptionManager, ZerodhaApiClient, ZerodhaAuthService
@@ -255,6 +256,32 @@ def _watchlist_detail_payload(db: Session, watchlist_id: uuid.UUID) -> dict:
     }
 
 
+def _resolve_live_engine_runtime_payload(
+    db: Session,
+    *,
+    selected_watchlist: Watchlist | None,
+    zerodha_auth: ZerodhaAuthService,
+    zerodha_token_present: bool,
+) -> dict:
+    snapshot = get_live_engine_runtime()
+    if snapshot is not None:
+        snapshot.setdefault("published_at", None)
+        return snapshot
+
+    subscriptions = SubscriptionManager().describe_active_subscriptions(db)
+    return {
+        **build_live_engine_runtime_snapshot(
+            status="NOT_PUBLISHED",
+            message="Live engine has not published runtime state yet.",
+            selected_watchlist=selected_watchlist,
+            subscriptions=subscriptions,
+            credentials_configured=zerodha_auth.has_credentials(),
+            access_token_configured=zerodha_token_present,
+        ),
+        "published_at": None,
+    }
+
+
 def _readiness_payload(db: Session) -> dict:
     database_ok = False
     try:
@@ -332,6 +359,12 @@ def _readiness_payload(db: Session) -> dict:
     )
     symbols_with_recent_candles = len(latest_candle_by_symbol)
     watched_symbol_count = len(watched_symbols)
+    live_engine_runtime = _resolve_live_engine_runtime_payload(
+        db,
+        selected_watchlist=selected_watchlist,
+        zerodha_auth=zerodha_auth,
+        zerodha_token_present=zerodha_token_present,
+    )
 
     return {
         "database_connected": database_ok,
@@ -369,6 +402,7 @@ def _readiness_payload(db: Session) -> dict:
         "three_minute_volume_ready": symbols_with_recent_candles > 0,
         "symbols_with_recent_3minute_data": symbols_with_recent_candles,
         "latest_3minute_candle_at": latest_three_minute_candle.isoformat() if latest_three_minute_candle else None,
+        "live_engine_runtime": live_engine_runtime,
         "symbol_activity": symbol_activity,
     }
 
@@ -472,7 +506,8 @@ def configuration_page() -> str:
           <div id="readinessStatus" class="status-box">Checking Zerodha, Redis, and 3-minute data readiness...</div>
           <div id="zerodhaConnectionStatus" class="status-box" style="margin-top: 12px;">Checking Zerodha connection status...</div>
           <div id="zerodhaConnectionBadge" class="inline" style="margin-top: 10px;"></div>
-        <div id="readinessPills" class="readiness-links"></div>
+          <div id="readinessPills" class="readiness-links"></div>
+          <div id="liveRuntimeDetails" class="validation-summary" style="margin-top: 14px;">Loading live runtime details...</div>
           <div class="inline" style="margin-top: 12px;">
             <button id="connectZerodhaButton" class="primary" type="button">Connect Zerodha</button>
             <button id="testZerodhaButton" class="secondary" type="button">Test Connection</button>
@@ -817,6 +852,7 @@ def configuration_page() -> str:
     function renderReadiness(readiness, zerodhaStatus) {
       latestReadiness = readiness;
       latestZerodhaStatus = zerodhaStatus;
+      const runtime = readiness.live_engine_runtime || null;
       const tone = readiness.database_connected && readiness.redis_connected && readiness.live_engine_ready
         ? "success"
         : readiness.database_connected && readiness.redis_connected
@@ -827,7 +863,7 @@ def configuration_page() -> str:
         : `Zerodha ${readiness.zerodha_connection_state.toLowerCase().replaceAll("_", " ")} · connect ${readiness.zerodha_can_connect ? "ready" : "blocked"} · profile test ${readiness.zerodha_profile_test_ready ? "ready" : "pending login"}`;
       setBox(
         "readinessStatus",
-        `${readiness.selected_watchlist ? `Using ${readiness.selected_watchlist.name} · ` : ""}DB ${readiness.database_connected ? "connected" : "down"} · Redis ${readiness.redis_connected ? "connected" : "down"} · ${zerodhaSummary} · ${readiness.symbols_with_recent_3minute_data}/${readiness.watched_symbol_count} watched symbols have recent 3-minute candle data.`,
+        `${readiness.selected_watchlist ? `Using ${readiness.selected_watchlist.name} · ` : ""}DB ${readiness.database_connected ? "connected" : "down"} · Redis ${readiness.redis_connected ? "connected" : "down"} · ${zerodhaSummary} · Engine ${runtime?.status ? runtime.status.toLowerCase().replaceAll("_", " ") : "unknown"} · ${readiness.symbols_with_recent_3minute_data}/${readiness.watched_symbol_count} watched symbols have recent 3-minute candle data.`,
         tone,
       );
       const pillData = [
@@ -848,6 +884,19 @@ def configuration_page() -> str:
       document.querySelectorAll("[data-readiness-action]").forEach((element) => {
         element.addEventListener("click", handleReadinessAction);
       });
+      const lastFinalizedCandle = runtime?.last_finalized_candle
+        ? `${runtime.last_finalized_candle.exchange}:${runtime.last_finalized_candle.symbol} · end ${runtime.last_finalized_candle.candle_end ? new Date(runtime.last_finalized_candle.candle_end).toLocaleString() : "pending"} · close ${runtime.last_finalized_candle.close ?? "N/A"} · volume ${runtime.last_finalized_candle.volume ?? "N/A"}`
+        : "No finalized 3-minute candle published yet";
+      const runtimeLines = [
+        `Live engine status: ${runtime?.status ? runtime.status.replaceAll("_", " ") : "Unknown"}`,
+        `Transport: ${runtime?.transport || "Unavailable"}`,
+        `Subscriptions: ${runtime?.subscription_count ?? readiness.active_subscription_count}`,
+        `Last tick: ${runtime?.last_tick_symbol ? `${runtime.last_tick_symbol} at ${runtime.last_tick_at ? new Date(runtime.last_tick_at).toLocaleString() : "recently"}` : "No tick published yet"}`,
+        `Finalized 3-minute candles: ${runtime?.finalized_candles_count ?? 0}`,
+        `Latest finalized candle: ${lastFinalizedCandle}`,
+        `Signals created: ${runtime?.signals_created_count ?? 0}${runtime?.last_signal_symbol ? ` · latest ${runtime.last_signal_symbol}` : ""}`,
+      ];
+      document.getElementById("liveRuntimeDetails").innerHTML = `<ul class="guide-list" style="margin-top: 0;">${runtimeLines.map((line) => `<li>${line}</li>`).join("")}</ul>`;
       renderTable(
         document.getElementById("symbolActivityTable"),
         ["Symbol", "Token", "Latest 3-Min Candle", "Volume"],
@@ -866,6 +915,7 @@ def configuration_page() -> str:
       if (!latestReadiness) {
         return;
       }
+      const runtime = latestReadiness.live_engine_runtime || null;
 
       if (action === "zerodha-credentials") {
         setBox(
@@ -939,7 +989,7 @@ def configuration_page() -> str:
           "readinessStatus",
           latestReadiness.live_engine_ready
             ? "Live engine prerequisites are satisfied for subscriptions and monitoring."
-            : "Live engine is waiting for both a Zerodha token and fully mapped watchlist symbols.",
+            : runtime?.message || "Live engine is waiting for both a Zerodha token and fully mapped watchlist symbols.",
           latestReadiness.live_engine_ready ? "success" : "warn",
         );
         return;
