@@ -192,31 +192,27 @@ def dashboard_home() -> str:
       <div class="panel">
         <div class="panel-header">
           <div>
-            <h2>Daily Structure Review</h2>
-            <p class="panel-copy">Use one clean table to review the support and resistance lines produced from Zerodha daily candles for the watchlist currently in use.</p>
-          </div>
-          <div class="badge">Review</div>
-        </div>
-        <div id="dashboardStatus" class="status-box">Loading stored market structure review...</div>
-        <div id="dailyReviewConfig" class="status-box" style="margin-top: 12px;">Loading active structure tuning values...</div>
-        <div class="stack">
-          <div class="inline">
-            <a class="button secondary" href="/dashboard/reports/daily-line-review">Daily Line Review API</a>
+            <h2>Market Support and Resistance</h2>
+            <p class="panel-copy">Review the market structure table built from the last 100 daily candles. These reference lines represent projected support and resistance zones for normal market conditions and can be refreshed after market close or whenever you explicitly rescan.</p>
           </div>
         </div>
+        <ul id="dashboardSummaryList" class="list">
+          <li>Loading market structure summary...</li>
+          <li>Loading active structure tuning values...</li>
+        </ul>
       </div>
       <div class="rail-stack">
         <div class="panel">
           <div class="panel-header">
             <div>
-              <h2>Single Table Scope</h2>
+              <h2>Table Properties</h2>
               <p class="panel-copy">This view now focuses only on the line details needed to verify the daily structure logic.</p>
             </div>
           </div>
           <ul class="list">
-            <li class="pill">One row per detected support or resistance line</li>
-            <li class="pill">Multiple lines for the same symbol stay in separate rows</li>
-            <li class="pill">Swing references stay visible for manual cross-checking</li>
+            <li>One row is shown for each detected support or resistance line.</li>
+            <li>Multiple lines for the same symbol remain in separate rows.</li>
+            <li>Swing references stay visible for manual cross-checking.</li>
           </ul>
         </div>
       </div>
@@ -225,15 +221,16 @@ def dashboard_home() -> str:
       <div class="panel-header">
         <div>
           <h2>Market Structure Table</h2>
-          <p class="panel-copy">Stored market structure rows from PostgreSQL. They refresh after the scheduled post-market scan or when you explicitly update the table.</p>
+          <p class="panel-copy">Review the saved support and resistance rows for the selected watchlist, including the swing references, gap percentage, and nearest target used for validation.</p>
         </div>
         <button id="refreshDailyReviewButton" class="secondary" type="button">Update Table</button>
       </div>
-      <div id="dailyReviewStatus" class="status-box">Loading stored market structure rows for the active watchlist...</div>
       <table id="dailyReviewTable"></table>
     </section>
     """
     script = """
+    let latestOverview = null;
+
     function renderCards(stats) {
       renderMetricStrip(document.getElementById("summaryCards"), [
         { label: "Watchlists", value: stats.watchlists, meta: "Saved watch universes" },
@@ -244,23 +241,28 @@ def dashboard_home() -> str:
       ]);
     }
 
+    function renderDashboardSummary(overview, tuning = null, reviewSummary = null, message = null) {
+      const list = document.getElementById("dashboardSummaryList");
+      if (message) {
+        list.innerHTML = message.map((item) => `<li>${item}</li>`).join("");
+        return;
+      }
+
+      const items = [
+        `${overview?.current_watchlist_name ? `Using ${overview.current_watchlist_name}. ` : ""}${overview?.active_trigger_lines ?? 0} active stored trigger lines are available across ${overview?.configured_symbols ?? 0} configured symbols.`,
+        tuning
+          ? `Current tuning: candle lookback ${tuning.daily_candle_lookback}, max gap ${tuning.max_gap_percent}%, swing window ${tuning.swing_window}, minimum swing distance ${tuning.min_swing_distance} candles.`
+          : "Current tuning values will appear after the market structure table loads.",
+        reviewSummary
+          ? `${reviewSummary.total_candidate_rows} stored rows are available across ${reviewSummary.symbols_with_lines} symbols. Last scan: ${reviewSummary.last_scan_finished_at ? new Date(reviewSummary.last_scan_finished_at).toLocaleString() : "not run yet"}${reviewSummary.last_scan_status ? ` (${reviewSummary.last_scan_status})` : ""}.`
+          : "Saved support and resistance rows load from the database and refresh only when the scheduled scan or manual update runs.",
+      ];
+      list.innerHTML = items.map((item) => `<li>${item}</li>`).join("");
+    }
+
     async function loadDailyLineReview() {
-      setBox("dailyReviewStatus", "Loading stored market structure rows from PostgreSQL...", "");
       const review = await apiGet("/dashboard/reports/daily-line-review");
-      const summary = review.summary;
-      const selectedLabel = review.selected_watchlist
-        ? `${review.selected_watchlist.name} (${review.selected_watchlist.exchange})`
-        : "the selected watchlist";
-      setBox(
-        "dailyReviewConfig",
-        `Candle lookback ${summary.tuning.daily_candle_lookback} · Max gap ${summary.tuning.max_gap_percent}% · Swing window ${summary.tuning.swing_window} · Min swing distance ${summary.tuning.min_swing_distance} candles.`,
-        "success",
-      );
-      setBox(
-        "dailyReviewStatus",
-        `Using ${selectedLabel}. ${summary.total_candidate_rows} stored rows across ${summary.symbols_with_lines} symbols. ${summary.unmapped_symbols} configured symbols are still unmapped. Last scan: ${summary.last_scan_finished_at ? new Date(summary.last_scan_finished_at).toLocaleString() : "not run yet"}${summary.last_scan_status ? ` · ${summary.last_scan_status}` : ""}.`,
-        summary.total_candidate_rows > 0 ? "success" : "warn",
-      );
+      renderDashboardSummary(latestOverview, review.summary.tuning, review.summary);
       renderTable(
         document.getElementById("dailyReviewTable"),
         ["Symbol", "Line Type", "Line Price", "Line Drawn Date", "Swing 1", "Swing 2", "Gap %", "Nearest Target"],
@@ -279,12 +281,24 @@ def dashboard_home() -> str:
     }
 
     async function updateDailyReview() {
-      setBox("dailyReviewStatus", "Running daily scan and updating stored market structure rows...", "");
+      renderDashboardSummary(
+        latestOverview,
+        null,
+        null,
+        [
+          "Running the daily scan and updating stored market structure rows.",
+          "The selected watchlist is being rescanned with the current tuning values.",
+        ],
+      );
       const result = await apiSend("/dashboard/reports/daily-line-review/refresh", "POST", {});
-      setBox(
-        "dailyReviewStatus",
-        `Update complete. ${result.symbols_scanned} symbols scanned, ${result.trigger_lines_created} lines created, ${result.trigger_lines_updated} lines updated.`,
-        result.status === "COMPLETED" ? "success" : "warn",
+      renderDashboardSummary(
+        latestOverview,
+        null,
+        null,
+        [
+          `Update complete with status ${result.status}.`,
+          `${result.symbols_scanned} symbols scanned, ${result.trigger_lines_created} lines created, ${result.trigger_lines_updated} lines updated.`,
+        ],
       );
       return result;
     }
@@ -293,16 +307,21 @@ def dashboard_home() -> str:
       const [overview] = await Promise.all([
         apiGet("/dashboard/reports/overview"),
       ]);
+      latestOverview = overview;
       renderCards(overview);
-      setBox(
-        "dashboardStatus",
-        `${overview.current_watchlist_name ? `Using ${overview.current_watchlist_name} for runtime monitoring. ` : ""}${overview.active_trigger_lines} active stored trigger lines exist, and ${overview.configured_symbols} symbols are available for daily review.`,
-        "success",
-      );
+      renderDashboardSummary(overview);
       try {
         await loadDailyLineReview();
       } catch (error) {
-        setBox("dailyReviewStatus", error.message, "error");
+        renderDashboardSummary(
+          overview,
+          null,
+          null,
+          [
+            "Unable to load the saved market structure table.",
+            error.message,
+          ],
+        );
       }
     }
 
@@ -311,12 +330,28 @@ def dashboard_home() -> str:
         await updateDailyReview();
         await loadDailyLineReview();
       } catch (error) {
-        setBox("dailyReviewStatus", error.message, "error");
+        renderDashboardSummary(
+          latestOverview,
+          null,
+          null,
+          [
+            "Unable to update the market structure table.",
+            error.message,
+          ],
+        );
       }
     });
 
     init().catch((error) => {
-      setBox("dashboardStatus", error.message, "error");
+      renderDashboardSummary(
+        null,
+        null,
+        null,
+        [
+          "Unable to initialize the dashboard.",
+          error.message,
+        ],
+      );
     });
     """
     return render_app_shell(
