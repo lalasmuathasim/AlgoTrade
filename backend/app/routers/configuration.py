@@ -14,6 +14,8 @@ from backend.app.dependencies import require_admin_user
 from backend.app.models import Instrument, MarketCandle, Watchlist, WatchlistSymbol
 from backend.app.queue import check_redis_connectivity, get_live_engine_runtime
 from backend.app.schemas import (
+    ExecutionModePayload,
+    ExecutionModeResponse,
     InstrumentPayload,
     StrategySettingsPayload,
     StrategySettingsResponse,
@@ -21,7 +23,12 @@ from backend.app.schemas import (
     WatchlistCreatePayload,
     WatchlistSymbolCreatePayload,
 )
-from backend.app.services.paper_trading_service import ensure_settings, update_strategy_settings
+from backend.app.services.paper_trading_service import (
+    ensure_settings,
+    get_execution_mode_payload,
+    update_live_trading_enabled,
+    update_strategy_settings,
+)
 from backend.app.services.live_engine_runtime import build_live_engine_runtime_snapshot
 from backend.app.services.watchlists import ensure_selected_watchlist, set_selected_watchlist
 from backend.app.services.zerodha_sessions import get_current_zerodha_access_token, get_current_zerodha_session
@@ -593,6 +600,20 @@ def configuration_page() -> str:
         <button id="refreshStrategySettingsButton" class="secondary" type="button">Reload Values</button>
       </div>
     </section>
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Execution Controls</h2>
+          <p class="panel-copy">Paper trading stays active for review. Live Zerodha entry orders can be enabled here when you are ready to send real orders from the same validated breakout flow.</p>
+        </div>
+        <div id="executionModeBadge" class="badge warn">Paper Only</div>
+      </div>
+      <p id="executionModeStatus" class="inline-note">Loading execution mode controls...</p>
+      <ul id="executionModeDetails" class="guide-list"></ul>
+      <div class="inline" style="margin-top: 14px;">
+        <button id="toggleLiveTradingButton" class="secondary" type="button">Enable Live Trading</button>
+      </div>
+    </section>
     <section id="watchlistDetailSection" class="panel">
       <div class="panel-header">
         <div>
@@ -636,6 +657,7 @@ def configuration_page() -> str:
     let latestReadiness = null;
     let latestZerodhaStatus = null;
     let latestStrategySettings = null;
+    let latestExecutionSettings = null;
     const syncWatchlistDetailPreview = bindCollapsibleTable({
       buttonId: "watchlistDetailToggle",
       frameId: "watchlistDetailFrame",
@@ -783,6 +805,29 @@ def configuration_page() -> str:
         `Daily scan uses ${settingsPayload.daily_candle_lookback} candles with swing window ${settingsPayload.swing_window}. Gap filter ${settingsPayload.max_gap_percent}% · min swing distance ${settingsPayload.min_swing_distance} candles · BUY volume ${settingsPayload.buy_volume_multiplier}x · SELL volume ${settingsPayload.sell_volume_multiplier}x.`,
         "success",
       );
+    }
+
+    function renderExecutionSettings(settingsPayload) {
+      latestExecutionSettings = settingsPayload;
+      const liveEnabled = Boolean(settingsPayload.live_trading_enabled);
+      document.getElementById("executionModeBadge").className = liveEnabled ? "badge danger" : "badge warn";
+      document.getElementById("executionModeBadge").textContent = liveEnabled ? "Paper + Live" : "Paper Only";
+      setInlineMessage(
+        "executionModeStatus",
+        liveEnabled
+          ? "Live Zerodha order placement is enabled. Valid signals will continue generating paper trades and will also place live limit entry orders."
+          : "Paper trading is active. Live Zerodha order placement is disabled until you explicitly enable it here.",
+        liveEnabled ? "warn" : "",
+      );
+      document.getElementById("executionModeDetails").innerHTML = [
+        `Paper trading: ${settingsPayload.paper_trading_enabled ? "enabled" : "disabled"}`,
+        `Live trading: ${liveEnabled ? "enabled" : "disabled"}`,
+        `Effective mode: ${settingsPayload.effective_mode.replaceAll("_", " ").toLowerCase()}`,
+        `Zerodha credentials: ${settingsPayload.zerodha_credentials_configured ? "configured" : "missing"}`,
+        `Zerodha session: ${settingsPayload.zerodha_session_present ? "connected" : "not connected"}`,
+        `Order path: live mode submits LIMIT MIS entry orders while preserving paper-trade records and stored stop/target values.`,
+      ].map((line) => `<li>${line}</li>`).join("");
+      document.getElementById("toggleLiveTradingButton").textContent = liveEnabled ? "Disable Live Trading" : "Enable Live Trading";
     }
 
     function renderWatchlists(watchlists) {
@@ -1072,6 +1117,12 @@ def configuration_page() -> str:
       return strategySettings;
     }
 
+    async function loadExecutionSettings() {
+      const executionSettings = await apiGet("/configuration/execution-settings");
+      renderExecutionSettings(executionSettings);
+      return executionSettings;
+    }
+
     async function loadZerodhaConnectionStatus() {
       const result = await apiGet("/api/zerodha/test");
       renderZerodhaConnectionStatus(result);
@@ -1080,15 +1131,17 @@ def configuration_page() -> str:
 
     async function refreshAll(preferredWatchlistId = null) {
       activeBuilderWatchlistId = preferredWatchlistId || activeBuilderWatchlistId;
-      const [readiness, watchlists, zerodhaStatus, strategySettings] = await Promise.all([
+      const [readiness, watchlists, zerodhaStatus, strategySettings, executionSettings] = await Promise.all([
         loadReadiness(),
         loadWatchlists(),
         loadZerodhaConnectionStatus(),
         loadStrategySettings(),
+        loadExecutionSettings(),
       ]);
       renderReadiness(readiness, zerodhaStatus);
       renderConfigCards(readiness, watchlists);
       renderStrategySettings(strategySettings);
+      renderExecutionSettings(executionSettings);
       const detailWatchlist = watchlists.find((item) => item.id === preferredWatchlistId)
         || watchlists.find((item) => item.id === currentWatchlistDetailId)
         || watchlists.find((item) => item.is_selected)
@@ -1218,6 +1271,20 @@ def configuration_page() -> str:
         renderStrategySettings(result);
       } catch (error) {
         setInlineMessage("strategySettingsStatus", error.message, "error");
+      }
+    });
+
+    document.getElementById("toggleLiveTradingButton").addEventListener("click", async () => {
+      if (!latestExecutionSettings) {
+        return;
+      }
+      try {
+        const result = await apiSend("/configuration/execution-settings", "POST", {
+          live_trading_enabled: !latestExecutionSettings.live_trading_enabled,
+        });
+        renderExecutionSettings(result);
+      } catch (error) {
+        setInlineMessage("executionModeStatus", error.message, "error");
       }
     });
 
@@ -1403,3 +1470,24 @@ def save_configuration_strategy_settings(
 ) -> StrategySettingsResponse:
     current = update_strategy_settings(db, payload)
     return StrategySettingsResponse.model_validate(current, from_attributes=True)
+
+
+@router.get("/configuration/execution-settings", response_model=ExecutionModeResponse)
+def configuration_execution_settings(db: Session = Depends(get_db)) -> ExecutionModeResponse:
+    return get_execution_mode_payload(db)
+
+
+@router.post("/configuration/execution-settings", response_model=ExecutionModeResponse)
+def save_configuration_execution_settings(
+    payload: ExecutionModePayload,
+    db: Session = Depends(get_db),
+) -> ExecutionModeResponse:
+    if payload.live_trading_enabled:
+        zerodha_auth = ZerodhaAuthService()
+        if not zerodha_auth.has_credentials():
+            raise HTTPException(status_code=503, detail="Configure Zerodha credentials before enabling live trading")
+        if get_current_zerodha_session(db) is None:
+            raise HTTPException(status_code=503, detail="Connect Zerodha before enabling live trading")
+
+    update_live_trading_enabled(db, payload.live_trading_enabled)
+    return get_execution_mode_payload(db)

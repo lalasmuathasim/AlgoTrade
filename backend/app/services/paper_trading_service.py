@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 
 from backend.app.config import get_settings
 from backend.app.models import PaperTrade, PaperTradingSetting, TradingSignal
-from backend.app.schemas import PaperTradingSettingsPayload, StrategySettingsPayload
+from backend.app.schemas import ExecutionModeResponse, PaperTradingSettingsPayload, StrategySettingsPayload
+from backend.app.services.zerodha_sessions import get_current_zerodha_session
 
 
 settings = get_settings()
@@ -51,6 +52,7 @@ def ensure_settings(db: Session) -> PaperTradingSetting:
         max_trades_per_day=defaults.max_trades_per_day,
         max_daily_loss=defaults.max_daily_loss,
         default_quantity_mode=defaults.default_quantity_mode,
+        live_trading_enabled=settings.zerodha_live_trading_enabled,
         buy_volume_multiplier=defaults.buy_volume_multiplier,
         sell_volume_multiplier=defaults.sell_volume_multiplier,
         entry_buffer_ticks=defaults.entry_buffer_ticks,
@@ -77,6 +79,7 @@ def update_settings(db: Session, payload: PaperTradingSettingsPayload) -> PaperT
     current.max_trades_per_day = payload.max_trades_per_day
     current.max_daily_loss = payload.max_daily_loss
     current.default_quantity_mode = payload.default_quantity_mode
+    current.live_trading_enabled = getattr(payload, "live_trading_enabled", current.live_trading_enabled)
     current.buy_volume_multiplier = payload.buy_volume_multiplier
     current.sell_volume_multiplier = payload.sell_volume_multiplier
     current.entry_buffer_ticks = payload.entry_buffer_ticks
@@ -85,6 +88,30 @@ def update_settings(db: Session, payload: PaperTradingSettingsPayload) -> PaperT
     current.swing_window = payload.swing_window
     current.max_gap_percent = payload.max_gap_percent
     current.min_swing_distance = payload.min_swing_distance
+    current.updated_at = datetime.now(UTC)
+    db.commit()
+    db.refresh(current)
+    return current
+
+
+def get_execution_mode_payload(db: Session) -> ExecutionModeResponse:
+    current = ensure_settings(db)
+    zerodha_session = get_current_zerodha_session(db)
+    return ExecutionModeResponse(
+        paper_trading_enabled=settings.paper_trading_enabled,
+        live_trading_enabled=current.live_trading_enabled,
+        effective_mode="PAPER_AND_LIVE" if current.live_trading_enabled else "PAPER_ONLY",
+        zerodha_credentials_configured=bool(
+            settings.zerodha_api_key and settings.zerodha_api_secret and settings.zerodha_redirect_url
+        ),
+        zerodha_session_present=zerodha_session is not None,
+        zerodha_access_token_expires_at=zerodha_session.access_token_expires_at if zerodha_session else None,
+    )
+
+
+def update_live_trading_enabled(db: Session, enabled: bool) -> PaperTradingSetting:
+    current = ensure_settings(db)
+    current.live_trading_enabled = enabled
     current.updated_at = datetime.now(UTC)
     db.commit()
     db.refresh(current)

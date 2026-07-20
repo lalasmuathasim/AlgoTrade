@@ -3,11 +3,15 @@ import math
 from datetime import UTC, datetime
 from typing import Any
 
+import httpx
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from backend.app.config import get_settings
 from backend.app.models import BrokerOrder, PaperTradingSetting, PositionSnapshot, TradingSignal
+from backend.app.services.paper_trading_service import ensure_settings
+from backend.app.services.zerodha import ZerodhaApiClient, ZerodhaAuthService
+from backend.app.services.zerodha_sessions import get_current_zerodha_access_token
 
 
 logger = logging.getLogger(__name__)
@@ -59,21 +63,109 @@ class RiskEngine:
 
 class LiveExecutionService:
     def execute(self, db: Session, signal: TradingSignal) -> BrokerOrder:
+        runtime_settings = ensure_settings(db)
+        if not runtime_settings.live_trading_enabled:
+            order = BrokerOrder(
+                signal_id=signal.id,
+                exchange=signal.exchange,
+                symbol=signal.symbol,
+                action=signal.action,
+                quantity=signal.quantity,
+                average_price=signal.entry_price,
+                mode="PAPER",
+                status="SKIPPED",
+                request_payload={"reason": "runtime_live_trading_disabled"},
+                response_payload={"detail": "Live Zerodha execution is disabled in configuration"},
+            )
+            db.add(order)
+            db.flush()
+            return order
+
+        if signal.quantity is None or signal.quantity <= 0 or signal.entry_price is None:
+            order = BrokerOrder(
+                signal_id=signal.id,
+                exchange=signal.exchange,
+                symbol=signal.symbol,
+                action=signal.action,
+                quantity=signal.quantity,
+                average_price=signal.entry_price,
+                mode="LIVE",
+                status="REJECTED",
+                request_payload={"reason": "invalid_signal_payload"},
+                response_payload={"detail": "Signal is missing quantity or entry price for live order placement"},
+            )
+            db.add(order)
+            db.flush()
+            return order
+
+        access_token = get_current_zerodha_access_token(db)
+        if not access_token:
+            order = BrokerOrder(
+                signal_id=signal.id,
+                exchange=signal.exchange,
+                symbol=signal.symbol,
+                action=signal.action,
+                quantity=signal.quantity,
+                average_price=signal.entry_price,
+                mode="LIVE",
+                status="REJECTED",
+                request_payload={"reason": "missing_zerodha_access_token"},
+                response_payload={"detail": "No active Zerodha access token is available for live order placement"},
+            )
+            db.add(order)
+            db.flush()
+            return order
+
+        request_payload = {
+            "exchange": signal.exchange,
+            "tradingsymbol": signal.symbol,
+            "transaction_type": signal.action,
+            "quantity": signal.quantity,
+            "order_type": "LIMIT",
+            "product": "MIS",
+            "price": signal.entry_price,
+            "validity": "DAY",
+            "tag": "QUBITX",
+            "trigger_price": signal.trigger_price,
+            "stop_loss": signal.stop_loss,
+            "target": signal.target,
+        }
+
+        try:
+            response_payload = ZerodhaApiClient(
+                auth_service=ZerodhaAuthService(),
+                access_token=access_token,
+            ).place_regular_order(
+                exchange=signal.exchange,
+                tradingsymbol=signal.symbol,
+                transaction_type=signal.action,
+                quantity=signal.quantity,
+                order_type="LIMIT",
+                product="MIS",
+                price=signal.entry_price,
+                validity="DAY",
+                tag="QUBITX",
+            )
+        except httpx.HTTPError as exc:
+            logger.exception("Zerodha live order placement failed for signal %s", signal.id)
+            raise RuntimeError("Zerodha live order placement failed") from exc
+
         order = BrokerOrder(
             signal_id=signal.id,
+            broker_order_id=response_payload.get("order_id"),
             exchange=signal.exchange,
             symbol=signal.symbol,
             action=signal.action,
             quantity=signal.quantity,
             average_price=signal.entry_price,
-            mode="LIVE" if settings.zerodha_live_trading_enabled else "PAPER",
-            status="SKIPPED",
-            request_payload={"reason": "live_trading_disabled_or_placeholder"},
-            response_payload={"detail": "Zerodha live execution is feature-gated and intentionally not placing orders"},
+            mode="LIVE",
+            status="PLACED",
+            request_payload=request_payload,
+            response_payload=response_payload,
         )
         db.add(order)
         db.flush()
-        logger.info("Live execution placeholder recorded for signal %s", signal.id)
+        logger.info("Placed Zerodha live order %s for signal %s", order.broker_order_id, signal.id)
         return order
 
 

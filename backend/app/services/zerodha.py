@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.config import get_settings
-from backend.app.models import Instrument, TriggerLine, WatchlistSymbol
+from backend.app.models import Instrument, TriggerLine
 from backend.app.schemas import HistoricalCandlePayload, InstrumentPayload, TickPayload
 from backend.app.services.watchlists import get_selected_watchlist
 
@@ -120,6 +120,13 @@ class ZerodhaApiClient:
             response.raise_for_status()
             return response.json()
 
+    def _post(self, path: str, data: dict) -> dict:
+        headers = self.auth_service.build_auth_headers(access_token=self.access_token)
+        with httpx.Client(timeout=20.0) as client:
+            response = client.post(f"{self.base_url}{path}", headers=headers, data=data)
+            response.raise_for_status()
+            return response.json()
+
     def fetch_historical_candles(
         self,
         instrument_token: int,
@@ -213,6 +220,39 @@ class ZerodhaApiClient:
                 result[instrument_key] = float(row["last_price"])
         return result
 
+    def place_regular_order(
+        self,
+        *,
+        exchange: str,
+        tradingsymbol: str,
+        transaction_type: str,
+        quantity: int,
+        order_type: str = "LIMIT",
+        product: str = "MIS",
+        price: float | None = None,
+        validity: str = "DAY",
+        tag: str | None = None,
+    ) -> dict:
+        payload: dict[str, str | int | float] = {
+            "exchange": exchange,
+            "tradingsymbol": tradingsymbol,
+            "transaction_type": transaction_type,
+            "quantity": quantity,
+            "order_type": order_type,
+            "product": product,
+            "validity": validity,
+        }
+        if price is not None:
+            payload["price"] = price
+        if tag:
+            payload["tag"] = tag
+
+        response = self._post("/orders/regular", payload)
+        data = response.get("data")
+        if isinstance(data, dict):
+            return data
+        return response
+
 
 class HistoricalCandleProvider:
     def __init__(
@@ -302,20 +342,6 @@ class SubscriptionManager:
     def describe_active_subscriptions(self, db: Session) -> list[dict]:
         selected_watchlist = get_selected_watchlist(db)
         subscriptions: dict[int, dict] = {}
-
-        watchlist_query = select(WatchlistSymbol).where(WatchlistSymbol.is_active.is_(True))
-        if selected_watchlist is not None:
-            watchlist_query = watchlist_query.where(WatchlistSymbol.watchlist_id == selected_watchlist.id)
-        watchlist_symbols = db.scalars(watchlist_query).all()
-        for symbol in watchlist_symbols:
-            if symbol.instrument_token:
-                subscriptions[symbol.instrument_token] = {
-                    "instrument_token": symbol.instrument_token,
-                    "exchange": symbol.exchange,
-                    "symbol": symbol.symbol,
-                    "source": "WATCHLIST",
-                }
-
         instruments = db.scalars(select(Instrument).where(Instrument.is_active.is_(True))).all()
         instrument_map = {instrument.id: instrument for instrument in instruments}
 
@@ -430,11 +456,11 @@ class ZerodhaWebSocketClient:
                 transport="kite_ticker",
             )
         if not subscriptions:
-            self._logger.info("No active selected-watchlist subscriptions are available; websocket client is idle")
+            self._logger.info("No active trigger-line subscriptions are available; websocket client is idle")
             return self._emit_state(
                 on_state_change,
                 status="IDLE_NO_SUBSCRIPTIONS",
-                message="No mapped symbols or active trigger-line subscriptions are available.",
+                message="No active trigger-line subscriptions are available.",
                 transport="kite_ticker",
             )
 
@@ -466,7 +492,7 @@ class ZerodhaWebSocketClient:
         }
         instrument_tokens = list(self._subscription_map.keys())
         self._logger.info(
-            "Starting KiteTicker transport for %s selected-watchlist subscriptions",
+            "Starting KiteTicker transport for %s active trigger-line subscriptions",
             len(instrument_tokens),
         )
 

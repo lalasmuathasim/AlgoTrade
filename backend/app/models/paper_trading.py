@@ -26,6 +26,7 @@ class PaperTradingSetting(Base):
         default="RISK_BASED",
         server_default="RISK_BASED",
     )
+    live_trading_enabled: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="FALSE")
     buy_volume_multiplier: Mapped[float] = mapped_column(Float, nullable=False)
     sell_volume_multiplier: Mapped[float] = mapped_column(Float, nullable=False)
     entry_buffer_ticks: Mapped[float] = mapped_column(Float, nullable=False)

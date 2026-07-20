@@ -1,4 +1,6 @@
 from backend.app.schemas.configuration import (
+    ExecutionModePayload,
+    ExecutionModeResponse,
     StrategySettingsPayload,
     StrategySettingsResponse,
     SymbolValidationPayload,
@@ -47,6 +49,8 @@ __all__ = [
     "CompletedCandlePayload",
     "DailyScanRequest",
     "DependencyStatusResponse",
+    "ExecutionModePayload",
+    "ExecutionModeResponse",
     "HealthResponse",
     "HistoricalCandlePayload",
     "InstrumentPayload",

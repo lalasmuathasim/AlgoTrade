@@ -34,3 +34,16 @@ class StrategySettingsResponse(StrategySettingsPayload):
     id: uuid.UUID
     created_at: datetime
     updated_at: datetime
+
+
+class ExecutionModePayload(BaseModel):
+    live_trading_enabled: bool
+
+
+class ExecutionModeResponse(BaseModel):
+    paper_trading_enabled: bool
+    live_trading_enabled: bool
+    effective_mode: str
+    zerodha_credentials_configured: bool
+    zerodha_session_present: bool
+    zerodha_access_token_expires_at: datetime | None = None
