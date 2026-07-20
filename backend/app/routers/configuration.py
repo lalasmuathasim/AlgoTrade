@@ -271,22 +271,74 @@ def _resolve_live_engine_runtime_payload(
     zerodha_auth: ZerodhaAuthService,
     zerodha_token_present: bool,
 ) -> dict:
-    snapshot = get_live_engine_runtime()
+    try:
+        snapshot = get_live_engine_runtime()
+    except Exception:  # noqa: BLE001
+        logger.exception("Live engine runtime snapshot could not be loaded from Redis")
+        snapshot = None
     if snapshot is not None:
         snapshot.setdefault("published_at", None)
         return snapshot
 
-    subscriptions = SubscriptionManager().describe_active_subscriptions(db)
+    try:
+        subscriptions = SubscriptionManager().describe_active_subscriptions(db)
+    except Exception:  # noqa: BLE001
+        logger.exception("Active live subscriptions could not be described for readiness payload")
+        subscriptions = []
     return {
         **build_live_engine_runtime_snapshot(
             status="NOT_PUBLISHED",
-            message="Live engine has not published runtime state yet.",
+            message="Live engine runtime is unavailable or has not published state yet.",
             selected_watchlist=selected_watchlist,
             subscriptions=subscriptions,
             credentials_configured=zerodha_auth.has_credentials(),
             access_token_configured=zerodha_token_present,
         ),
         "published_at": None,
+    }
+
+
+def _fallback_readiness_payload() -> dict:
+    zerodha_auth = ZerodhaAuthService()
+    redis_connected = check_redis_connectivity()
+    return {
+        "database_connected": False,
+        "redis_connected": redis_connected,
+        "selected_watchlist": None,
+        "zerodha_credentials_configured": zerodha_auth.has_credentials(),
+        "zerodha_access_token_configured": zerodha_auth.has_access_token(),
+        "zerodha_connection_state": "UNKNOWN",
+        "zerodha_can_connect": zerodha_auth.has_credentials(),
+        "zerodha_profile_test_ready": zerodha_auth.has_access_token(),
+        "zerodha_login_url": zerodha_auth.build_login_url(),
+        "zerodha_login_time": None,
+        "zerodha_access_token_expires_at": None,
+        "zerodha_last_validated_at": None,
+        "instrument_master_ready": False,
+        "instrument_count": 0,
+        "active_instrument_count": 0,
+        "last_instrument_sync_at": None,
+        "watched_symbol_count": 0,
+        "mapped_symbol_count": 0,
+        "unmapped_symbol_count": 0,
+        "unmapped_symbols": [],
+        "active_subscription_count": 0,
+        "live_engine_ready": False,
+        "three_minute_volume_ready": False,
+        "symbols_with_recent_3minute_data": 0,
+        "latest_3minute_candle_at": None,
+        "live_engine_runtime": {
+            **build_live_engine_runtime_snapshot(
+                status="READINESS_UNAVAILABLE",
+                message="Configuration readiness is temporarily unavailable; dependency summary only.",
+                selected_watchlist=None,
+                subscriptions=[],
+                credentials_configured=zerodha_auth.has_credentials(),
+                access_token_configured=zerodha_auth.has_access_token(),
+            ),
+            "published_at": None,
+        },
+        "symbol_activity": [],
     }
 
 
@@ -1474,7 +1526,11 @@ def select_configuration_watchlist(watchlist_id: uuid.UUID, db: Session = Depend
 
 @router.get("/configuration/readiness")
 def configuration_readiness(db: Session = Depends(get_db)) -> dict:
-    return _readiness_payload(db)
+    try:
+        return _readiness_payload(db)
+    except Exception:  # noqa: BLE001
+        logger.exception("Configuration readiness payload failed")
+        return _fallback_readiness_payload()
 
 
 @router.get("/configuration/strategy-settings", response_model=StrategySettingsResponse)

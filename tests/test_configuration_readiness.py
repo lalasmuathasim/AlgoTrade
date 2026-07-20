@@ -96,6 +96,41 @@ class ConfigurationReadinessTests(unittest.TestCase):
         self.assertEqual(payload["live_engine_runtime"]["selected_watchlist"]["name"], "Fallback Watchlist")
         self.assertIsNone(payload["live_engine_runtime"]["published_at"])
 
+    def test_readiness_payload_handles_redis_runtime_lookup_failure(self):
+        session = _FakeSession()
+        selected_watchlist = SimpleNamespace(id=uuid.uuid4(), name="Fallback Watchlist", exchange="NSE")
+
+        with (
+            patch("backend.app.routers.configuration.verify_database_connectivity"),
+            patch("backend.app.routers.configuration.check_redis_connectivity", return_value=False),
+            patch("backend.app.routers.configuration.get_current_zerodha_session", return_value=None),
+            patch("backend.app.routers.configuration.ensure_selected_watchlist", return_value=selected_watchlist),
+            patch("backend.app.routers.configuration.SubscriptionManager.get_active_subscriptions", return_value=[]),
+            patch(
+                "backend.app.routers.configuration.SubscriptionManager.describe_active_subscriptions",
+                return_value=[],
+            ),
+            patch("backend.app.routers.configuration.get_live_engine_runtime", side_effect=RuntimeError("redis offline")),
+            patch("backend.app.routers.configuration.ZerodhaAuthService.has_credentials", return_value=True),
+        ):
+            payload = _readiness_payload(session)
+
+        self.assertEqual(payload["live_engine_runtime"]["status"], "NOT_PUBLISHED")
+        self.assertIn("unavailable", payload["live_engine_runtime"]["message"].lower())
+
+    def test_configuration_readiness_route_returns_safe_fallback_on_unexpected_error(self):
+        with (
+            patch("backend.app.routers.configuration._readiness_payload", side_effect=RuntimeError("boom")),
+            patch("backend.app.routers.configuration.check_redis_connectivity", return_value=False),
+            patch("backend.app.routers.configuration.ZerodhaAuthService.has_credentials", return_value=True),
+            patch("backend.app.routers.configuration.ZerodhaAuthService.has_access_token", return_value=False),
+        ):
+            payload = __import__("backend.app.routers.configuration", fromlist=["configuration_readiness"]).configuration_readiness(None)
+
+        self.assertEqual(payload["live_engine_runtime"]["status"], "READINESS_UNAVAILABLE")
+        self.assertFalse(payload["database_connected"])
+        self.assertFalse(payload["redis_connected"])
+
 
 if __name__ == "__main__":
     unittest.main()
