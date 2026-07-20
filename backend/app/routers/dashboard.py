@@ -14,9 +14,11 @@ from backend.app.config import get_settings
 from backend.app.dependencies import require_admin_user, require_approved_user
 from backend.app.database import get_db
 from backend.app.models import BrokerOrder, BreakoutEvent, Instrument, PaperTrade, ScanExecution, TradingSignal, TriggerLine, Watchlist, WatchlistSymbol
+from backend.app.schemas import HistoricalCandlePayload
 from backend.app.services.market_scanner import DailyMarketScanner
 from backend.app.services.paper_trading_service import ensure_settings
 from backend.app.services.watchlists import get_selected_watchlist
+from backend.app.services.zerodha import HistoricalCandleProvider
 from backend.app.ui import render_app_shell
 
 
@@ -184,6 +186,91 @@ def _serialize_paper_trade(trade: PaperTrade) -> dict:
         "entry_time": _serialize_datetime(trade.entry_time),
         "exit_time": _serialize_datetime(trade.exit_time),
         "created_at": _serialize_datetime(trade.created_at),
+    }
+
+
+def _resolve_trigger_line_instrument_token(db: Session, line: TriggerLine) -> int | None:
+    if line.instrument_id is not None:
+        instrument = db.get(Instrument, line.instrument_id)
+        if instrument and instrument.instrument_token is not None:
+            return instrument.instrument_token
+
+    membership = db.scalar(
+        select(WatchlistSymbol)
+        .where(
+            WatchlistSymbol.watchlist_id == line.watchlist_id,
+            WatchlistSymbol.exchange == line.exchange,
+            WatchlistSymbol.symbol == line.symbol,
+        )
+        .limit(1)
+    )
+    if membership and membership.instrument_token is not None:
+        return membership.instrument_token
+    return None
+
+
+def _build_potential_trigger_row(
+    line: TriggerLine,
+    candles: list[HistoricalCandlePayload],
+    prediction_proximity_percent: float,
+) -> dict | None:
+    if len(candles) < 4:
+        return None
+
+    latest_close = float(candles[-1].close)
+    if line.line_type == "BUY" and latest_close >= line.line_price:
+        return None
+    if line.line_type == "SELL" and latest_close <= line.line_price:
+        return None
+
+    distance_percent = round(abs(line.line_price - latest_close) / max(line.line_price, 1.0) * 100, 4)
+    if distance_percent > prediction_proximity_percent:
+        return None
+
+    recent_closes = [float(candle.close) for candle in candles[-4:]]
+    distance_series = [abs(line.line_price - close) for close in recent_closes]
+    toward_moves = sum(
+        1
+        for previous_distance, current_distance in zip(distance_series[:-1], distance_series[1:])
+        if current_distance < previous_distance
+    )
+    if toward_moves < 2:
+        return None
+
+    directional_moves = sum(
+        1
+        for previous_close, current_close in zip(recent_closes[:-1], recent_closes[1:])
+        if (current_close > previous_close if line.line_type == "BUY" else current_close < previous_close)
+    )
+    nearest_target = (
+        line.nearest_daily_swing_high_target
+        if line.line_type == "BUY"
+        else line.nearest_daily_swing_low_target
+    )
+    readiness_score = round(
+        ((max(prediction_proximity_percent - distance_percent, 0.0) / prediction_proximity_percent) * 70.0)
+        + ((toward_moves / 3.0) * 20.0)
+        + ((directional_moves / 3.0) * 10.0),
+        1,
+    )
+    pattern = (
+        f"{toward_moves}/3 closes moved closer and {directional_moves}/3 closes moved "
+        f"{'up' if line.line_type == 'BUY' else 'down'} toward the line"
+    )
+    return {
+        "exchange": line.exchange,
+        "symbol": line.symbol,
+        "line_type": line.line_type,
+        "line_price": round(line.line_price, 2),
+        "last_close": round(latest_close, 2),
+        "distance_percent": distance_percent,
+        "toward_moves": toward_moves,
+        "directional_moves": directional_moves,
+        "pattern": pattern,
+        "nearest_target": round(nearest_target, 2) if nearest_target is not None else None,
+        "line_drawn_date": _serialize_date(line.line_drawn_date),
+        "last_daily_candle_date": candles[-1].timestamp.date().isoformat(),
+        "readiness_score": readiness_score,
     }
 
 
@@ -401,6 +488,27 @@ def dashboard_home() -> str:
     <section class="panel">
       <div class="panel-header">
         <div>
+          <h2>Potential Line Hits</h2>
+          <p class="panel-copy">This shortlist highlights active support and resistance lines that may be tested soon, using the latest daily close together with recent daily closing movement toward the line.</p>
+        </div>
+      </div>
+      <div id="potentialLineHitSummary" class="table-toolbar-copy" style="margin-bottom: 14px;">Loading potential line-hit candidates...</div>
+      <div class="table-shell">
+        <div class="table-toolbar">
+          <p class="table-toolbar-copy">Rows appear only when an active line remains within the configured prediction threshold and the recent daily closes have been moving toward that level.</p>
+          <div class="table-toolbar-actions">
+            <button id="refreshPotentialLineHitsButton" class="secondary table-toggle" type="button">Refresh Table</button>
+            <button id="potentialLineHitsToggle" class="secondary table-toggle hidden" type="button" aria-expanded="false">Expand table</button>
+          </div>
+        </div>
+        <div id="potentialLineHitsFrame" class="table-scroll-frame is-collapsed" style="--table-min-width: 1320px;">
+          <table id="potentialLineHitsTable"></table>
+        </div>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="panel-header">
+        <div>
           <h2>Trade History</h2>
           <p class="panel-copy">Review simulated and live execution history from one place. Switch between paper results, live Zerodha orders, or a combined view for later analytics and model training.</p>
         </div>
@@ -438,6 +546,12 @@ def dashboard_home() -> str:
       tableId: "breakoutReviewTable",
       previewRows: 8,
     });
+    const syncPotentialLineHitPreview = bindCollapsibleTable({
+      buttonId: "potentialLineHitsToggle",
+      frameId: "potentialLineHitsFrame",
+      tableId: "potentialLineHitsTable",
+      previewRows: 8,
+    });
     const syncTradeHistoryPreview = bindCollapsibleTable({
       buttonId: "tradeHistoryToggle",
       frameId: "tradeHistoryFrame",
@@ -465,7 +579,7 @@ def dashboard_home() -> str:
       const items = [
         `${overview?.current_watchlist_name ? `Using ${overview.current_watchlist_name}. ` : ""}${overview?.active_trigger_lines ?? 0} active stored trigger lines are available across ${overview?.configured_symbols ?? 0} configured symbols.`,
         tuning
-          ? `Current tuning: candle lookback ${tuning.daily_candle_lookback}, max gap ${tuning.max_gap_percent}%, swing window ${tuning.swing_window}, minimum swing distance ${tuning.min_swing_distance} candles.`
+          ? `Current tuning: candle lookback ${tuning.daily_candle_lookback}, max gap ${tuning.max_gap_percent}%, swing window ${tuning.swing_window}, minimum swing distance ${tuning.min_swing_distance} candles, prediction threshold ${tuning.prediction_proximity_percent}%.`
           : "Current tuning values will appear after the market structure table loads.",
         reviewSummary
           ? `${reviewSummary.total_candidate_rows} stored rows are available across ${reviewSummary.symbols_with_lines} symbols. Last scan: ${reviewSummary.last_scan_finished_at ? new Date(reviewSummary.last_scan_finished_at).toLocaleString() : "not run yet"}${reviewSummary.last_scan_status ? ` (${reviewSummary.last_scan_status})` : ""}.`
@@ -532,6 +646,47 @@ def dashboard_home() -> str:
       );
       syncBreakoutReviewPreview();
       return review;
+    }
+
+    function renderPotentialLineHitSummary(payload) {
+      const element = document.getElementById("potentialLineHitSummary");
+      if (!payload || !payload.summary) {
+        element.textContent = "No potential line-hit candidates are available yet.";
+        element.className = "table-toolbar-copy";
+        return;
+      }
+      if (payload.summary.error_message) {
+        element.textContent = payload.summary.error_message;
+        element.className = "table-toolbar-copy warn";
+        return;
+      }
+      const watchlistLabel = payload.selected_watchlist ? `${payload.selected_watchlist.name} · ` : "";
+      element.textContent = `${watchlistLabel}${payload.summary.total_candidates} candidate rows · threshold ${payload.summary.prediction_proximity_percent}% · ${payload.summary.symbols_covered} symbols covered · latest daily close ${payload.summary.latest_daily_candle_date || "not available"}`;
+      element.className = "table-toolbar-copy";
+    }
+
+    async function loadPotentialLineHits() {
+      const payload = await apiGet("/dashboard/reports/potential-line-hits");
+      renderPotentialLineHitSummary(payload);
+      renderTable(
+        document.getElementById("potentialLineHitsTable"),
+        ["Symbol", "Line Type", "Line Price", "Last Close", "Distance %", "Toward Moves", "Pattern", "Nearest Target", "Line Drawn", "Last Daily Candle", "Readiness"],
+        payload.rows.map((item) => [
+          `${item.exchange}:${item.symbol}`,
+          `<span class="badge">${item.line_type}</span>`,
+          item.line_price ?? "N/A",
+          item.last_close ?? "N/A",
+          item.distance_percent ?? "N/A",
+          item.toward_moves ?? "N/A",
+          item.pattern || "N/A",
+          item.nearest_target ?? "N/A",
+          item.line_drawn_date || "N/A",
+          item.last_daily_candle_date || "N/A",
+          item.readiness_score ?? "N/A",
+        ]),
+      );
+      syncPotentialLineHitPreview();
+      return payload;
     }
 
     function renderTradeHistorySummary(payload) {
@@ -620,7 +775,7 @@ def dashboard_home() -> str:
       renderCards(overview);
       renderDashboardSummary(overview);
       try {
-        await Promise.all([loadDailyLineReview(), loadBreakoutReview(), loadTradeHistory("combined")]);
+        await Promise.all([loadDailyLineReview(), loadBreakoutReview(), loadPotentialLineHits(), loadTradeHistory("combined")]);
       } catch (error) {
         renderDashboardSummary(
           overview,
@@ -657,6 +812,14 @@ def dashboard_home() -> str:
       } catch (error) {
         renderBreakoutReviewSummary(null);
         document.getElementById("breakoutReviewSummary").textContent = `Unable to load breakout review: ${error.message}`;
+      }
+    });
+
+    document.getElementById("refreshPotentialLineHitsButton").addEventListener("click", async () => {
+      try {
+        await loadPotentialLineHits();
+      } catch (error) {
+        document.getElementById("potentialLineHitSummary").textContent = `Unable to load potential line-hit review: ${error.message}`;
       }
     });
 
@@ -810,6 +973,7 @@ def dashboard_daily_line_review(db: Session = Depends(get_db)) -> dict:
                 "max_gap_percent": runtime_settings.max_gap_percent,
                 "swing_window": runtime_settings.swing_window,
                 "min_swing_distance": runtime_settings.min_swing_distance,
+                "prediction_proximity_percent": runtime_settings.prediction_proximity_percent,
             },
         },
         "rows": rows,
@@ -1332,6 +1496,108 @@ def get_paper_trades(
     return {
         "summary": _paper_trade_summary(filtered),
         "trades": [_serialize_paper_trade(trade) for trade in filtered],
+    }
+
+
+@router.get("/dashboard/reports/potential-line-hits")
+def dashboard_potential_line_hits(db: Session = Depends(get_db)) -> dict:
+    selected_watchlist, selected_watchlist_id = _selected_watchlist_filter(db)
+    runtime_settings = ensure_settings(db)
+    prediction_threshold = round(float(getattr(runtime_settings, "prediction_proximity_percent", 2.0)), 2)
+
+    if selected_watchlist is None or selected_watchlist_id is None:
+        return {
+            "selected_watchlist": None,
+            "summary": {
+                "prediction_proximity_percent": prediction_threshold,
+                "total_candidates": 0,
+                "symbols_covered": 0,
+                "latest_daily_candle_date": None,
+                "error_message": None,
+            },
+            "rows": [],
+        }
+
+    active_lines = db.scalars(
+        select(TriggerLine)
+        .where(
+            TriggerLine.watchlist_id == selected_watchlist_id,
+            TriggerLine.line_status == "ACTIVE",
+        )
+        .order_by(TriggerLine.symbol, TriggerLine.line_type, desc(TriggerLine.updated_at))
+    ).all()
+    if not active_lines:
+        return {
+            "selected_watchlist": {
+                "id": str(selected_watchlist.id),
+                "name": selected_watchlist.name,
+                "exchange": selected_watchlist.exchange,
+            },
+            "summary": {
+                "prediction_proximity_percent": prediction_threshold,
+                "total_candidates": 0,
+                "symbols_covered": 0,
+                "latest_daily_candle_date": None,
+                "error_message": None,
+            },
+            "rows": [],
+        }
+
+    provider = HistoricalCandleProvider()
+    candle_cache: dict[tuple[str, str, int], list[HistoricalCandlePayload]] = {}
+    rows: list[dict] = []
+    latest_daily_candle_date = None
+
+    try:
+        for line in active_lines:
+            instrument_token = _resolve_trigger_line_instrument_token(db, line)
+            if instrument_token is None:
+                continue
+            cache_key = (line.exchange, line.symbol, instrument_token)
+            if cache_key not in candle_cache:
+                candle_cache[cache_key] = provider.fetch_last_n_completed_daily_candles(
+                    line.symbol,
+                    instrument_token,
+                    count=max(6, min(runtime_settings.daily_candle_lookback, 12)),
+                )
+            candles = candle_cache[cache_key]
+            row = _build_potential_trigger_row(line, candles, prediction_threshold)
+            if row is None:
+                continue
+            latest_daily_candle_date = row["last_daily_candle_date"] if latest_daily_candle_date is None else max(latest_daily_candle_date, row["last_daily_candle_date"])
+            rows.append(row)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "selected_watchlist": {
+                "id": str(selected_watchlist.id),
+                "name": selected_watchlist.name,
+                "exchange": selected_watchlist.exchange,
+            },
+            "summary": {
+                "prediction_proximity_percent": prediction_threshold,
+                "total_candidates": 0,
+                "symbols_covered": 0,
+                "latest_daily_candle_date": None,
+                "error_message": f"Unable to evaluate potential line-hit candidates from Zerodha right now: {exc}",
+            },
+            "rows": [],
+        }
+
+    rows.sort(key=lambda item: (item["distance_percent"], -item["readiness_score"], item["symbol"], item["line_type"]))
+    return {
+        "selected_watchlist": {
+            "id": str(selected_watchlist.id),
+            "name": selected_watchlist.name,
+            "exchange": selected_watchlist.exchange,
+        },
+        "summary": {
+            "prediction_proximity_percent": prediction_threshold,
+            "total_candidates": len(rows),
+            "symbols_covered": len({(row["exchange"], row["symbol"]) for row in rows}),
+            "latest_daily_candle_date": latest_daily_candle_date,
+            "error_message": None,
+        },
+        "rows": rows,
     }
 
 

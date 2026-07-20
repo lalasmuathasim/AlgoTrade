@@ -25,6 +25,7 @@ class StrategySettingsPayload(BaseModel):
     swing_window: int = Field(ge=1, le=10)
     max_gap_percent: float = Field(gt=0, le=10)
     min_swing_distance: int = Field(ge=1, le=50)
+    prediction_proximity_percent: float = Field(gt=0, le=20)
     buy_volume_multiplier: float = Field(gt=0, le=20)
     sell_volume_multiplier: float = Field(gt=0, le=20)
     entry_buffer_ticks: float = Field(gt=0, le=10)

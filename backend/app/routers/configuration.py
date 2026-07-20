@@ -625,6 +625,11 @@ def configuration_page() -> str:
           <div class="field-help">Minimum candle spacing between the two chosen swings.</div>
         </div>
         <div class="field">
+          <label for="predictionProximityPercentInput">Prediction proximity percent</label>
+          <input id="predictionProximityPercentInput" type="number" min="0.1" max="20" step="0.1" />
+          <div class="field-help">A symbol appears in the potential-hit table when its latest daily close stays within this percent of an active support or resistance line and recent closes are moving toward that line.</div>
+        </div>
+        <div class="field">
           <label for="buyVolumeMultiplierInput">Buy volume multiplier</label>
           <input id="buyVolumeMultiplierInput" type="number" min="0.1" max="20" step="0.1" />
           <div class="field-help">BUY breakout volume required versus the prior 3-minute candle.</div>
@@ -1052,13 +1057,14 @@ def configuration_page() -> str:
       document.getElementById("swingWindowInput").value = settingsPayload.swing_window;
       document.getElementById("maxGapPercentInput").value = settingsPayload.max_gap_percent;
       document.getElementById("minSwingDistanceInput").value = settingsPayload.min_swing_distance;
+      document.getElementById("predictionProximityPercentInput").value = settingsPayload.prediction_proximity_percent;
       document.getElementById("buyVolumeMultiplierInput").value = settingsPayload.buy_volume_multiplier;
       document.getElementById("sellVolumeMultiplierInput").value = settingsPayload.sell_volume_multiplier;
       document.getElementById("entryBufferTicksInput").value = settingsPayload.entry_buffer_ticks;
       document.getElementById("stopLossBufferTicksInput").value = settingsPayload.stop_loss_buffer_ticks;
       setInlineMessage(
         "strategySettingsStatus",
-        `Daily scan uses ${settingsPayload.daily_candle_lookback} candles with swing window ${settingsPayload.swing_window}. Gap filter ${settingsPayload.max_gap_percent}% · min swing distance ${settingsPayload.min_swing_distance} candles · BUY volume ${settingsPayload.buy_volume_multiplier}x · SELL volume ${settingsPayload.sell_volume_multiplier}x.`,
+        `Daily scan uses ${settingsPayload.daily_candle_lookback} candles with swing window ${settingsPayload.swing_window}. Gap filter ${settingsPayload.max_gap_percent}% · min swing distance ${settingsPayload.min_swing_distance} candles · potential-hit threshold ${settingsPayload.prediction_proximity_percent}% · BUY volume ${settingsPayload.buy_volume_multiplier}x · SELL volume ${settingsPayload.sell_volume_multiplier}x.`,
         "success",
       );
     }
@@ -1600,6 +1606,7 @@ def configuration_page() -> str:
           swing_window: Number(document.getElementById("swingWindowInput").value),
           max_gap_percent: Number(document.getElementById("maxGapPercentInput").value),
           min_swing_distance: Number(document.getElementById("minSwingDistanceInput").value),
+          prediction_proximity_percent: Number(document.getElementById("predictionProximityPercentInput").value),
           buy_volume_multiplier: Number(document.getElementById("buyVolumeMultiplierInput").value),
           sell_volume_multiplier: Number(document.getElementById("sellVolumeMultiplierInput").value),
           entry_buffer_ticks: Number(document.getElementById("entryBufferTicksInput").value),

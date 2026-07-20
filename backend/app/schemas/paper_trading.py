@@ -39,6 +39,7 @@ class PaperTradingSettingsPayload(BaseModel):
     swing_window: int = 2
     max_gap_percent: float = 0.5
     min_swing_distance: int = 1
+    prediction_proximity_percent: float = 2.0
     max_open_positions: int = 3
     max_loss_per_symbol_per_day: float = 2500.0
     block_new_trades_after_max_daily_loss: bool = True

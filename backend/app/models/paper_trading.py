@@ -50,6 +50,7 @@ class PaperTradingSetting(Base):
     swing_window: Mapped[int] = mapped_column(Integer, nullable=False)
     max_gap_percent: Mapped[float] = mapped_column(Float, nullable=False)
     min_swing_distance: Mapped[int] = mapped_column(Integer, nullable=False)
+    prediction_proximity_percent: Mapped[float] = mapped_column(Float, nullable=False, default=2.0, server_default="2.0")
     max_open_positions: Mapped[int] = mapped_column(Integer, nullable=False, default=3, server_default="3")
     max_loss_per_symbol_per_day: Mapped[float] = mapped_column(Float, nullable=False, default=2500.0, server_default="2500")
     block_new_trades_after_max_daily_loss: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="TRUE")
