@@ -408,45 +408,78 @@ def configuration_page() -> str:
         </div>
       </div>
     </section>
-    <section class="layout-main-aside">
-      <div class="panel">
-        <div class="panel-header">
-          <div>
-            <h2>Validate Symbols</h2>
-            <p class="panel-copy">Paste one symbol per line or comma-separated values, validate against Zerodha, then add only the clean set.</p>
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Watchlist Builder</h2>
+          <p class="panel-copy">Step 1 creates or selects the watchlist context. Step 2 validates symbols against Zerodha and adds the clean set into that chosen watchlist.</p>
+        </div>
+        <div class="badge">2 Steps</div>
+      </div>
+      <div id="watchlistStatus" class="status-box">Create a watchlist first, or choose an existing watchlist to continue the builder flow.</div>
+      <div id="selectedWatchlistBox" class="status-box" style="margin-top: 12px;">No watchlist is currently selected.</div>
+      <div class="builder-steps" style="margin-top: 14px;">
+        <section class="builder-step">
+          <div class="step-tag">Step 1</div>
+          <h3>Choose Watchlist Context</h3>
+          <p class="panel-copy">Create a fresh watchlist or choose one you already maintain. You can also mark the chosen watchlist as the one used for scans and live monitoring.</p>
+          <div class="field">
+            <label for="watchlistName">Watchlist name</label>
+            <input id="watchlistName" type="text" placeholder="NSE Core Swing Watchlist" />
           </div>
-        </div>
-        <p id="validationStatus" class="inline-note">Paste one symbol per line or comma-separated values, then validate against Zerodha before saving only the clean set.</p>
-        <div class="field">
-          <label for="targetWatchlist">Target watchlist</label>
-          <select id="targetWatchlist"></select>
-        </div>
-        <div class="field">
-          <label for="symbolsExchange">Exchange</label>
-          <select id="symbolsExchange">
-            <option value="NSE">NSE</option>
-            <option value="BSE">BSE</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="symbolsInput">Symbols</label>
-          <textarea id="symbolsInput" placeholder="RELIANCE, INFY, TCS&#10;HDFCBANK&#10;SBIN"></textarea>
-        </div>
-        <div class="inline">
-          <button id="validateSymbolsButton" class="primary" type="button">Validate Symbols</button>
-          <button id="saveSymbolsButton" class="secondary" type="button">Add Valid Symbols</button>
+          <div class="field">
+            <label for="watchlistDescription">Description</label>
+            <input id="watchlistDescription" type="text" placeholder="Daily draw/redraw universe for swing structures" />
+          </div>
+          <div class="field">
+            <label for="watchlistExchange">Default exchange</label>
+            <select id="watchlistExchange">
+              <option value="NSE">NSE</option>
+              <option value="BSE">BSE</option>
+            </select>
+          </div>
+          <div class="inline" style="margin-bottom: 12px;">
+            <button id="createWatchlistButton" class="primary" type="button">Create Watchlist</button>
+          </div>
+          <div class="field">
+            <label for="targetWatchlist">Working watchlist</label>
+            <select id="targetWatchlist"></select>
+            <div class="field-help">This selected watchlist is the destination for validated symbols in step 2.</div>
+          </div>
+          <div class="inline">
+            <button id="useTargetWatchlistButton" class="secondary" type="button">Use Selected Watchlist</button>
+          </div>
+        </section>
+        <section id="symbolBuilderStep" class="builder-step">
+          <div class="step-tag">Step 2</div>
+          <h3>Validate And Add Symbols</h3>
+          <p id="validationStatus" class="inline-note">Choose or create a watchlist in step 1, then validate symbols against Zerodha before saving only the clean set.</p>
+          <div class="field">
+            <label for="symbolsExchange">Exchange</label>
+            <select id="symbolsExchange">
+              <option value="NSE">NSE</option>
+              <option value="BSE">BSE</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="symbolsInput">Symbols</label>
+            <textarea id="symbolsInput" placeholder="RELIANCE, INFY, TCS&#10;HDFCBANK&#10;SBIN"></textarea>
+          </div>
+          <div class="inline">
+            <button id="validateSymbolsButton" class="primary" type="button">Validate Symbols</button>
+            <button id="saveSymbolsButton" class="secondary" type="button">Add Valid Symbols</button>
+          </div>
+        </section>
+      </div>
+      <hr />
+      <div class="panel-header">
+        <div>
+          <h3>Validation Result</h3>
+          <p class="panel-copy">Review the matched company name and instrument token before committing symbols into the watchlist.</p>
         </div>
       </div>
-      <div class="panel">
-        <div class="panel-header">
-          <div>
-            <h2>Validation Result</h2>
-            <p class="panel-copy">Review the matched company name and instrument token before committing symbols into the active data model.</p>
-          </div>
-        </div>
-        <div id="validationBreakdown" class="status-box">No validation run yet.</div>
-        <table id="validationTable"></table>
-      </div>
+      <div id="validationBreakdown" class="status-box">No validation run yet.</div>
+      <table id="validationTable"></table>
     </section>
     <section class="layout-halves">
       <div class="panel">
@@ -519,47 +552,18 @@ def configuration_page() -> str:
         </ul>
       </div>
     </section>
-    <section class="layout-main-aside">
-      <div class="panel">
-        <div class="panel-header">
-          <div>
-            <h2>Watchlist Control</h2>
-            <p class="panel-copy">Create and switch the runtime universe that the daily scan and live 3-minute monitor should care about.</p>
-          </div>
-          <div class="badge">Control</div>
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>3-Minute Coverage Notes</h2>
+          <p class="panel-copy">This quick reference helps explain if the live engine is ready, partially mapped, or still waiting on instrument and candle activity.</p>
         </div>
-        <div id="watchlistStatus" class="status-box">Create a watchlist first, then validate and add NSE or BSE symbols.</div>
-        <div id="selectedWatchlistBox" class="status-box" style="margin-top: 12px;">No watchlist is currently selected.</div>
-        <div class="field">
-          <label for="watchlistName">Watchlist name</label>
-          <input id="watchlistName" type="text" placeholder="NSE Core Swing Watchlist" />
-        </div>
-        <div class="field">
-          <label for="watchlistDescription">Description</label>
-          <input id="watchlistDescription" type="text" placeholder="Daily draw/redraw universe for swing structures" />
-        </div>
-        <div class="field">
-          <label for="watchlistExchange">Default exchange</label>
-          <select id="watchlistExchange">
-            <option value="NSE">NSE</option>
-            <option value="BSE">BSE</option>
-          </select>
-        </div>
-        <button id="createWatchlistButton" class="primary" type="button">Create Watchlist</button>
       </div>
-      <div class="panel">
-        <div class="panel-header">
-          <div>
-            <h2>3-Minute Coverage Notes</h2>
-            <p class="panel-copy">This quick reference helps explain if the live engine is ready, partially mapped, or still waiting on instrument and candle activity.</p>
-          </div>
-        </div>
-        <ul class="list">
-          <li class="pill">Mapped watchlist symbols improve live-engine readiness</li>
-          <li class="pill">Recent 3-minute candles confirm that market monitoring is active</li>
-          <li class="pill">Use Zerodha connection and sync controls from the readiness rail</li>
-        </ul>
-      </div>
+      <ul class="list">
+        <li class="pill">Mapped watchlist symbols improve live-engine readiness</li>
+        <li class="pill">Recent 3-minute candles confirm that market monitoring is active</li>
+        <li class="pill">Use Zerodha connection and sync controls from the readiness rail</li>
+      </ul>
     </section>
     <section id="watchlistDetailSection" class="panel">
       <div class="panel-header">
@@ -585,6 +589,7 @@ def configuration_page() -> str:
     let cachedValidation = null;
     let cachedWatchlists = [];
     let currentWatchlistDetailId = null;
+    let activeBuilderWatchlistId = null;
     let latestReadiness = null;
     let latestZerodhaStatus = null;
     let latestStrategySettings = null;
@@ -654,6 +659,35 @@ def configuration_page() -> str:
       element.className = `inline-note ${tone}`.trim();
     }
 
+    function updateBuilderState() {
+      const targetWatchlist = document.getElementById("targetWatchlist");
+      const watchlistId = targetWatchlist.value;
+      const selectedWatchlist = cachedWatchlists.find((item) => item.id === watchlistId) || null;
+      const hasWatchlist = Boolean(selectedWatchlist);
+      const stepTwoIds = ["symbolsExchange", "symbolsInput", "validateSymbolsButton", "saveSymbolsButton", "useTargetWatchlistButton"];
+      stepTwoIds.forEach((id) => {
+        const element = document.getElementById(id);
+        if (element) {
+          element.disabled = !hasWatchlist;
+        }
+      });
+      document.getElementById("symbolBuilderStep").classList.toggle("is-disabled", !hasWatchlist);
+      if (selectedWatchlist) {
+        document.getElementById("symbolsExchange").value = selectedWatchlist.exchange;
+        setInlineMessage(
+          "validationStatus",
+          `Working watchlist: ${selectedWatchlist.name} (${selectedWatchlist.exchange}). Validate symbols against Zerodha, then add the valid set.`,
+          "",
+        );
+      } else {
+        setInlineMessage(
+          "validationStatus",
+          "Choose or create a watchlist in step 1, then validate symbols against Zerodha before saving only the clean set.",
+          "warn",
+        );
+      }
+    }
+
     function renderConfigCards(readiness, watchlists) {
       const totalSymbols = watchlists.reduce((sum, item) => sum + item.symbol_count, 0);
       const mappedSymbols = watchlists.reduce((sum, item) => sum + item.mapped_symbol_count, 0);
@@ -715,9 +749,13 @@ def configuration_page() -> str:
           </div>`,
         ]),
       );
-      if (selected) {
-        document.getElementById("targetWatchlist").value = selected.id;
-      }
+      const preferredWatchlist = watchlists.find((item) => item.id === activeBuilderWatchlistId)
+        || selected
+        || watchlists[0]
+        || null;
+      activeBuilderWatchlistId = preferredWatchlist ? preferredWatchlist.id : null;
+      document.getElementById("targetWatchlist").value = activeBuilderWatchlistId || "";
+      updateBuilderState();
     }
 
     function renderWatchlistDetail(payload) {
@@ -916,6 +954,7 @@ def configuration_page() -> str:
 
     async function selectWatchlist(id) {
       try {
+        activeBuilderWatchlistId = id;
         const result = await apiSend(`/configuration/watchlists/${id}/select`, "POST");
         setBox("watchlistStatus", `Now using ${result.name} for scans and live monitoring.`, "success");
         await refreshAll(id);
@@ -956,6 +995,7 @@ def configuration_page() -> str:
     }
 
     async function refreshAll(preferredWatchlistId = null) {
+      activeBuilderWatchlistId = preferredWatchlistId || activeBuilderWatchlistId;
       const [readiness, watchlists, zerodhaStatus, strategySettings] = await Promise.all([
         loadReadiness(),
         loadWatchlists(),
@@ -985,11 +1025,29 @@ def configuration_page() -> str:
           exchange: document.getElementById("watchlistExchange").value,
         };
         const created = await apiSend("/configuration/watchlists", "POST", payload);
+        activeBuilderWatchlistId = created.id;
         setBox("watchlistStatus", `Created watchlist ${created.name}.`, "success");
-        await refreshAll();
+        await refreshAll(created.id);
       } catch (error) {
         setBox("watchlistStatus", error.message, "error");
       }
+    });
+
+    document.getElementById("targetWatchlist").addEventListener("change", async (event) => {
+      activeBuilderWatchlistId = event.target.value || null;
+      updateBuilderState();
+      if (activeBuilderWatchlistId) {
+        await openWatchlistDetail(activeBuilderWatchlistId);
+      }
+    });
+
+    document.getElementById("useTargetWatchlistButton").addEventListener("click", async () => {
+      const watchlistId = document.getElementById("targetWatchlist").value;
+      if (!watchlistId) {
+        setBox("watchlistStatus", "Choose a watchlist first.", "warn");
+        return;
+      }
+      await selectWatchlist(watchlistId);
     });
 
     document.getElementById("validateSymbolsButton").addEventListener("click", async () => {

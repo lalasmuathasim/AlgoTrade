@@ -321,6 +321,41 @@ def render_app_shell(
       gap: 18px;
       align-content: start;
     }}
+    .builder-steps {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+      align-items: start;
+    }}
+    .builder-step {{
+      min-width: 0;
+      padding: 18px;
+      border-radius: 18px;
+      border: 1px solid rgba(75, 102, 138, 0.12);
+      background: linear-gradient(180deg, rgba(250, 252, 255, 0.98), rgba(245, 249, 253, 0.96));
+      transition: opacity 0.16s ease, transform 0.16s ease;
+    }}
+    .builder-step.is-disabled {{
+      opacity: 0.56;
+    }}
+    .builder-step h3 {{
+      margin: 10px 0 0;
+      font-size: 1rem;
+      letter-spacing: -0.02em;
+    }}
+    .step-tag {{
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(61, 126, 240, 0.08);
+      color: #31527c;
+      font-size: 0.74rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }}
     .panel {{
       min-width: 0;
       padding: 18px;
@@ -638,6 +673,9 @@ def render_app_shell(
       .layout-main-aside,
       .layout-halves,
       .layout-thirds {{
+        grid-template-columns: 1fr;
+      }}
+      .builder-steps {{
         grid-template-columns: 1fr;
       }}
       .topbar {{
