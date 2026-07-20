@@ -412,17 +412,16 @@ def configuration_page() -> str:
       <div class="panel-header">
         <div>
           <h2>Watchlist Builder</h2>
-          <p class="panel-copy">Step 1 creates or selects the watchlist context. Step 2 validates symbols against Zerodha and adds the clean set into that chosen watchlist.</p>
+          <p class="panel-copy">Step 1 creates or selects the watchlist. Step 2 validates symbols against Zerodha and adds the clean set into that chosen watchlist.</p>
         </div>
         <div class="badge">2 Steps</div>
       </div>
-      <div id="watchlistStatus" class="status-box">Create a watchlist first, or choose an existing watchlist to continue the builder flow.</div>
-      <div id="selectedWatchlistBox" class="status-box" style="margin-top: 12px;">No watchlist is currently selected.</div>
       <div class="builder-steps" style="margin-top: 14px;">
         <section class="builder-step">
           <div class="step-tag">Step 1</div>
-          <h3>Choose Watchlist Context</h3>
+          <h3>Choose Watchlist</h3>
           <p class="panel-copy">Create a fresh watchlist or choose one you already maintain. You can also mark the chosen watchlist as the one used for scans and live monitoring.</p>
+          <p id="watchlistStatus" class="inline-note">Create a watchlist first, or choose an existing watchlist to continue the builder flow.</p>
           <div class="field">
             <label for="watchlistName">Watchlist name</label>
             <input id="watchlistName" type="text" placeholder="NSE Core Swing Watchlist" />
@@ -478,78 +477,70 @@ def configuration_page() -> str:
           <p class="panel-copy">Review the matched company name and instrument token before committing symbols into the watchlist.</p>
         </div>
       </div>
-      <div id="validationBreakdown" class="status-box">No validation run yet.</div>
+      <div id="validationBreakdown" class="validation-summary">No validation run yet.</div>
       <table id="validationTable"></table>
     </section>
-    <section class="layout-halves">
-      <div class="panel">
-        <div class="panel-header">
-          <div>
-            <h2>Strategy Tuning</h2>
-            <p class="panel-copy">Control how daily support and resistance lines are discovered, plus the breakout confirmation thresholds that the live engine and paper flow use.</p>
-          </div>
-          <div class="badge">Runtime</div>
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Strategy Tuning</h2>
+          <p class="panel-copy">Adjust the daily structure scan and 3-minute breakout thresholds here. These values directly change which lines appear and which breakouts become valid signals.</p>
         </div>
-        <div id="strategySettingsStatus" class="status-box">Loading strategy tuning values from the runtime settings store...</div>
+        <div class="badge">Runtime</div>
+      </div>
+      <div id="strategySettingsStatus" class="inline-note">Loading strategy tuning values from the runtime settings store...</div>
+      <div class="compact-grid">
         <div class="field">
           <label for="dailyCandleLookbackInput">Daily candle lookback</label>
           <input id="dailyCandleLookbackInput" type="number" min="20" max="300" step="1" />
-          <div class="field-help">How many completed daily candles the scanner should review when searching for swing highs and swing lows.</div>
+          <div class="field-help">Completed daily candles reviewed for swing highs and lows.</div>
         </div>
         <div class="field">
           <label for="swingWindowInput">Swing window</label>
           <input id="swingWindowInput" type="number" min="1" max="10" step="1" />
-          <div class="field-help">How many candles on each side must be lower or higher before a candle qualifies as a swing point. Pine usually uses `1` here.</div>
+          <div class="field-help">Candles on each side required to confirm a swing point.</div>
         </div>
         <div class="field">
           <label for="maxGapPercentInput">Max gap percent</label>
           <input id="maxGapPercentInput" type="number" min="0.1" max="10" step="0.1" />
-          <div class="field-help">Maximum allowed percentage gap between the two chosen swings before the candidate line is rejected as too wide.</div>
+          <div class="field-help">Rejects swing pairs when the level gap becomes too wide.</div>
         </div>
         <div class="field">
           <label for="minSwingDistanceInput">Min swing distance</label>
           <input id="minSwingDistanceInput" type="number" min="1" max="50" step="1" />
-          <div class="field-help">Minimum number of candles that must separate the two selected swings so very tight structures are ignored.</div>
+          <div class="field-help">Minimum candle spacing between the two chosen swings.</div>
         </div>
         <div class="field">
           <label for="buyVolumeMultiplierInput">Buy volume multiplier</label>
           <input id="buyVolumeMultiplierInput" type="number" min="0.1" max="20" step="0.1" />
-          <div class="field-help">Required breakout candle volume multiple versus the previous 3-minute candle for BUY signals.</div>
+          <div class="field-help">BUY breakout volume required versus the prior 3-minute candle.</div>
         </div>
         <div class="field">
           <label for="sellVolumeMultiplierInput">Sell volume multiplier</label>
           <input id="sellVolumeMultiplierInput" type="number" min="0.1" max="20" step="0.1" />
-          <div class="field-help">Required breakdown candle volume multiple versus the previous 3-minute candle for SELL signals.</div>
+          <div class="field-help">SELL breakdown volume required versus the prior 3-minute candle.</div>
         </div>
         <div class="field">
           <label for="entryBufferTicksInput">Entry buffer ticks</label>
           <input id="entryBufferTicksInput" type="number" min="0.01" max="10" step="0.01" />
-          <div class="field-help">Extra ticks added above a BUY breakout or below a SELL breakdown before generating the entry trigger.</div>
+          <div class="field-help">Extra ticks added before generating the entry trigger.</div>
         </div>
         <div class="field">
           <label for="stopLossBufferTicksInput">Stop-loss buffer ticks</label>
           <input id="stopLossBufferTicksInput" type="number" min="0.01" max="10" step="0.01" />
-          <div class="field-help">Extra ticks added beyond the trigger line when placing the protective stop loss.</div>
-        </div>
-        <div class="inline">
-          <button id="saveStrategySettingsButton" class="primary" type="button">Save Strategy Tuning</button>
-          <button id="refreshStrategySettingsButton" class="secondary" type="button">Reload Values</button>
+          <div class="field-help">Extra ticks added beyond the trigger line for protection.</div>
         </div>
       </div>
-      <div class="panel">
-        <div class="panel-header">
-          <div>
-            <h2>Tuning Guide</h2>
-            <p class="panel-copy">These values directly affect which lines appear in Daily Line Review and which 3-minute breakouts become valid signals.</p>
-          </div>
-        </div>
-        <ul class="list">
-          <li class="pill">Smaller swing window: more swing points and more candidate lines</li>
-          <li class="pill">Larger max gap percent: more tolerant matching between two swing levels</li>
-          <li class="pill">Larger minimum swing distance: filters out crowded nearby swing pairs</li>
-          <li class="pill">Higher volume multipliers: fewer but stronger breakout confirmations</li>
-          <li class="pill">Entry and stop buffers help avoid exact-line fills when price is noisy</li>
-        </ul>
+      <ul class="guide-list">
+        <li>Smaller swing window creates more swing points and more candidate lines.</li>
+        <li>Larger max gap percent allows looser swing matching at the same level.</li>
+        <li>Larger minimum swing distance filters out crowded nearby swing pairs.</li>
+        <li>Higher volume multipliers produce fewer but stronger breakout confirmations.</li>
+        <li>Entry and stop buffers reduce exact-line fills when price is noisy.</li>
+      </ul>
+      <div class="inline" style="margin-top: 14px;">
+        <button id="saveStrategySettingsButton" class="primary" type="button">Save Strategy Tuning</button>
+        <button id="refreshStrategySettingsButton" class="secondary" type="button">Reload Values</button>
       </div>
     </section>
     <section class="panel">
@@ -659,6 +650,12 @@ def configuration_page() -> str:
       element.className = `inline-note ${tone}`.trim();
     }
 
+    function setSummaryMessage(id, message, tone = "") {
+      const element = document.getElementById(id);
+      element.textContent = message;
+      element.className = `validation-summary ${tone}`.trim();
+    }
+
     function updateBuilderState() {
       const targetWatchlist = document.getElementById("targetWatchlist");
       const watchlistId = targetWatchlist.value;
@@ -711,7 +708,7 @@ def configuration_page() -> str:
       document.getElementById("sellVolumeMultiplierInput").value = settingsPayload.sell_volume_multiplier;
       document.getElementById("entryBufferTicksInput").value = settingsPayload.entry_buffer_ticks;
       document.getElementById("stopLossBufferTicksInput").value = settingsPayload.stop_loss_buffer_ticks;
-      setBox(
+      setInlineMessage(
         "strategySettingsStatus",
         `Daily scan uses ${settingsPayload.daily_candle_lookback} candles with swing window ${settingsPayload.swing_window}. Gap filter ${settingsPayload.max_gap_percent}% · min swing distance ${settingsPayload.min_swing_distance} candles · BUY volume ${settingsPayload.buy_volume_multiplier}x · SELL volume ${settingsPayload.sell_volume_multiplier}x.`,
         "success",
@@ -724,12 +721,12 @@ def configuration_page() -> str:
         ? optionMarkup(watchlists)
         : '<option value="">Create a watchlist first</option>';
       const selected = watchlists.find((item) => item.is_selected);
-      setBox(
-        "selectedWatchlistBox",
+      setInlineMessage(
+        "watchlistStatus",
         selected
           ? `Currently using ${selected.name} (${selected.exchange}) for scans, subscriptions, and 3-minute monitoring.`
-          : "No watchlist is currently selected.",
-        selected ? "success" : "warn",
+          : "Create a watchlist first, or choose an existing watchlist to continue the builder flow.",
+        selected ? "success" : "",
       );
       renderTable(
         document.getElementById("watchlistsTable"),
@@ -890,7 +887,7 @@ def configuration_page() -> str:
 
       if (action === "mapped-watchlist") {
         scrollToSection("#watchlistsTable");
-        setBox(
+        setInlineMessage(
           "watchlistStatus",
           latestReadiness.mapped_symbol_count > 0 && latestReadiness.unmapped_symbol_count === 0
             ? "All symbols in the active watchlist are mapped to instrument tokens."
@@ -926,7 +923,7 @@ def configuration_page() -> str:
     function renderValidation(result) {
       cachedValidation = result;
       const tone = result.invalid_count ? "warn" : "success";
-      setBox(
+      setSummaryMessage(
         "validationBreakdown",
         `${result.valid_count} valid · ${result.invalid_count} invalid · Exchange ${result.exchange}`,
         tone,
@@ -956,10 +953,10 @@ def configuration_page() -> str:
       try {
         activeBuilderWatchlistId = id;
         const result = await apiSend(`/configuration/watchlists/${id}/select`, "POST");
-        setBox("watchlistStatus", `Now using ${result.name} for scans and live monitoring.`, "success");
+        setInlineMessage("watchlistStatus", `Now using ${result.name} for scans and live monitoring.`, "success");
         await refreshAll(id);
       } catch (error) {
-        setBox("watchlistStatus", error.message, "error");
+        setInlineMessage("watchlistStatus", error.message, "error");
       }
     }
     window.selectWatchlist = selectWatchlist;
@@ -1026,10 +1023,10 @@ def configuration_page() -> str:
         };
         const created = await apiSend("/configuration/watchlists", "POST", payload);
         activeBuilderWatchlistId = created.id;
-        setBox("watchlistStatus", `Created watchlist ${created.name}.`, "success");
+        setInlineMessage("watchlistStatus", `Created watchlist ${created.name}.`, "success");
         await refreshAll(created.id);
       } catch (error) {
-        setBox("watchlistStatus", error.message, "error");
+        setInlineMessage("watchlistStatus", error.message, "error");
       }
     });
 
@@ -1044,7 +1041,7 @@ def configuration_page() -> str:
     document.getElementById("useTargetWatchlistButton").addEventListener("click", async () => {
       const watchlistId = document.getElementById("targetWatchlist").value;
       if (!watchlistId) {
-        setBox("watchlistStatus", "Choose a watchlist first.", "warn");
+        setInlineMessage("watchlistStatus", "Choose a watchlist first.", "warn");
         return;
       }
       await selectWatchlist(watchlistId);
@@ -1121,9 +1118,9 @@ def configuration_page() -> str:
         };
         const result = await apiSend("/configuration/strategy-settings", "POST", payload);
         renderStrategySettings(result);
-        setBox("strategySettingsStatus", "Strategy tuning saved. Daily scans, line review, and breakout checks will use these values.", "success");
+        setInlineMessage("strategySettingsStatus", "Strategy tuning saved. Daily scans, line review, and breakout checks will use these values.", "success");
       } catch (error) {
-        setBox("strategySettingsStatus", error.message, "error");
+        setInlineMessage("strategySettingsStatus", error.message, "error");
       }
     });
 
@@ -1132,7 +1129,7 @@ def configuration_page() -> str:
         const result = await loadStrategySettings();
         renderStrategySettings(result);
       } catch (error) {
-        setBox("strategySettingsStatus", error.message, "error");
+        setInlineMessage("strategySettingsStatus", error.message, "error");
       }
     });
 
@@ -1153,10 +1150,10 @@ def configuration_page() -> str:
       applyZerodhaCallbackMessage();
     }).catch((error) => {
       setBox("zerodhaConnectionStatus", "Unable to determine Zerodha connection state.", "error");
-      setBox("watchlistStatus", error.message, "error");
+      setInlineMessage("watchlistStatus", error.message, "error");
       setBox("readinessStatus", "Unable to initialize configuration workspace.", "error");
       setInlineMessage("validationStatus", "Configuration workspace failed to initialize.", "error");
-      setBox("strategySettingsStatus", "Unable to load strategy tuning values.", "error");
+      setInlineMessage("strategySettingsStatus", "Unable to load strategy tuning values.", "error");
     });
     """
     return render_app_shell(

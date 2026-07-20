@@ -343,6 +343,9 @@ def render_app_shell(
       font-size: 1rem;
       letter-spacing: -0.02em;
     }}
+    .builder-step .inline-note {{
+      margin-top: 10px;
+    }}
     .step-tag {{
       display: inline-flex;
       align-items: center;
@@ -595,6 +598,35 @@ def render_app_shell(
     .inline-note.success {{ color: var(--ok); }}
     .inline-note.warn {{ color: var(--warn); }}
     .inline-note.error {{ color: var(--danger); }}
+    .validation-summary {{
+      margin: 0 0 12px;
+      padding: 0 0 10px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.55;
+      border-bottom: 1px solid rgba(122, 151, 185, 0.14);
+    }}
+    .validation-summary.success {{ color: var(--ok); }}
+    .validation-summary.warn {{ color: var(--warn); }}
+    .validation-summary.error {{ color: var(--danger); }}
+    .compact-grid {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px 16px;
+      align-items: start;
+    }}
+    .compact-grid .field {{
+      margin-bottom: 0;
+    }}
+    .guide-list {{
+      display: grid;
+      gap: 8px;
+      margin: 14px 0 0;
+      padding-left: 18px;
+      color: var(--muted);
+      font-size: 0.86rem;
+      line-height: 1.5;
+    }}
     .readiness-links {{
       display: flex;
       gap: 10px 16px;
@@ -676,6 +708,9 @@ def render_app_shell(
         grid-template-columns: 1fr;
       }}
       .builder-steps {{
+        grid-template-columns: 1fr;
+      }}
+      .compact-grid {{
         grid-template-columns: 1fr;
       }}
       .topbar {{
