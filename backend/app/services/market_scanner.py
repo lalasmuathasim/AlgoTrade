@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.config import get_settings
-from backend.app.models import Instrument, ScanExecution, TriggerLine, WatchlistSymbol
+from backend.app.models import Instrument, MarketCandle, ScanExecution, TriggerLine, WatchlistSymbol
 from backend.app.schemas import HistoricalCandlePayload, SwingPointPayload, TriggerLineCandidatePayload
 from backend.app.services.paper_trading_service import ensure_settings
 from backend.app.services.watchlists import get_selected_watchlist
@@ -397,6 +397,61 @@ class DailyMarketScanner:
         self.validator = validator
         self.trigger_line_manager = trigger_line_manager or TriggerLineManager()
 
+    def _persist_daily_candles(
+        self,
+        db: Session,
+        *,
+        symbol: str,
+        exchange: str,
+        instrument_token: int,
+        candles: list[HistoricalCandlePayload],
+        dry_run: bool,
+    ) -> None:
+        if dry_run:
+            return
+
+        existing_rows = db.scalars(
+            select(MarketCandle).where(
+                MarketCandle.exchange == exchange,
+                MarketCandle.symbol == symbol,
+                MarketCandle.timeframe == "day",
+            )
+        ).all()
+        existing_by_start = {row.candle_start: row for row in existing_rows}
+
+        for candle in candles:
+            row = existing_by_start.get(candle.timestamp)
+            if row is None:
+                row = MarketCandle(
+                    instrument_token=instrument_token,
+                    exchange=exchange,
+                    symbol=symbol,
+                    timeframe="day",
+                    candle_start=candle.timestamp,
+                    candle_end=candle.timestamp,
+                    open=candle.open,
+                    high=candle.high,
+                    low=candle.low,
+                    close=candle.close,
+                    volume=candle.volume,
+                    is_final=True,
+                    source="ZERODHA",
+                )
+                db.add(row)
+                existing_by_start[candle.timestamp] = row
+            else:
+                row.instrument_token = instrument_token
+                row.open = candle.open
+                row.high = candle.high
+                row.low = candle.low
+                row.close = candle.close
+                row.volume = candle.volume
+                row.candle_end = candle.timestamp
+                row.is_final = True
+                row.source = "ZERODHA"
+
+        db.flush()
+
     def run(self, db: Session, watchlist_id=None, scan_date: date | None = None, dry_run: bool = False) -> ScanExecution:
         if watchlist_id is None:
             selected_watchlist = get_selected_watchlist(db)
@@ -444,6 +499,14 @@ class DailyMarketScanner:
                     symbol.symbol,
                     instrument_token,
                     runtime_settings.daily_candle_lookback,
+                )
+                self._persist_daily_candles(
+                    db,
+                    symbol=symbol.symbol,
+                    exchange=symbol.exchange,
+                    instrument_token=instrument_token,
+                    candles=candles,
+                    dry_run=dry_run,
                 )
                 if len(candles) < (runtime_settings.swing_window * 2) + 1:
                     logger.info("Skipping %s because only %s candles are available", symbol.symbol, len(candles))

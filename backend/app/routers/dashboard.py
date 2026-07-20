@@ -13,12 +13,11 @@ from sqlalchemy.orm import Session
 from backend.app.config import get_settings
 from backend.app.dependencies import require_admin_user, require_approved_user
 from backend.app.database import get_db
-from backend.app.models import BrokerOrder, BreakoutEvent, Instrument, PaperTrade, ScanExecution, TradingSignal, TriggerLine, Watchlist, WatchlistSymbol
+from backend.app.models import BrokerOrder, BreakoutEvent, Instrument, MarketCandle, PaperTrade, ScanExecution, TradingSignal, TriggerLine, Watchlist, WatchlistSymbol
 from backend.app.schemas import HistoricalCandlePayload
 from backend.app.services.market_scanner import DailyMarketScanner
 from backend.app.services.paper_trading_service import ensure_settings
 from backend.app.services.watchlists import get_selected_watchlist
-from backend.app.services.zerodha import HistoricalCandleProvider
 from backend.app.ui import render_app_shell
 
 
@@ -272,6 +271,37 @@ def _build_potential_trigger_row(
         "last_daily_candle_date": candles[-1].timestamp.date().isoformat(),
         "readiness_score": readiness_score,
     }
+
+
+def _load_recent_daily_candles_from_db(
+    db: Session,
+    *,
+    exchange: str,
+    symbol: str,
+    lookback: int,
+) -> list[HistoricalCandlePayload]:
+    rows = db.scalars(
+        select(MarketCandle)
+        .where(
+            MarketCandle.exchange == exchange,
+            MarketCandle.symbol == symbol,
+            MarketCandle.timeframe == "day",
+        )
+        .order_by(desc(MarketCandle.candle_start))
+        .limit(lookback)
+    ).all()
+    ordered_rows = list(reversed(rows))
+    return [
+        HistoricalCandlePayload(
+            timestamp=row.candle_start,
+            open=row.open,
+            high=row.high,
+            low=row.low,
+            close=row.close,
+            volume=row.volume,
+        )
+        for row in ordered_rows
+    ]
 
 
 def _serialize_broker_order(order: BrokerOrder, signal: TradingSignal | None = None) -> dict:
@@ -1543,30 +1573,27 @@ def dashboard_potential_line_hits(db: Session = Depends(get_db)) -> dict:
             "rows": [],
         }
 
-    provider = HistoricalCandleProvider()
-    candle_cache: dict[tuple[str, str, int], list[HistoricalCandlePayload]] = {}
+    candle_cache: dict[tuple[str, str], list[HistoricalCandlePayload]] = {}
     rows: list[dict] = []
     latest_daily_candle_date = None
 
-    try:
-        for line in active_lines:
-            instrument_token = _resolve_trigger_line_instrument_token(db, line)
-            if instrument_token is None:
-                continue
-            cache_key = (line.exchange, line.symbol, instrument_token)
-            if cache_key not in candle_cache:
-                candle_cache[cache_key] = provider.fetch_last_n_completed_daily_candles(
-                    line.symbol,
-                    instrument_token,
-                    count=max(6, min(runtime_settings.daily_candle_lookback, 12)),
-                )
-            candles = candle_cache[cache_key]
-            row = _build_potential_trigger_row(line, candles, prediction_threshold)
-            if row is None:
-                continue
-            latest_daily_candle_date = row["last_daily_candle_date"] if latest_daily_candle_date is None else max(latest_daily_candle_date, row["last_daily_candle_date"])
-            rows.append(row)
-    except Exception as exc:  # noqa: BLE001
+    for line in active_lines:
+        cache_key = (line.exchange, line.symbol)
+        if cache_key not in candle_cache:
+            candle_cache[cache_key] = _load_recent_daily_candles_from_db(
+                db,
+                exchange=line.exchange,
+                symbol=line.symbol,
+                lookback=max(6, min(runtime_settings.daily_candle_lookback, 12)),
+            )
+        candles = candle_cache[cache_key]
+        row = _build_potential_trigger_row(line, candles, prediction_threshold)
+        if row is None:
+            continue
+        latest_daily_candle_date = row["last_daily_candle_date"] if latest_daily_candle_date is None else max(latest_daily_candle_date, row["last_daily_candle_date"])
+        rows.append(row)
+
+    if not rows and not any(candle_cache.values()):
         return {
             "selected_watchlist": {
                 "id": str(selected_watchlist.id),
@@ -1578,7 +1605,7 @@ def dashboard_potential_line_hits(db: Session = Depends(get_db)) -> dict:
                 "total_candidates": 0,
                 "symbols_covered": 0,
                 "latest_daily_candle_date": None,
-                "error_message": f"Unable to evaluate potential line-hit candidates from Zerodha right now: {exc}",
+                "error_message": "No stored daily candle history is available yet. Run the daily market scan once to populate the database, then refresh this table.",
             },
             "rows": [],
         }
