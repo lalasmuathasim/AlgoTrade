@@ -378,14 +378,88 @@ def configuration_page() -> str:
     body_html = """
     <section id="configSummary" class="metric-strip"></section>
     <section class="layout-main-aside">
-      <div class="panel">
-        <div class="panel-header">
-          <div>
-            <h2>Configured Watchlists</h2>
-            <p class="panel-copy">Open a list to inspect it, or switch the runtime focus with a single action.</p>
+      <div class="rail-stack">
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Configured Watchlists</h2>
+              <p class="panel-copy">Open a list to inspect it, or switch the runtime focus with a single action.</p>
+            </div>
           </div>
+          <table id="watchlistsTable"></table>
         </div>
-        <table id="watchlistsTable"></table>
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Watchlist Builder</h2>
+              <p class="panel-copy">Step 1 creates or selects the watchlist. Step 2 validates symbols against Zerodha and adds the clean set into that chosen watchlist.</p>
+            </div>
+            <div class="badge">2 Steps</div>
+          </div>
+          <div class="builder-steps" style="margin-top: 14px;">
+            <section class="builder-step">
+              <div class="step-tag">Step 1</div>
+              <h3>Choose Watchlist</h3>
+              <p class="panel-copy">Create a fresh watchlist or choose one you already maintain. You can also mark the chosen watchlist as the one used for scans and live monitoring.</p>
+              <p id="watchlistStatus" class="inline-note">Create a watchlist first, or choose an existing watchlist to continue the builder flow.</p>
+              <div class="field">
+                <label for="watchlistName">Watchlist name</label>
+                <input id="watchlistName" type="text" placeholder="NSE Core Swing Watchlist" />
+              </div>
+              <div class="field">
+                <label for="watchlistDescription">Description</label>
+                <input id="watchlistDescription" type="text" placeholder="Daily draw/redraw universe for swing structures" />
+              </div>
+              <div class="field">
+                <label for="watchlistExchange">Default exchange</label>
+                <select id="watchlistExchange">
+                  <option value="NSE">NSE</option>
+                  <option value="BSE">BSE</option>
+                </select>
+              </div>
+              <div class="inline" style="margin-bottom: 12px;">
+                <button id="createWatchlistButton" class="primary" type="button">Create Watchlist</button>
+              </div>
+              <div class="field">
+                <label for="targetWatchlist">Working watchlist</label>
+                <select id="targetWatchlist"></select>
+                <div class="field-help">This selected watchlist is the destination for validated symbols in step 2.</div>
+              </div>
+              <div class="inline">
+                <button id="useTargetWatchlistButton" class="secondary" type="button">Use Selected Watchlist</button>
+              </div>
+            </section>
+            <section id="symbolBuilderStep" class="builder-step">
+              <div class="step-tag">Step 2</div>
+              <h3>Validate And Add Symbols</h3>
+              <p id="validationStatus" class="inline-note">Choose or create a watchlist in step 1, then validate symbols against Zerodha before saving only the clean set.</p>
+              <div class="field">
+                <label for="symbolsExchange">Exchange</label>
+                <select id="symbolsExchange">
+                  <option value="NSE">NSE</option>
+                  <option value="BSE">BSE</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="symbolsInput">Symbols</label>
+                <textarea id="symbolsInput" placeholder="RELIANCE, INFY, TCS&#10;HDFCBANK&#10;SBIN"></textarea>
+              </div>
+              <div class="inline">
+                <button id="validateSymbolsButton" class="primary" type="button">Validate Symbols</button>
+                <button id="saveSymbolsButton" class="secondary" type="button">Add Valid Symbols</button>
+              </div>
+            </section>
+          </div>
+          <hr />
+          <div class="panel-header">
+            <div>
+              <h3>Validation Result</h3>
+              <p class="panel-copy">Review the matched company name and instrument token before committing symbols into the watchlist.</p>
+            </div>
+          </div>
+          <div id="validationBreakdown" class="validation-summary">No validation run yet.</div>
+          <table id="validationTable"></table>
+        </section>
       </div>
       <div class="rail-stack">
         <div class="panel">
@@ -406,79 +480,20 @@ def configuration_page() -> str:
             <button id="refreshReadinessButton" class="secondary" type="button">Refresh Readiness</button>
           </div>
         </div>
-      </div>
-    </section>
-    <section class="panel">
-      <div class="panel-header">
-        <div>
-          <h2>Watchlist Builder</h2>
-          <p class="panel-copy">Step 1 creates or selects the watchlist. Step 2 validates symbols against Zerodha and adds the clean set into that chosen watchlist.</p>
-        </div>
-        <div class="badge">2 Steps</div>
-      </div>
-      <div class="builder-steps" style="margin-top: 14px;">
-        <section class="builder-step">
-          <div class="step-tag">Step 1</div>
-          <h3>Choose Watchlist</h3>
-          <p class="panel-copy">Create a fresh watchlist or choose one you already maintain. You can also mark the chosen watchlist as the one used for scans and live monitoring.</p>
-          <p id="watchlistStatus" class="inline-note">Create a watchlist first, or choose an existing watchlist to continue the builder flow.</p>
-          <div class="field">
-            <label for="watchlistName">Watchlist name</label>
-            <input id="watchlistName" type="text" placeholder="NSE Core Swing Watchlist" />
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>3-Minute Coverage Notes</h2>
+              <p class="panel-copy">This quick reference helps explain if the live engine is ready, partially mapped, or still waiting on instrument and candle activity.</p>
+            </div>
           </div>
-          <div class="field">
-            <label for="watchlistDescription">Description</label>
-            <input id="watchlistDescription" type="text" placeholder="Daily draw/redraw universe for swing structures" />
-          </div>
-          <div class="field">
-            <label for="watchlistExchange">Default exchange</label>
-            <select id="watchlistExchange">
-              <option value="NSE">NSE</option>
-              <option value="BSE">BSE</option>
-            </select>
-          </div>
-          <div class="inline" style="margin-bottom: 12px;">
-            <button id="createWatchlistButton" class="primary" type="button">Create Watchlist</button>
-          </div>
-          <div class="field">
-            <label for="targetWatchlist">Working watchlist</label>
-            <select id="targetWatchlist"></select>
-            <div class="field-help">This selected watchlist is the destination for validated symbols in step 2.</div>
-          </div>
-          <div class="inline">
-            <button id="useTargetWatchlistButton" class="secondary" type="button">Use Selected Watchlist</button>
-          </div>
-        </section>
-        <section id="symbolBuilderStep" class="builder-step">
-          <div class="step-tag">Step 2</div>
-          <h3>Validate And Add Symbols</h3>
-          <p id="validationStatus" class="inline-note">Choose or create a watchlist in step 1, then validate symbols against Zerodha before saving only the clean set.</p>
-          <div class="field">
-            <label for="symbolsExchange">Exchange</label>
-            <select id="symbolsExchange">
-              <option value="NSE">NSE</option>
-              <option value="BSE">BSE</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="symbolsInput">Symbols</label>
-            <textarea id="symbolsInput" placeholder="RELIANCE, INFY, TCS&#10;HDFCBANK&#10;SBIN"></textarea>
-          </div>
-          <div class="inline">
-            <button id="validateSymbolsButton" class="primary" type="button">Validate Symbols</button>
-            <button id="saveSymbolsButton" class="secondary" type="button">Add Valid Symbols</button>
-          </div>
+          <ul class="list">
+            <li class="pill">Mapped watchlist symbols improve live-engine readiness</li>
+            <li class="pill">Recent 3-minute candles confirm that market monitoring is active</li>
+            <li class="pill">Use Zerodha connection and sync controls from the readiness rail</li>
+          </ul>
         </section>
       </div>
-      <hr />
-      <div class="panel-header">
-        <div>
-          <h3>Validation Result</h3>
-          <p class="panel-copy">Review the matched company name and instrument token before committing symbols into the watchlist.</p>
-        </div>
-      </div>
-      <div id="validationBreakdown" class="validation-summary">No validation run yet.</div>
-      <table id="validationTable"></table>
     </section>
     <section class="panel">
       <div class="panel-header">
@@ -542,19 +557,6 @@ def configuration_page() -> str:
         <button id="saveStrategySettingsButton" class="primary" type="button">Save Strategy Tuning</button>
         <button id="refreshStrategySettingsButton" class="secondary" type="button">Reload Values</button>
       </div>
-    </section>
-    <section class="panel">
-      <div class="panel-header">
-        <div>
-          <h2>3-Minute Coverage Notes</h2>
-          <p class="panel-copy">This quick reference helps explain if the live engine is ready, partially mapped, or still waiting on instrument and candle activity.</p>
-        </div>
-      </div>
-      <ul class="list">
-        <li class="pill">Mapped watchlist symbols improve live-engine readiness</li>
-        <li class="pill">Recent 3-minute candles confirm that market monitoring is active</li>
-        <li class="pill">Use Zerodha connection and sync controls from the readiness rail</li>
-      </ul>
     </section>
     <section id="watchlistDetailSection" class="panel">
       <div class="panel-header">
