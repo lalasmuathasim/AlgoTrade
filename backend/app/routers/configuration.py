@@ -398,7 +398,7 @@ def configuration_page() -> str:
           <div id="readinessStatus" class="status-box">Checking Zerodha, Redis, and 3-minute data readiness...</div>
           <div id="zerodhaConnectionStatus" class="status-box" style="margin-top: 12px;">Checking Zerodha connection status...</div>
           <div id="zerodhaConnectionBadge" class="inline" style="margin-top: 10px;"></div>
-          <div id="readinessPills" class="inline"></div>
+        <div id="readinessPills" class="readiness-links"></div>
           <div class="inline" style="margin-top: 12px;">
             <button id="connectZerodhaButton" class="primary" type="button">Connect Zerodha</button>
             <button id="testZerodhaButton" class="secondary" type="button">Test Connection</button>
@@ -416,7 +416,7 @@ def configuration_page() -> str:
             <p class="panel-copy">Paste one symbol per line or comma-separated values, validate against Zerodha, then add only the clean set.</p>
           </div>
         </div>
-        <div id="validationStatus" class="status-box">Paste one symbol per line or comma-separated values, then validate before saving.</div>
+        <p id="validationStatus" class="inline-note">Paste one symbol per line or comma-separated values, then validate against Zerodha before saving only the clean set.</p>
         <div class="field">
           <label for="targetWatchlist">Target watchlist</label>
           <select id="targetWatchlist"></select>
@@ -561,7 +561,7 @@ def configuration_page() -> str:
         </ul>
       </div>
     </section>
-    <section class="panel">
+    <section id="watchlistDetailSection" class="panel">
       <div class="panel-header">
         <div>
           <h2>Watchlist Detail</h2>
@@ -648,6 +648,12 @@ def configuration_page() -> str:
       }
     }
 
+    function setInlineMessage(id, message, tone = "") {
+      const element = document.getElementById(id);
+      element.textContent = message;
+      element.className = `inline-note ${tone}`.trim();
+    }
+
     function renderConfigCards(readiness, watchlists) {
       const totalSymbols = watchlists.reduce((sum, item) => sum + item.symbol_count, 0);
       const mappedSymbols = watchlists.reduce((sum, item) => sum + item.mapped_symbol_count, 0);
@@ -693,21 +699,20 @@ def configuration_page() -> str:
       );
       renderTable(
         document.getElementById("watchlistsTable"),
-        ["Name", "In Use", "Exchange", "Symbols", "Mapped", "Actions", "Preview"],
+        ["Name", "In Use", "Exchange", "Symbols", "Mapped", "Actions"],
         watchlists.map((item) => [
-          `<button class="secondary" type="button" onclick="openWatchlistDetail('${item.id}')">${item.name}</button>`,
+          `<button class="table-link" type="button" onclick="openWatchlistDetail('${item.id}', true)">${item.name}</button>`,
           item.is_selected ? '<span class="badge">IN USE</span>' : '<span class="badge warn">STANDBY</span>',
           item.exchange,
           item.symbol_count,
           item.mapped_symbol_count,
-          `<div class="inline">
-            <button class="secondary" type="button" onclick="openWatchlistDetail('${item.id}')">View</button>
+          `<div class="table-actions">
+            <button class="table-link subtle" type="button" onclick="openWatchlistDetail('${item.id}', true)">View</button>
             ${item.is_selected
-              ? '<span class="badge">Current</span>'
-              : `<button class="secondary" type="button" onclick="selectWatchlist('${item.id}')">Use This Watchlist</button>`
+              ? '<span class="table-link subtle" style="cursor: default; color: var(--ok);">Current</span>'
+              : `<button class="table-link subtle" type="button" onclick="selectWatchlist('${item.id}')">Use This Watchlist</button>`
             }
           </div>`,
-          item.symbols.slice(0, 6).map((symbol) => symbol.symbol).join(", ") || "No symbols yet",
         ]),
       );
       if (selected) {
@@ -765,8 +770,8 @@ def configuration_page() -> str:
         ["three-minute-volume", "3-minute volume", readiness.three_minute_volume_ready],
       ];
       document.getElementById("readinessPills").innerHTML = pillData.map(([key, label, ok]) => `
-        <button class="pill-button" type="button" data-readiness-action="${key}">
-          <span class="badge ${ok ? "" : "warn"}">${ok ? "READY" : "CHECK"}</span>${label}
+        <button class="readiness-link" type="button" data-readiness-action="${key}">
+          <span class="readiness-mark ${ok ? "ok" : "warn"}">${ok ? "✓" : "!"}</span><span>${label}</span>
         </button>
       `).join("");
       document.querySelectorAll("[data-readiness-action]").forEach((element) => {
@@ -920,10 +925,13 @@ def configuration_page() -> str:
     }
     window.selectWatchlist = selectWatchlist;
 
-    async function openWatchlistDetail(id) {
+    async function openWatchlistDetail(id, shouldScroll = false) {
       try {
         const detail = await apiGet(`/configuration/watchlists/${id}`);
         renderWatchlistDetail(detail);
+        if (shouldScroll) {
+          scrollToSection("#watchlistDetailSection");
+        }
       } catch (error) {
         setBox("watchlistDetailStatus", error.message, "error");
       }
@@ -991,9 +999,9 @@ def configuration_page() -> str:
           symbols_text: document.getElementById("symbolsInput").value,
         });
         renderValidation(result);
-        setBox("validationStatus", "Validation complete. Review the list before saving.", result.invalid_count ? "warn" : "success");
+        setInlineMessage("validationStatus", "Validation complete. Review the result list before saving symbols to the watchlist.", result.invalid_count ? "warn" : "success");
       } catch (error) {
-        setBox("validationStatus", error.message, "error");
+        setInlineMessage("validationStatus", error.message, "error");
       }
     });
 
@@ -1008,7 +1016,7 @@ def configuration_page() -> str:
           symbols_text: document.getElementById("symbolsInput").value,
         };
         const result = await apiSend(`/configuration/watchlists/${watchlistId}/symbols`, "POST", payload);
-        setBox(
+        setInlineMessage(
           "validationStatus",
           `Added ${result.added_count} symbols. ${result.existing_count} already existed. ${result.invalid_count} invalid.`,
           result.invalid_count ? "warn" : "success",
@@ -1018,7 +1026,7 @@ def configuration_page() -> str:
         }
         await refreshAll();
       } catch (error) {
-        setBox("validationStatus", error.message, "error");
+        setInlineMessage("validationStatus", error.message, "error");
       }
     });
 
@@ -1089,7 +1097,7 @@ def configuration_page() -> str:
       setBox("zerodhaConnectionStatus", "Unable to determine Zerodha connection state.", "error");
       setBox("watchlistStatus", error.message, "error");
       setBox("readinessStatus", "Unable to initialize configuration workspace.", "error");
-      setBox("validationStatus", "Configuration workspace failed to initialize.", "error");
+      setInlineMessage("validationStatus", "Configuration workspace failed to initialize.", "error");
       setBox("strategySettingsStatus", "Unable to load strategy tuning values.", "error");
     });
     """

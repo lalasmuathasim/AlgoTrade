@@ -522,6 +522,90 @@ def render_app_shell(
       cursor: not-allowed;
       transform: none;
     }}
+    .table-link {{
+      appearance: none;
+      border: none;
+      background: transparent;
+      padding: 0;
+      margin: 0;
+      color: #24416d;
+      font: inherit;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: left;
+      text-decoration: none;
+      transition: color 0.16s ease, opacity 0.16s ease;
+    }}
+    .table-link:hover {{
+      color: var(--accent);
+    }}
+    .table-link.subtle {{
+      font-size: 0.83rem;
+      font-weight: 500;
+      color: var(--muted);
+    }}
+    .table-actions {{
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }}
+    .inline-note {{
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.6;
+    }}
+    .inline-note.success {{ color: var(--ok); }}
+    .inline-note.warn {{ color: var(--warn); }}
+    .inline-note.error {{ color: var(--danger); }}
+    .readiness-links {{
+      display: flex;
+      gap: 10px 16px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }}
+    .readiness-link {{
+      appearance: none;
+      border: none;
+      background: transparent;
+      padding: 0;
+      margin: 0;
+      color: #26405f;
+      font: inherit;
+      font-size: 0.88rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      text-decoration: none;
+      transition: color 0.16s ease, opacity 0.16s ease;
+    }}
+    .readiness-link:hover {{
+      color: var(--accent);
+    }}
+    .readiness-mark {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      font-size: 0.76rem;
+      font-weight: 700;
+      background: rgba(75, 102, 138, 0.1);
+      color: var(--muted);
+      flex: 0 0 auto;
+    }}
+    .readiness-mark.ok {{
+      background: rgba(49, 211, 139, 0.12);
+      color: var(--ok);
+    }}
+    .readiness-mark.warn {{
+      background: rgba(255, 184, 77, 0.14);
+      color: var(--warn);
+    }}
     .mono {{
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       word-break: break-word;
