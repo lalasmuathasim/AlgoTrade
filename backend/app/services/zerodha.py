@@ -298,9 +298,9 @@ class InstrumentMasterSyncService:
 
 
 class SubscriptionManager:
-    def get_active_subscriptions(self, db: Session) -> list[tuple[int, str, str]]:
-        subscriptions: dict[int, tuple[int, str, str]] = {}
+    def describe_active_subscriptions(self, db: Session) -> list[dict]:
         selected_watchlist = get_selected_watchlist(db)
+        subscriptions: dict[int, dict] = {}
 
         watchlist_query = select(WatchlistSymbol).where(WatchlistSymbol.is_active.is_(True))
         if selected_watchlist is not None:
@@ -308,7 +308,12 @@ class SubscriptionManager:
         watchlist_symbols = db.scalars(watchlist_query).all()
         for symbol in watchlist_symbols:
             if symbol.instrument_token:
-                subscriptions[symbol.instrument_token] = (symbol.instrument_token, symbol.exchange, symbol.symbol)
+                subscriptions[symbol.instrument_token] = {
+                    "instrument_token": symbol.instrument_token,
+                    "exchange": symbol.exchange,
+                    "symbol": symbol.symbol,
+                    "source": "WATCHLIST",
+                }
 
         instruments = db.scalars(select(Instrument).where(Instrument.is_active.is_(True))).all()
         instrument_map = {instrument.id: instrument for instrument in instruments}
@@ -320,29 +325,63 @@ class SubscriptionManager:
         for line in active_lines:
             if line.instrument_id and line.instrument_id in instrument_map:
                 instrument = instrument_map[line.instrument_id]
-                subscriptions[instrument.instrument_token] = (
+                subscriptions.setdefault(
                     instrument.instrument_token,
-                    line.exchange,
-                    line.symbol,
+                    {
+                        "instrument_token": instrument.instrument_token,
+                        "exchange": line.exchange,
+                        "symbol": line.symbol,
+                        "source": "TRIGGER_LINE",
+                    },
                 )
 
         return list(subscriptions.values())
+
+    def get_active_subscriptions(self, db: Session) -> list[tuple[int, str, str]]:
+        return [
+            (row["instrument_token"], row["exchange"], row["symbol"])
+            for row in self.describe_active_subscriptions(db)
+        ]
 
 
 class ZerodhaWebSocketClient:
     def __init__(self) -> None:
         self._logger = logging.getLogger(f"{__name__}.websocket")
 
-    def connect_forever(self, on_ticks: Callable[[list[TickPayload]], None]) -> None:
+    def connect_forever(self, subscriptions: list[dict], on_ticks: Callable[[list[TickPayload]], None]) -> dict:
         auth = ZerodhaAuthService()
+        if not auth.has_credentials():
+            self._logger.warning("Zerodha credentials are not configured; websocket client is idle")
+            return {
+                "status": "IDLE_NOT_CONFIGURED",
+                "message": "Zerodha credentials are not configured.",
+                "transport": "placeholder",
+            }
         if not auth.has_access_token():
             self._logger.warning("ZERODHA_ACCESS_TOKEN is not configured; websocket client is idle")
-            return
+            return {
+                "status": "IDLE_NO_TOKEN",
+                "message": "Zerodha access token is not configured.",
+                "transport": "placeholder",
+            }
+        if not subscriptions:
+            self._logger.info("No active selected-watchlist subscriptions are available; websocket client is idle")
+            return {
+                "status": "IDLE_NO_SUBSCRIPTIONS",
+                "message": "No mapped symbols or active trigger-line subscriptions are available.",
+                "transport": "placeholder",
+            }
 
         self._logger.info(
-            "Zerodha websocket client placeholder initialized for live market ingestion; transport hookup is feature-gated"
+            "Prepared Zerodha websocket subscription plan for %s instruments; transport hookup remains placeholder-only",
+            len(subscriptions),
         )
         self._logger.info("No real websocket transport is executed during local validation")
+        return {
+            "status": "SUBSCRIPTION_PLAN_READY",
+            "message": f"Prepared {len(subscriptions)} instrument subscriptions for the selected watchlist.",
+            "transport": "placeholder",
+        }
 
     def process_ticks(self, ticks: list[TickPayload], on_ticks: Callable[[list[TickPayload]], None]) -> None:
         on_ticks(ticks)

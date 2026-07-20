@@ -22,3 +22,17 @@ class DailyScanRequest(BaseModel):
 
 class TickReplayRequest(BaseModel):
     ticks: list[dict]
+
+
+class LiveEngineRuntimeResponse(BaseModel):
+    status: str
+    message: str
+    transport: str
+    selected_watchlist: dict | None = None
+    subscription_count: int
+    subscriptions: list[dict]
+    credentials_configured: bool
+    access_token_configured: bool
+    last_tick_at: str | None = None
+    last_tick_symbol: str | None = None
+    published_at: str | None = None

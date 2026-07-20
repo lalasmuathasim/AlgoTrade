@@ -1,6 +1,7 @@
 import json
 import logging
 from functools import lru_cache
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 from redis import Redis
@@ -108,3 +109,23 @@ def dequeue_signal_dispatch() -> SignalDispatchJob | None:
     _, payload = result
     logger.info("Dequeued signal dispatch job from Redis queue %s", settings.signal_dispatch_queue_name)
     return SignalDispatchJob.model_validate(json.loads(payload))
+
+
+def publish_live_engine_runtime(snapshot: dict) -> dict:
+    payload = {
+        **snapshot,
+        "published_at": datetime.now(UTC).isoformat(),
+    }
+    get_redis_client().set(
+        settings.live_engine_runtime_key,
+        json.dumps(payload),
+        ex=settings.live_engine_runtime_ttl_seconds,
+    )
+    return payload
+
+
+def get_live_engine_runtime() -> dict | None:
+    payload = get_redis_client().get(settings.live_engine_runtime_key)
+    if not payload:
+        return None
+    return json.loads(payload)
