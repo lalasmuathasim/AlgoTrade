@@ -225,11 +225,25 @@ def dashboard_home() -> str:
         </div>
         <button id="refreshDailyReviewButton" class="secondary" type="button">Update Table</button>
       </div>
-      <table id="dailyReviewTable"></table>
+      <div class="table-shell">
+        <div class="table-toolbar">
+          <p class="table-toolbar-copy">Preview mode keeps long market-structure lists compact. Expand when you want the full saved table.</p>
+          <button id="dailyReviewToggle" class="secondary table-toggle hidden" type="button" aria-expanded="false">Expand table</button>
+        </div>
+        <div id="dailyReviewFrame" class="table-scroll-frame is-collapsed" style="--table-min-width: 920px;">
+          <table id="dailyReviewTable"></table>
+        </div>
+      </div>
     </section>
     """
     script = """
     let latestOverview = null;
+    const syncDailyReviewPreview = bindCollapsibleTable({
+      buttonId: "dailyReviewToggle",
+      frameId: "dailyReviewFrame",
+      tableId: "dailyReviewTable",
+      previewRows: 9,
+    });
 
     function renderCards(stats) {
       renderMetricStrip(document.getElementById("summaryCards"), [
@@ -277,6 +291,7 @@ def dashboard_home() -> str:
           item.nearest_target ?? "N/A",
         ]),
       );
+      syncDailyReviewPreview();
       return review;
     }
 

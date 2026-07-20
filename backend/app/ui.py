@@ -495,6 +495,44 @@ def render_app_shell(
       min-width: 0;
       table-layout: fixed;
     }}
+    .table-shell {{
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+    }}
+    .table-toolbar {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }}
+    .table-toolbar-copy {{
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.45;
+    }}
+    .table-toggle {{
+      min-height: 34px;
+      padding: 7px 12px;
+      font-size: 0.82rem;
+      font-weight: 600;
+    }}
+    .table-scroll-frame {{
+      min-width: 0;
+      overflow: auto;
+      border: 1px solid rgba(122, 151, 185, 0.14);
+      border-radius: 16px;
+      background: rgba(250, 252, 255, 0.96);
+    }}
+    .table-scroll-frame.is-collapsed {{
+      max-height: 360px;
+    }}
+    .table-scroll-frame table {{
+      min-width: var(--table-min-width, 760px);
+      table-layout: auto;
+    }}
     th,
     td {{
       padding: 11px 8px;
@@ -784,6 +822,42 @@ def render_app_shell(
         ? rows.map((row) => `<tr>${{row.map((cell) => `<td>${{cell ?? ""}}</td>`).join("")}}</tr>`).join("")
         : `<tr><td colspan="${{headers.length}}" class="empty">No rows to display.</td></tr>`;
       element.innerHTML = `<thead>${{head}}</thead><tbody>${{body}}</tbody>`;
+    }}
+    function bindCollapsibleTable({{ buttonId, frameId, tableId, previewRows = 8 }}) {{
+      const button = document.getElementById(buttonId);
+      const frame = document.getElementById(frameId);
+      const table = document.getElementById(tableId);
+      if (!button || !frame || !table) {{
+        return () => {{}};
+      }}
+
+      const sync = () => {{
+        const hasEmpty = Boolean(table.querySelector("td.empty"));
+        const rows = table.querySelectorAll("tbody tr").length;
+        const needsToggle = !hasEmpty && rows > previewRows;
+        if (!needsToggle) {{
+          button.classList.add("hidden");
+          frame.classList.remove("is-collapsed");
+          button.dataset.expanded = "true";
+          button.setAttribute("aria-expanded", "true");
+          return;
+        }}
+
+        button.classList.remove("hidden");
+        const expanded = button.dataset.expanded === "true";
+        frame.classList.toggle("is-collapsed", !expanded);
+        button.setAttribute("aria-expanded", expanded ? "true" : "false");
+        button.textContent = expanded ? "Collapse table" : "Expand table";
+      }};
+
+      button.dataset.expanded = "false";
+      button.addEventListener("click", () => {{
+        button.dataset.expanded = button.dataset.expanded === "true" ? "false" : "true";
+        sync();
+      }});
+
+      sync();
+      return sync;
     }}
     function setBox(id, message, tone = "") {{
       const element = document.getElementById(id);

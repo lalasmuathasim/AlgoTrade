@@ -566,7 +566,15 @@ def configuration_page() -> str:
         </div>
       </div>
       <div id="watchlistDetailStatus" class="status-box">Select a watchlist to inspect its tracked symbols and current prices.</div>
-      <table id="watchlistDetailTable"></table>
+      <div class="table-shell">
+        <div class="table-toolbar">
+          <p class="table-toolbar-copy">Keep the symbol list compact by default, then expand it when you want the full watchlist detail view.</p>
+          <button id="watchlistDetailToggle" class="secondary table-toggle hidden" type="button" aria-expanded="false">Expand table</button>
+        </div>
+        <div id="watchlistDetailFrame" class="table-scroll-frame is-collapsed" style="--table-min-width: 820px;">
+          <table id="watchlistDetailTable"></table>
+        </div>
+      </div>
     </section>
     <section class="panel">
       <div class="panel-header">
@@ -575,7 +583,15 @@ def configuration_page() -> str:
           <p class="panel-copy">Recent candle visibility for the currently watched symbols. This is the fastest way to confirm that monitoring is producing fresh market data.</p>
         </div>
       </div>
-      <table id="symbolActivityTable"></table>
+      <div class="table-shell">
+        <div class="table-toolbar">
+          <p class="table-toolbar-copy">Preview mode trims large coverage lists while keeping horizontal scrolling available for the full market monitor view.</p>
+          <button id="symbolActivityToggle" class="secondary table-toggle hidden" type="button" aria-expanded="false">Expand table</button>
+        </div>
+        <div id="symbolActivityFrame" class="table-scroll-frame is-collapsed" style="--table-min-width: 760px;">
+          <table id="symbolActivityTable"></table>
+        </div>
+      </div>
     </section>
     """
     script = """
@@ -586,6 +602,18 @@ def configuration_page() -> str:
     let latestReadiness = null;
     let latestZerodhaStatus = null;
     let latestStrategySettings = null;
+    const syncWatchlistDetailPreview = bindCollapsibleTable({
+      buttonId: "watchlistDetailToggle",
+      frameId: "watchlistDetailFrame",
+      tableId: "watchlistDetailTable",
+      previewRows: 8,
+    });
+    const syncSymbolActivityPreview = bindCollapsibleTable({
+      buttonId: "symbolActivityToggle",
+      frameId: "symbolActivityFrame",
+      tableId: "symbolActivityTable",
+      previewRows: 8,
+    });
     const zerodhaStatusMessages = {
       connected: { message: "Zerodha connection established successfully.", tone: "success" },
       error: { message: "Zerodha login did not complete successfully.", tone: "error" },
@@ -778,6 +806,7 @@ def configuration_page() -> str:
           item.is_active ? '<span class="badge">ACTIVE</span>' : '<span class="badge warn">INACTIVE</span>',
         ]),
       );
+      syncWatchlistDetailPreview();
     }
 
     function renderReadiness(readiness, zerodhaStatus) {
@@ -824,6 +853,7 @@ def configuration_page() -> str:
           row.latest_3minute_volume ?? "N/A",
         ]),
       );
+      syncSymbolActivityPreview();
     }
 
     async function handleReadinessAction(event) {
@@ -1013,6 +1043,7 @@ def configuration_page() -> str:
       } else {
         setBox("watchlistDetailStatus", "Create a watchlist to inspect its symbols and current prices.", "warn");
         renderTable(document.getElementById("watchlistDetailTable"), ["Symbol", "Company", "Instrument Token", "Current Price", "Price Source", "Active"], []);
+        syncWatchlistDetailPreview();
       }
     }
 
