@@ -2,6 +2,7 @@ from datetime import datetime
 import uuid
 
 from pydantic import BaseModel, Field
+from typing import Literal
 
 
 class WatchlistCreatePayload(BaseModel):
@@ -47,3 +48,52 @@ class ExecutionModeResponse(BaseModel):
     zerodha_credentials_configured: bool
     zerodha_session_present: bool
     zerodha_access_token_expires_at: datetime | None = None
+
+
+class ExecutionRulesPayload(BaseModel):
+    paper_trading_enabled: bool
+    live_trading_enabled: bool
+    require_candle_close_beyond_line: bool
+    entry_buffer_ticks: float = Field(gt=0, le=10)
+    stop_loss_buffer_ticks: float = Field(gt=0, le=10)
+    target_mode: Literal["NEAREST_DAILY_SWING", "FIXED_RISK_REWARD"]
+    fallback_risk_reward_ratio: float = Field(gt=0, le=20)
+    use_nearest_daily_swing_target: bool
+    minimum_reward_risk_ratio: float = Field(gt=0, le=20)
+    order_type: Literal["LIMIT", "MARKET"]
+    product_type: Literal["MIS", "CNC", "NRML"]
+    reentry_cooldown_minutes: int = Field(ge=0, le=1440)
+    allow_repeat_entry_same_line: bool
+    default_quantity_mode: Literal["RISK_BASED", "FIXED"]
+    fixed_quantity: int | None = Field(default=None, ge=1, le=100000)
+    capital_per_trade: float = Field(gt=0)
+    risk_per_trade: float = Field(gt=0)
+    max_quantity_per_order: int | None = Field(default=None, ge=1, le=100000)
+    buy_volume_multiplier: float = Field(gt=0, le=20)
+    sell_volume_multiplier: float = Field(gt=0, le=20)
+    skip_zero_previous_volume: bool
+    minimum_price: float | None = Field(default=None, gt=0)
+    maximum_price: float | None = Field(default=None, gt=0)
+    allowed_exchanges: list[Literal["NSE", "BSE"]] = Field(default_factory=lambda: ["NSE", "BSE"])
+    max_trades_per_day: int = Field(ge=1, le=100)
+    max_open_positions: int = Field(ge=1, le=100)
+    max_daily_loss: float = Field(gt=0)
+    max_loss_per_symbol_per_day: float = Field(gt=0)
+    block_new_trades_after_max_daily_loss: bool
+    no_trade_after_time: str | None = Field(default="15:00", max_length=10)
+    market_hours_guard: bool
+    brokerage_estimate: float = Field(ge=0)
+    slippage_estimate: float = Field(ge=0)
+    exchange_charges_estimate: float = Field(ge=0)
+    use_cost_adjusted_pnl: bool
+    enable_confidence_filter: bool
+    minimum_confidence_score: float = Field(ge=0, le=1)
+    confidence_source: Literal["RULES_ONLY", "ANALYTICS_MODEL", "AI_MODEL"]
+    allow_low_confidence_paper_trades_only: bool
+    block_live_trades_below_confidence_threshold: bool
+
+
+class ExecutionRulesResponse(ExecutionRulesPayload):
+    id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime

@@ -15,14 +15,42 @@ class PaperTradingSettingsPayload(BaseModel):
     max_trades_per_day: int
     max_daily_loss: float
     default_quantity_mode: Literal["RISK_BASED", "FIXED"] = "RISK_BASED"
+    paper_trading_enabled: bool = True
+    live_trading_enabled: bool = False
+    require_candle_close_beyond_line: bool = True
     buy_volume_multiplier: float
     sell_volume_multiplier: float
     entry_buffer_ticks: float
     stop_loss_buffer_ticks: float
+    target_mode: Literal["NEAREST_DAILY_SWING", "FIXED_RISK_REWARD"] = "NEAREST_DAILY_SWING"
+    fallback_risk_reward_ratio: float = 2.0
+    use_nearest_daily_swing_target: bool = True
+    minimum_reward_risk_ratio: float = 1.0
+    order_type: Literal["LIMIT", "MARKET"] = "LIMIT"
+    product_type: Literal["MIS", "CNC", "NRML"] = "MIS"
+    reentry_cooldown_minutes: int = 0
+    allow_repeat_entry_same_line: bool = False
+    max_quantity_per_order: int | None = None
+    skip_zero_previous_volume: bool = True
+    minimum_price: float | None = None
+    maximum_price: float | None = None
+    allowed_exchanges: list[Literal["NSE", "BSE"]] = ["NSE", "BSE"]
     daily_candle_lookback: int = 100
     swing_window: int = 2
     max_gap_percent: float = 0.5
     min_swing_distance: int = 1
+    max_open_positions: int = 3
+    max_loss_per_symbol_per_day: float = 2500.0
+    block_new_trades_after_max_daily_loss: bool = True
+    no_trade_after_time: str | None = "15:00"
+    market_hours_guard: bool = True
+    exchange_charges_estimate: float = 0.0
+    use_cost_adjusted_pnl: bool = True
+    enable_confidence_filter: bool = False
+    minimum_confidence_score: float = 0.6
+    confidence_source: Literal["RULES_ONLY", "ANALYTICS_MODEL", "AI_MODEL"] = "RULES_ONLY"
+    allow_low_confidence_paper_trades_only: bool = True
+    block_live_trades_below_confidence_threshold: bool = True
 
 
 class PaperTradingSettingsResponse(PaperTradingSettingsPayload):

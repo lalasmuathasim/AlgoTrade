@@ -17,6 +17,8 @@ from backend.app.queue import check_redis_connectivity, get_live_engine_runtime
 from backend.app.schemas import (
     ExecutionModePayload,
     ExecutionModeResponse,
+    ExecutionRulesPayload,
+    ExecutionRulesResponse,
     InstrumentPayload,
     StrategySettingsPayload,
     StrategySettingsResponse,
@@ -27,7 +29,9 @@ from backend.app.schemas import (
 from backend.app.services.paper_trading_service import (
     ensure_settings,
     get_execution_mode_payload,
+    get_execution_rules_payload,
     update_live_trading_enabled,
+    update_execution_rules,
     update_strategy_settings,
 )
 from backend.app.services.live_engine_runtime import build_live_engine_runtime_snapshot
@@ -656,15 +660,214 @@ def configuration_page() -> str:
     <section class="panel">
       <div class="panel-header">
         <div>
-          <h2>Execution Controls</h2>
-          <p class="panel-copy">Paper trading stays active for review. Live Zerodha entry orders can be enabled here when you are ready to send real orders from the same validated breakout flow.</p>
+          <h2>Execution &amp; Risk Rules</h2>
+          <p class="panel-copy">Define how valid breakouts become orders, how targets and quantity are chosen, what risk caps apply, and how future confidence gating should behave.</p>
         </div>
         <div id="executionModeBadge" class="badge warn">Paper Only</div>
       </div>
-      <p id="executionModeStatus" class="inline-note">Loading execution mode controls...</p>
+      <p id="executionModeStatus" class="inline-note">Loading execution and risk rules...</p>
       <ul id="executionModeDetails" class="guide-list"></ul>
-      <div class="inline" style="margin-top: 14px;">
-        <button id="toggleLiveTradingButton" class="secondary" type="button">Enable Live Trading</button>
+      <details open style="margin-top: 14px;">
+        <summary><strong>Entry Rules</strong></summary>
+        <div class="compact-grid" style="margin-top: 12px;">
+          <div class="field">
+            <label for="requireCandleCloseBeyondLineInput">Require candle close beyond line</label>
+            <select id="requireCandleCloseBeyondLineInput"><option value="true">Yes</option><option value="false">No</option></select>
+            <div class="field-help">BUY confirms only after 3-minute close above resistance, SELL only after close below support.</div>
+          </div>
+          <div class="field">
+            <label for="entryBufferTicksExecutionInput">Entry buffer ticks</label>
+            <input id="entryBufferTicksExecutionInput" type="number" min="0.01" max="10" step="0.01" />
+            <div class="field-help">Extra ticks above breakout high or below breakdown low before entry.</div>
+          </div>
+          <div class="field">
+            <label for="orderTypeInput">Order type</label>
+            <select id="orderTypeInput"><option value="LIMIT">LIMIT</option><option value="MARKET">MARKET</option></select>
+          </div>
+          <div class="field">
+            <label for="productTypeInput">Product type</label>
+            <select id="productTypeInput"><option value="MIS">MIS</option><option value="CNC">CNC</option><option value="NRML">NRML</option></select>
+          </div>
+          <div class="field">
+            <label for="reentryCooldownMinutesInput">Re-entry cooldown minutes</label>
+            <input id="reentryCooldownMinutesInput" type="number" min="0" max="1440" step="1" />
+          </div>
+          <div class="field">
+            <label for="allowRepeatEntrySameLineInput">Allow repeat entry on same trigger line</label>
+            <select id="allowRepeatEntrySameLineInput"><option value="false">No</option><option value="true">Yes</option></select>
+          </div>
+        </div>
+      </details>
+      <details style="margin-top: 14px;">
+        <summary><strong>Stop Loss &amp; Target</strong></summary>
+        <div class="compact-grid" style="margin-top: 12px;">
+          <div class="field">
+            <label for="stopLossBufferTicksExecutionInput">Stop loss buffer ticks</label>
+            <input id="stopLossBufferTicksExecutionInput" type="number" min="0.01" max="10" step="0.01" />
+          </div>
+          <div class="field">
+            <label for="targetModeInput">Target mode</label>
+            <select id="targetModeInput"><option value="NEAREST_DAILY_SWING">Nearest Daily Swing</option><option value="FIXED_RISK_REWARD">Fixed Risk Reward</option></select>
+          </div>
+          <div class="field">
+            <label for="fallbackRiskRewardRatioInput">Fallback risk reward ratio</label>
+            <input id="fallbackRiskRewardRatioInput" type="number" min="0.1" max="20" step="0.1" />
+          </div>
+          <div class="field">
+            <label for="useNearestDailySwingTargetInput">Use nearest daily swing target</label>
+            <select id="useNearestDailySwingTargetInput"><option value="true">Yes</option><option value="false">No</option></select>
+          </div>
+          <div class="field">
+            <label for="minimumRewardRiskRatioInput">Minimum reward to risk ratio</label>
+            <input id="minimumRewardRiskRatioInput" type="number" min="0.1" max="20" step="0.1" />
+          </div>
+        </div>
+      </details>
+      <details style="margin-top: 14px;">
+        <summary><strong>Position Sizing</strong></summary>
+        <div class="compact-grid" style="margin-top: 12px;">
+          <div class="field">
+            <label for="defaultQuantityModeInput">Quantity mode</label>
+            <select id="defaultQuantityModeInput"><option value="RISK_BASED">Risk Based</option><option value="FIXED">Fixed</option></select>
+          </div>
+          <div class="field">
+            <label for="fixedQuantityInput">Fixed quantity</label>
+            <input id="fixedQuantityInput" type="number" min="1" max="100000" step="1" />
+          </div>
+          <div class="field">
+            <label for="capitalPerTradeInput">Capital per trade</label>
+            <input id="capitalPerTradeInput" type="number" min="1" step="0.01" />
+          </div>
+          <div class="field">
+            <label for="riskPerTradeInput">Risk per trade</label>
+            <input id="riskPerTradeInput" type="number" min="1" step="0.01" />
+          </div>
+          <div class="field">
+            <label for="maxQuantityPerOrderInput">Max quantity per order</label>
+            <input id="maxQuantityPerOrderInput" type="number" min="1" max="100000" step="1" />
+          </div>
+        </div>
+      </details>
+      <details style="margin-top: 14px;">
+        <summary><strong>Trade Filters</strong></summary>
+        <div class="compact-grid" style="margin-top: 12px;">
+          <div class="field">
+            <label for="buyVolumeMultiplierExecutionInput">BUY volume multiplier</label>
+            <input id="buyVolumeMultiplierExecutionInput" type="number" min="0.1" max="20" step="0.1" />
+          </div>
+          <div class="field">
+            <label for="sellVolumeMultiplierExecutionInput">SELL volume multiplier</label>
+            <input id="sellVolumeMultiplierExecutionInput" type="number" min="0.1" max="20" step="0.1" />
+          </div>
+          <div class="field">
+            <label for="skipZeroPreviousVolumeInput">Skip if previous candle volume is zero</label>
+            <select id="skipZeroPreviousVolumeInput"><option value="true">Yes</option><option value="false">No</option></select>
+          </div>
+          <div class="field">
+            <label for="minimumPriceInput">Minimum price</label>
+            <input id="minimumPriceInput" type="number" min="0.01" step="0.01" />
+          </div>
+          <div class="field">
+            <label for="maximumPriceInput">Maximum price</label>
+            <input id="maximumPriceInput" type="number" min="0.01" step="0.01" />
+          </div>
+          <div class="field">
+            <label for="allowedExchangesInput">Allowed exchanges</label>
+            <input id="allowedExchangesInput" type="text" placeholder="NSE,BSE" />
+            <div class="field-help">Comma separated. Example: `NSE,BSE`.</div>
+          </div>
+        </div>
+      </details>
+      <details style="margin-top: 14px;">
+        <summary><strong>Risk Controls</strong></summary>
+        <div class="compact-grid" style="margin-top: 12px;">
+          <div class="field">
+            <label for="paperTradingEnabledInput">Enable paper trading</label>
+            <select id="paperTradingEnabledInput"><option value="true">Yes</option><option value="false">No</option></select>
+          </div>
+          <div class="field">
+            <label for="liveTradingEnabledInput">Enable live trading</label>
+            <select id="liveTradingEnabledInput"><option value="false">No</option><option value="true">Yes</option></select>
+          </div>
+          <div class="field">
+            <label for="maxTradesPerDayInput">Max trades per day</label>
+            <input id="maxTradesPerDayInput" type="number" min="1" max="100" step="1" />
+          </div>
+          <div class="field">
+            <label for="maxOpenPositionsInput">Max open positions</label>
+            <input id="maxOpenPositionsInput" type="number" min="1" max="100" step="1" />
+          </div>
+          <div class="field">
+            <label for="maxDailyLossInput">Max daily loss</label>
+            <input id="maxDailyLossInput" type="number" min="1" step="0.01" />
+          </div>
+          <div class="field">
+            <label for="maxLossPerSymbolPerDayInput">Max loss per symbol per day</label>
+            <input id="maxLossPerSymbolPerDayInput" type="number" min="1" step="0.01" />
+          </div>
+          <div class="field">
+            <label for="blockAfterDailyLossInput">Block new trades after max daily loss</label>
+            <select id="blockAfterDailyLossInput"><option value="true">Yes</option><option value="false">No</option></select>
+          </div>
+          <div class="field">
+            <label for="noTradeAfterTimeInput">No-trade after time</label>
+            <input id="noTradeAfterTimeInput" type="text" placeholder="15:00" />
+          </div>
+          <div class="field">
+            <label for="marketHoursGuardInput">Market hours guard</label>
+            <select id="marketHoursGuardInput"><option value="true">Yes</option><option value="false">No</option></select>
+          </div>
+        </div>
+      </details>
+      <details style="margin-top: 14px;">
+        <summary><strong>Execution Cost Assumptions</strong></summary>
+        <div class="compact-grid" style="margin-top: 12px;">
+          <div class="field">
+            <label for="brokerageEstimateInput">Brokerage estimate</label>
+            <input id="brokerageEstimateInput" type="number" min="0" step="0.01" />
+          </div>
+          <div class="field">
+            <label for="slippageEstimateInput">Slippage estimate</label>
+            <input id="slippageEstimateInput" type="number" min="0" step="0.01" />
+          </div>
+          <div class="field">
+            <label for="exchangeChargesEstimateInput">Exchange charges estimate</label>
+            <input id="exchangeChargesEstimateInput" type="number" min="0" step="0.01" />
+          </div>
+          <div class="field">
+            <label for="useCostAdjustedPnlInput">Use cost-adjusted P&amp;L</label>
+            <select id="useCostAdjustedPnlInput"><option value="true">Yes</option><option value="false">No</option></select>
+          </div>
+        </div>
+      </details>
+      <details style="margin-top: 14px;">
+        <summary><strong>AI Confidence</strong></summary>
+        <div class="compact-grid" style="margin-top: 12px;">
+          <div class="field">
+            <label for="enableConfidenceFilterInput">Enable confidence filter</label>
+            <select id="enableConfidenceFilterInput"><option value="false">No</option><option value="true">Yes</option></select>
+          </div>
+          <div class="field">
+            <label for="minimumConfidenceScoreInput">Minimum confidence score</label>
+            <input id="minimumConfidenceScoreInput" type="number" min="0" max="1" step="0.01" />
+          </div>
+          <div class="field">
+            <label for="confidenceSourceInput">Confidence source</label>
+            <select id="confidenceSourceInput"><option value="RULES_ONLY">Rules Only</option><option value="ANALYTICS_MODEL">Analytics Model</option><option value="AI_MODEL">AI Model</option></select>
+          </div>
+          <div class="field">
+            <label for="allowLowConfidencePaperOnlyInput">Allow low-confidence paper trades only</label>
+            <select id="allowLowConfidencePaperOnlyInput"><option value="true">Yes</option><option value="false">No</option></select>
+          </div>
+          <div class="field">
+            <label for="blockLiveTradesBelowConfidenceThresholdInput">Block live trades below confidence threshold</label>
+            <select id="blockLiveTradesBelowConfidenceThresholdInput"><option value="true">Yes</option><option value="false">No</option></select>
+          </div>
+        </div>
+      </details>
+      <div class="inline" style="margin-top: 16px;">
+        <button id="saveExecutionRulesButton" class="primary" type="button">Save Execution &amp; Risk Rules</button>
+        <button id="refreshExecutionRulesButton" class="secondary" type="button">Reload Values</button>
       </div>
     </section>
     <section id="watchlistDetailSection" class="panel">
@@ -860,27 +1063,101 @@ def configuration_page() -> str:
       );
     }
 
+    function booleanSelectValue(value) {
+      return value ? "true" : "false";
+    }
+
+    function nullableNumberValue(value) {
+      return value ?? "";
+    }
+
+    function parseBooleanSelect(id) {
+      return document.getElementById(id).value === "true";
+    }
+
+    function parseNullableFloat(id) {
+      const raw = document.getElementById(id).value.trim();
+      return raw ? Number(raw) : null;
+    }
+
+    function parseNullableInt(id) {
+      const raw = document.getElementById(id).value.trim();
+      return raw ? Number(raw) : null;
+    }
+
+    function parseAllowedExchanges() {
+      const value = document.getElementById("allowedExchangesInput").value.trim();
+      if (!value) {
+        return ["NSE", "BSE"];
+      }
+      return value
+        .split(",")
+        .map((item) => item.trim().toUpperCase())
+        .filter((item, index, values) => (item === "NSE" || item === "BSE") && values.indexOf(item) === index);
+    }
+
     function renderExecutionSettings(settingsPayload) {
       latestExecutionSettings = settingsPayload;
       const liveEnabled = Boolean(settingsPayload.live_trading_enabled);
-      document.getElementById("executionModeBadge").className = liveEnabled ? "badge danger" : "badge warn";
-      document.getElementById("executionModeBadge").textContent = liveEnabled ? "Paper + Live" : "Paper Only";
+      const paperEnabled = Boolean(settingsPayload.paper_trading_enabled);
+      document.getElementById("executionModeBadge").className = liveEnabled ? "badge danger" : paperEnabled ? "badge warn" : "badge";
+      document.getElementById("executionModeBadge").textContent = liveEnabled ? "Paper + Live" : paperEnabled ? "Paper Only" : "Live Disabled";
       setInlineMessage(
         "executionModeStatus",
         liveEnabled
           ? "Live Zerodha order placement is enabled. Valid signals will continue generating paper trades and will also place live limit entry orders."
-          : "Paper trading is active. Live Zerodha order placement is disabled until you explicitly enable it here.",
+          : "Execution rules are loaded. Paper trading, live trading, filters, risk caps, and future confidence gating can all be controlled from this panel.",
         liveEnabled ? "warn" : "",
       );
       document.getElementById("executionModeDetails").innerHTML = [
-        `Paper trading: ${settingsPayload.paper_trading_enabled ? "enabled" : "disabled"}`,
+        `Paper trading: ${paperEnabled ? "enabled" : "disabled"}`,
         `Live trading: ${liveEnabled ? "enabled" : "disabled"}`,
-        `Effective mode: ${settingsPayload.effective_mode.replaceAll("_", " ").toLowerCase()}`,
-        `Zerodha credentials: ${settingsPayload.zerodha_credentials_configured ? "configured" : "missing"}`,
-        `Zerodha session: ${settingsPayload.zerodha_session_present ? "connected" : "not connected"}`,
-        `Order path: live mode submits LIMIT MIS entry orders while preserving paper-trade records and stored stop/target values.`,
+        `Entry confirmation: ${settingsPayload.require_candle_close_beyond_line ? "candle close beyond line" : "intrabar line cross"}`,
+        `Target mode: ${settingsPayload.target_mode === "NEAREST_DAILY_SWING" ? "nearest daily swing" : "fixed risk reward fallback"}`,
+        `Confidence filter: ${settingsPayload.enable_confidence_filter ? "enabled" : "disabled"}`,
+        `Order path: ${settingsPayload.order_type} ${settingsPayload.product_type} entry orders with saved stop, target, and cost assumptions.`,
       ].map((line) => `<li>${line}</li>`).join("");
-      document.getElementById("toggleLiveTradingButton").textContent = liveEnabled ? "Disable Live Trading" : "Enable Live Trading";
+
+      document.getElementById("paperTradingEnabledInput").value = booleanSelectValue(settingsPayload.paper_trading_enabled);
+      document.getElementById("liveTradingEnabledInput").value = booleanSelectValue(settingsPayload.live_trading_enabled);
+      document.getElementById("requireCandleCloseBeyondLineInput").value = booleanSelectValue(settingsPayload.require_candle_close_beyond_line);
+      document.getElementById("entryBufferTicksExecutionInput").value = settingsPayload.entry_buffer_ticks;
+      document.getElementById("stopLossBufferTicksExecutionInput").value = settingsPayload.stop_loss_buffer_ticks;
+      document.getElementById("targetModeInput").value = settingsPayload.target_mode;
+      document.getElementById("fallbackRiskRewardRatioInput").value = settingsPayload.fallback_risk_reward_ratio;
+      document.getElementById("useNearestDailySwingTargetInput").value = booleanSelectValue(settingsPayload.use_nearest_daily_swing_target);
+      document.getElementById("minimumRewardRiskRatioInput").value = settingsPayload.minimum_reward_risk_ratio;
+      document.getElementById("orderTypeInput").value = settingsPayload.order_type;
+      document.getElementById("productTypeInput").value = settingsPayload.product_type;
+      document.getElementById("reentryCooldownMinutesInput").value = settingsPayload.reentry_cooldown_minutes;
+      document.getElementById("allowRepeatEntrySameLineInput").value = booleanSelectValue(settingsPayload.allow_repeat_entry_same_line);
+      document.getElementById("defaultQuantityModeInput").value = settingsPayload.default_quantity_mode;
+      document.getElementById("fixedQuantityInput").value = nullableNumberValue(settingsPayload.fixed_quantity);
+      document.getElementById("capitalPerTradeInput").value = settingsPayload.capital_per_trade;
+      document.getElementById("riskPerTradeInput").value = settingsPayload.risk_per_trade;
+      document.getElementById("maxQuantityPerOrderInput").value = nullableNumberValue(settingsPayload.max_quantity_per_order);
+      document.getElementById("buyVolumeMultiplierExecutionInput").value = settingsPayload.buy_volume_multiplier;
+      document.getElementById("sellVolumeMultiplierExecutionInput").value = settingsPayload.sell_volume_multiplier;
+      document.getElementById("skipZeroPreviousVolumeInput").value = booleanSelectValue(settingsPayload.skip_zero_previous_volume);
+      document.getElementById("minimumPriceInput").value = nullableNumberValue(settingsPayload.minimum_price);
+      document.getElementById("maximumPriceInput").value = nullableNumberValue(settingsPayload.maximum_price);
+      document.getElementById("allowedExchangesInput").value = (settingsPayload.allowed_exchanges || []).join(",");
+      document.getElementById("maxTradesPerDayInput").value = settingsPayload.max_trades_per_day;
+      document.getElementById("maxOpenPositionsInput").value = settingsPayload.max_open_positions;
+      document.getElementById("maxDailyLossInput").value = settingsPayload.max_daily_loss;
+      document.getElementById("maxLossPerSymbolPerDayInput").value = settingsPayload.max_loss_per_symbol_per_day;
+      document.getElementById("blockAfterDailyLossInput").value = booleanSelectValue(settingsPayload.block_new_trades_after_max_daily_loss);
+      document.getElementById("noTradeAfterTimeInput").value = settingsPayload.no_trade_after_time || "";
+      document.getElementById("marketHoursGuardInput").value = booleanSelectValue(settingsPayload.market_hours_guard);
+      document.getElementById("brokerageEstimateInput").value = settingsPayload.brokerage_estimate;
+      document.getElementById("slippageEstimateInput").value = settingsPayload.slippage_estimate;
+      document.getElementById("exchangeChargesEstimateInput").value = settingsPayload.exchange_charges_estimate;
+      document.getElementById("useCostAdjustedPnlInput").value = booleanSelectValue(settingsPayload.use_cost_adjusted_pnl);
+      document.getElementById("enableConfidenceFilterInput").value = booleanSelectValue(settingsPayload.enable_confidence_filter);
+      document.getElementById("minimumConfidenceScoreInput").value = settingsPayload.minimum_confidence_score;
+      document.getElementById("confidenceSourceInput").value = settingsPayload.confidence_source;
+      document.getElementById("allowLowConfidencePaperOnlyInput").value = booleanSelectValue(settingsPayload.allow_low_confidence_paper_trades_only);
+      document.getElementById("blockLiveTradesBelowConfidenceThresholdInput").value = booleanSelectValue(settingsPayload.block_live_trades_below_confidence_threshold);
     }
 
     function renderExecutionSettingsUnavailable(message) {
@@ -890,11 +1167,10 @@ def configuration_page() -> str:
       setInlineMessage("executionModeStatus", message, "warn");
       document.getElementById("executionModeDetails").innerHTML = [
         "Paper trading remains available through the existing backend runtime.",
-        "Live trading controls could not be loaded right now.",
+        "Execution and risk rules could not be loaded right now.",
         "Run the latest database migrations, then refresh this page if the issue persists.",
       ].map((line) => `<li>${line}</li>`).join("");
-      document.getElementById("toggleLiveTradingButton").textContent = "Enable Live Trading";
-      document.getElementById("toggleLiveTradingButton").disabled = true;
+      document.getElementById("saveExecutionRulesButton").disabled = true;
     }
 
     function renderWatchlists(watchlists) {
@@ -1186,9 +1462,9 @@ def configuration_page() -> str:
 
     async function loadExecutionSettings() {
       try {
-        const executionSettings = await apiGet("/configuration/execution-settings");
+        const executionSettings = await apiGet("/configuration/execution-rules");
         renderExecutionSettings(executionSettings);
-        document.getElementById("toggleLiveTradingButton").disabled = false;
+        document.getElementById("saveExecutionRulesButton").disabled = false;
         return executionSettings;
       } catch (error) {
         renderExecutionSettingsUnavailable(error.message);
@@ -1346,15 +1622,64 @@ def configuration_page() -> str:
       }
     });
 
-    document.getElementById("toggleLiveTradingButton").addEventListener("click", async () => {
-      if (!latestExecutionSettings) {
-        return;
-      }
+    document.getElementById("saveExecutionRulesButton").addEventListener("click", async () => {
       try {
-        const result = await apiSend("/configuration/execution-settings", "POST", {
-          live_trading_enabled: !latestExecutionSettings.live_trading_enabled,
-        });
+        const payload = {
+          paper_trading_enabled: parseBooleanSelect("paperTradingEnabledInput"),
+          live_trading_enabled: parseBooleanSelect("liveTradingEnabledInput"),
+          require_candle_close_beyond_line: parseBooleanSelect("requireCandleCloseBeyondLineInput"),
+          entry_buffer_ticks: Number(document.getElementById("entryBufferTicksExecutionInput").value),
+          stop_loss_buffer_ticks: Number(document.getElementById("stopLossBufferTicksExecutionInput").value),
+          target_mode: document.getElementById("targetModeInput").value,
+          fallback_risk_reward_ratio: Number(document.getElementById("fallbackRiskRewardRatioInput").value),
+          use_nearest_daily_swing_target: parseBooleanSelect("useNearestDailySwingTargetInput"),
+          minimum_reward_risk_ratio: Number(document.getElementById("minimumRewardRiskRatioInput").value),
+          order_type: document.getElementById("orderTypeInput").value,
+          product_type: document.getElementById("productTypeInput").value,
+          reentry_cooldown_minutes: Number(document.getElementById("reentryCooldownMinutesInput").value),
+          allow_repeat_entry_same_line: parseBooleanSelect("allowRepeatEntrySameLineInput"),
+          default_quantity_mode: document.getElementById("defaultQuantityModeInput").value,
+          fixed_quantity: parseNullableInt("fixedQuantityInput"),
+          capital_per_trade: Number(document.getElementById("capitalPerTradeInput").value),
+          risk_per_trade: Number(document.getElementById("riskPerTradeInput").value),
+          max_quantity_per_order: parseNullableInt("maxQuantityPerOrderInput"),
+          buy_volume_multiplier: Number(document.getElementById("buyVolumeMultiplierExecutionInput").value),
+          sell_volume_multiplier: Number(document.getElementById("sellVolumeMultiplierExecutionInput").value),
+          skip_zero_previous_volume: parseBooleanSelect("skipZeroPreviousVolumeInput"),
+          minimum_price: parseNullableFloat("minimumPriceInput"),
+          maximum_price: parseNullableFloat("maximumPriceInput"),
+          allowed_exchanges: parseAllowedExchanges(),
+          max_trades_per_day: Number(document.getElementById("maxTradesPerDayInput").value),
+          max_open_positions: Number(document.getElementById("maxOpenPositionsInput").value),
+          max_daily_loss: Number(document.getElementById("maxDailyLossInput").value),
+          max_loss_per_symbol_per_day: Number(document.getElementById("maxLossPerSymbolPerDayInput").value),
+          block_new_trades_after_max_daily_loss: parseBooleanSelect("blockAfterDailyLossInput"),
+          no_trade_after_time: document.getElementById("noTradeAfterTimeInput").value.trim() || null,
+          market_hours_guard: parseBooleanSelect("marketHoursGuardInput"),
+          brokerage_estimate: Number(document.getElementById("brokerageEstimateInput").value),
+          slippage_estimate: Number(document.getElementById("slippageEstimateInput").value),
+          exchange_charges_estimate: Number(document.getElementById("exchangeChargesEstimateInput").value),
+          use_cost_adjusted_pnl: parseBooleanSelect("useCostAdjustedPnlInput"),
+          enable_confidence_filter: parseBooleanSelect("enableConfidenceFilterInput"),
+          minimum_confidence_score: Number(document.getElementById("minimumConfidenceScoreInput").value),
+          confidence_source: document.getElementById("confidenceSourceInput").value,
+          allow_low_confidence_paper_trades_only: parseBooleanSelect("allowLowConfidencePaperOnlyInput"),
+          block_live_trades_below_confidence_threshold: parseBooleanSelect("blockLiveTradesBelowConfidenceThresholdInput"),
+        };
+        const result = await apiSend("/configuration/execution-rules", "POST", payload);
         renderExecutionSettings(result);
+        setInlineMessage("executionModeStatus", "Execution and risk rules saved. New signals and orders will use these values.", "success");
+      } catch (error) {
+        setInlineMessage("executionModeStatus", error.message, "error");
+      }
+    });
+
+    document.getElementById("refreshExecutionRulesButton").addEventListener("click", async () => {
+      try {
+        const result = await loadExecutionSettings();
+        if (result) {
+          renderExecutionSettings(result);
+        }
       } catch (error) {
         setInlineMessage("executionModeStatus", error.message, "error");
       }
@@ -1546,6 +1871,89 @@ def save_configuration_strategy_settings(
 ) -> StrategySettingsResponse:
     current = update_strategy_settings(db, payload)
     return StrategySettingsResponse.model_validate(current, from_attributes=True)
+
+
+@router.get("/configuration/execution-rules", response_model=ExecutionRulesResponse)
+def configuration_execution_rules(db: Session = Depends(get_db)) -> ExecutionRulesResponse:
+    try:
+        return get_execution_rules_payload(db)
+    except SQLAlchemyError:
+        logger.exception("Execution rules could not be loaded")
+        defaults = get_settings()
+        return ExecutionRulesResponse(
+            id=uuid.uuid4(),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            paper_trading_enabled=defaults.paper_trading_enabled,
+            live_trading_enabled=defaults.zerodha_live_trading_enabled,
+            require_candle_close_beyond_line=True,
+            entry_buffer_ticks=defaults.entry_buffer_ticks,
+            stop_loss_buffer_ticks=defaults.stop_buffer_ticks,
+            target_mode="NEAREST_DAILY_SWING",
+            fallback_risk_reward_ratio=2.0,
+            use_nearest_daily_swing_target=True,
+            minimum_reward_risk_ratio=1.0,
+            order_type="LIMIT",
+            product_type="MIS",
+            reentry_cooldown_minutes=0,
+            allow_repeat_entry_same_line=False,
+            default_quantity_mode="RISK_BASED",
+            fixed_quantity=None,
+            capital_per_trade=25000.0,
+            risk_per_trade=2500.0,
+            max_quantity_per_order=None,
+            buy_volume_multiplier=defaults.buy_volume_multiplier,
+            sell_volume_multiplier=defaults.sell_volume_multiplier,
+            skip_zero_previous_volume=True,
+            minimum_price=None,
+            maximum_price=None,
+            allowed_exchanges=["NSE", "BSE"],
+            max_trades_per_day=3,
+            max_open_positions=3,
+            max_daily_loss=5000.0,
+            max_loss_per_symbol_per_day=2500.0,
+            block_new_trades_after_max_daily_loss=True,
+            no_trade_after_time="15:00",
+            market_hours_guard=True,
+            brokerage_estimate=20.0,
+            slippage_estimate=0.2,
+            exchange_charges_estimate=0.0,
+            use_cost_adjusted_pnl=True,
+            enable_confidence_filter=False,
+            minimum_confidence_score=0.6,
+            confidence_source="RULES_ONLY",
+            allow_low_confidence_paper_trades_only=True,
+            block_live_trades_below_confidence_threshold=True,
+        )
+
+
+@router.post("/configuration/execution-rules", response_model=ExecutionRulesResponse)
+def save_configuration_execution_rules(
+    payload: ExecutionRulesPayload,
+    db: Session = Depends(get_db),
+) -> ExecutionRulesResponse:
+    if payload.live_trading_enabled:
+        zerodha_auth = ZerodhaAuthService()
+        if not zerodha_auth.has_credentials():
+            raise HTTPException(status_code=503, detail="Configure Zerodha credentials before enabling live trading")
+        if get_current_zerodha_session(db) is None:
+            raise HTTPException(status_code=503, detail="Connect Zerodha before enabling live trading")
+
+    if not payload.allowed_exchanges:
+        raise HTTPException(status_code=422, detail="Select at least one allowed exchange")
+
+    if payload.minimum_price is not None and payload.maximum_price is not None and payload.minimum_price > payload.maximum_price:
+        raise HTTPException(status_code=422, detail="Minimum price cannot exceed maximum price")
+
+    try:
+        current = update_execution_rules(db, payload)
+        return ExecutionRulesResponse.model_validate(current, from_attributes=True)
+    except SQLAlchemyError as exc:
+        logger.exception("Execution rules could not be updated")
+        raise HTTPException(
+            status_code=503,
+            detail="Execution rules are unavailable until the latest database migrations are applied",
+        ) from exc
 
 
 @router.get("/configuration/execution-settings", response_model=ExecutionModeResponse)

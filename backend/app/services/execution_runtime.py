@@ -18,6 +18,10 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
+def _coalesce(value, default):
+    return default if value is None else value
+
+
 class RiskEngine:
     def compute(self, db: Session, action: str, entry_price: float, stop_loss: float) -> tuple[int, float, float]:
         current_settings = db.scalar(select(PaperTradingSetting).order_by(desc(PaperTradingSetting.updated_at)).limit(1))
@@ -32,14 +36,41 @@ class RiskEngine:
                 max_trades_per_day=3,
                 max_daily_loss=5000.0,
                 default_quantity_mode="RISK_BASED",
+                paper_trading_enabled=settings.paper_trading_enabled,
+                require_candle_close_beyond_line=True,
                 buy_volume_multiplier=settings.buy_volume_multiplier,
                 sell_volume_multiplier=settings.sell_volume_multiplier,
                 entry_buffer_ticks=settings.entry_buffer_ticks,
                 stop_loss_buffer_ticks=settings.stop_buffer_ticks,
+                target_mode="NEAREST_DAILY_SWING",
+                fallback_risk_reward_ratio=2.0,
+                use_nearest_daily_swing_target=True,
+                minimum_reward_risk_ratio=1.0,
+                order_type="LIMIT",
+                product_type="MIS",
+                reentry_cooldown_minutes=0,
+                allow_repeat_entry_same_line=False,
+                max_quantity_per_order=None,
+                skip_zero_previous_volume=True,
+                minimum_price=None,
+                maximum_price=None,
+                allowed_exchanges=["NSE", "BSE"],
                 daily_candle_lookback=settings.daily_candle_lookback,
                 swing_window=settings.swing_window,
                 max_gap_percent=settings.max_gap_percent,
                 min_swing_distance=max(int(settings.min_swing_distance), 1),
+                max_open_positions=3,
+                max_loss_per_symbol_per_day=2500.0,
+                block_new_trades_after_max_daily_loss=True,
+                no_trade_after_time="15:00",
+                market_hours_guard=True,
+                exchange_charges_estimate=0.0,
+                use_cost_adjusted_pnl=True,
+                enable_confidence_filter=False,
+                minimum_confidence_score=0.6,
+                confidence_source="RULES_ONLY",
+                allow_low_confidence_paper_trades_only=True,
+                block_live_trades_below_confidence_threshold=True,
             )
             db.add(current_settings)
             db.flush()
@@ -56,8 +87,15 @@ class RiskEngine:
             positive_caps = [value for value in [capital_cap, risk_cap] if value > 0]
             quantity = min(positive_caps) if positive_caps else 0
 
+        max_quantity_per_order = _coalesce(getattr(current_settings, "max_quantity_per_order", None), None)
+        if max_quantity_per_order:
+            quantity = min(quantity, max_quantity_per_order)
+
         capital_used = quantity * entry_price
-        risk_amount = (risk_per_share * quantity) + current_settings.brokerage_estimate
+        total_costs = current_settings.brokerage_estimate
+        if bool(_coalesce(getattr(current_settings, "use_cost_adjusted_pnl", None), True)):
+            total_costs += float(_coalesce(getattr(current_settings, "exchange_charges_estimate", None), 0.0))
+        risk_amount = (risk_per_share * quantity) + total_costs
         return quantity, capital_used, risk_amount
 
 
@@ -76,6 +114,31 @@ class LiveExecutionService:
                 status="SKIPPED",
                 request_payload={"reason": "runtime_live_trading_disabled"},
                 response_payload={"detail": "Live Zerodha execution is disabled in configuration"},
+            )
+            db.add(order)
+            db.flush()
+            return order
+
+        confidence_score = None
+        if isinstance(signal.raw_payload, dict):
+            confidence_score = signal.raw_payload.get("confidence_score")
+        if (
+            bool(getattr(runtime_settings, "enable_confidence_filter", False))
+            and bool(_coalesce(getattr(runtime_settings, "block_live_trades_below_confidence_threshold", None), True))
+            and confidence_score is not None
+            and float(confidence_score) < float(_coalesce(getattr(runtime_settings, "minimum_confidence_score", None), 0.6))
+        ):
+            order = BrokerOrder(
+                signal_id=signal.id,
+                exchange=signal.exchange,
+                symbol=signal.symbol,
+                action=signal.action,
+                quantity=signal.quantity,
+                average_price=signal.entry_price,
+                mode="LIVE",
+                status="REJECTED",
+                request_payload={"reason": "confidence_threshold_blocked"},
+                response_payload={"detail": "Live order blocked by confidence threshold"},
             )
             db.add(order)
             db.flush()
@@ -121,8 +184,8 @@ class LiveExecutionService:
             "tradingsymbol": signal.symbol,
             "transaction_type": signal.action,
             "quantity": signal.quantity,
-            "order_type": "LIMIT",
-            "product": "MIS",
+            "order_type": _coalesce(getattr(runtime_settings, "order_type", None), "LIMIT"),
+            "product": _coalesce(getattr(runtime_settings, "product_type", None), "MIS"),
             "price": signal.entry_price,
             "validity": "DAY",
             "tag": "QUBITX",
@@ -140,8 +203,8 @@ class LiveExecutionService:
                 tradingsymbol=signal.symbol,
                 transaction_type=signal.action,
                 quantity=signal.quantity,
-                order_type="LIMIT",
-                product="MIS",
+                order_type=_coalesce(getattr(runtime_settings, "order_type", None), "LIMIT"),
+                product=_coalesce(getattr(runtime_settings, "product_type", None), "MIS"),
                 price=signal.entry_price,
                 validity="DAY",
                 tag="QUBITX",

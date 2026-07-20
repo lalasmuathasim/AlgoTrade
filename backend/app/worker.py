@@ -11,7 +11,7 @@ from backend.app.models import TradingSignal
 from backend.app.queue import dequeue_signal_dispatch, enqueue_signal_dispatch
 from backend.app.schemas import SignalDispatchJob
 from backend.app.services.execution_runtime import LiveExecutionService, OrderReconciliationService
-from backend.app.services.paper_trading_service import generate_paper_trade_from_signal
+from backend.app.services.paper_trading_service import ensure_settings, generate_paper_trade_from_signal
 from backend.app.telegram import send_telegram_notification
 
 
@@ -97,7 +97,8 @@ def process_signal(job: SignalDispatchJob) -> None:
             return
 
         try:
-            if settings.paper_trading_enabled:
+            runtime_settings = ensure_settings(db)
+            if runtime_settings.paper_trading_enabled:
                 paper_trade = generate_paper_trade_from_signal(db, signal)
                 if paper_trade is not None:
                     db.add(paper_trade)
