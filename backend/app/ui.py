@@ -507,12 +507,21 @@ def render_app_shell(
       gap: 12px;
       flex-wrap: wrap;
     }}
+    .table-toolbar-actions {{
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }}
     .table-toolbar-copy {{
       margin: 0;
       color: var(--muted);
       font-size: 0.82rem;
       line-height: 1.45;
     }}
+    .table-toolbar-copy.success {{ color: var(--ok); }}
+    .table-toolbar-copy.warn {{ color: var(--warn); }}
+    .table-toolbar-copy.error {{ color: var(--danger); }}
     .table-toggle {{
       min-height: 34px;
       padding: 7px 12px;
@@ -837,9 +846,9 @@ def render_app_shell(
         const needsToggle = !hasEmpty && rows > previewRows;
         if (!needsToggle) {{
           button.classList.add("hidden");
-          frame.classList.remove("is-collapsed");
-          button.dataset.expanded = "true";
-          button.setAttribute("aria-expanded", "true");
+          frame.classList.add("is-collapsed");
+          button.dataset.expanded = "false";
+          button.setAttribute("aria-expanded", "false");
           return;
         }}
 

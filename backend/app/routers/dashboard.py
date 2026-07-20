@@ -223,12 +223,14 @@ def dashboard_home() -> str:
           <h2>Market Structure Table</h2>
           <p class="panel-copy">Review the saved support and resistance rows for the selected watchlist, including the swing references, gap percentage, and nearest target used for validation.</p>
         </div>
-        <button id="refreshDailyReviewButton" class="secondary" type="button">Update Table</button>
       </div>
       <div class="table-shell">
         <div class="table-toolbar">
           <p class="table-toolbar-copy">Preview mode keeps long market-structure lists compact. Expand when you want the full saved table.</p>
-          <button id="dailyReviewToggle" class="secondary table-toggle hidden" type="button" aria-expanded="false">Expand table</button>
+          <div class="table-toolbar-actions">
+            <button id="refreshDailyReviewButton" class="secondary table-toggle" type="button">Update Table</button>
+            <button id="dailyReviewToggle" class="secondary table-toggle hidden" type="button" aria-expanded="false">Expand table</button>
+          </div>
         </div>
         <div id="dailyReviewFrame" class="table-scroll-frame is-collapsed" style="--table-min-width: 920px;">
           <table id="dailyReviewTable"></table>

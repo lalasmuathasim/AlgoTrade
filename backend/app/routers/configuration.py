@@ -565,10 +565,9 @@ def configuration_page() -> str:
           <p class="panel-copy">Inspect the selected or opened watchlist with mapped symbols, companies, and latest available market price reference.</p>
         </div>
       </div>
-      <div id="watchlistDetailStatus" class="status-box">Select a watchlist to inspect its tracked symbols and current prices.</div>
       <div class="table-shell">
         <div class="table-toolbar">
-          <p class="table-toolbar-copy">Keep the symbol list compact by default, then expand it when you want the full watchlist detail view.</p>
+          <p id="watchlistDetailMeta" class="table-toolbar-copy">Select a watchlist to inspect its tracked symbols and current prices.</p>
           <button id="watchlistDetailToggle" class="secondary table-toggle hidden" type="button" aria-expanded="false">Expand table</button>
         </div>
         <div id="watchlistDetailFrame" class="table-scroll-frame is-collapsed" style="--table-min-width: 820px;">
@@ -680,6 +679,12 @@ def configuration_page() -> str:
       element.className = `inline-note ${tone}`.trim();
     }
 
+    function setToolbarCopyMessage(id, message, tone = "") {
+      const element = document.getElementById(id);
+      element.textContent = message;
+      element.className = `table-toolbar-copy ${tone}`.trim();
+    }
+
     function setSummaryMessage(id, message, tone = "") {
       const element = document.getElementById(id);
       element.textContent = message;
@@ -789,7 +794,7 @@ def configuration_page() -> str:
       currentWatchlistDetailId = payload.watchlist.id;
       const watchlist = payload.watchlist;
       const statusMessage = `${watchlist.name} · ${watchlist.exchange} · ${watchlist.symbol_count} symbols · ${watchlist.mapped_symbol_count} mapped${watchlist.description ? ` · ${watchlist.description}` : ""}`;
-      setBox("watchlistDetailStatus", statusMessage, watchlist.is_selected ? "success" : "");
+      setToolbarCopyMessage("watchlistDetailMeta", statusMessage, watchlist.is_selected ? "success" : "");
       renderTable(
         document.getElementById("watchlistDetailTable"),
         ["Symbol", "Company", "Instrument Token", "Current Price", "Price Source", "Active"],
@@ -1001,7 +1006,7 @@ def configuration_page() -> str:
           scrollToSection("#watchlistDetailSection");
         }
       } catch (error) {
-        setBox("watchlistDetailStatus", error.message, "error");
+        setToolbarCopyMessage("watchlistDetailMeta", error.message, "error");
       }
     }
     window.openWatchlistDetail = openWatchlistDetail;
@@ -1041,7 +1046,7 @@ def configuration_page() -> str:
       if (detailWatchlist) {
         await openWatchlistDetail(detailWatchlist.id);
       } else {
-        setBox("watchlistDetailStatus", "Create a watchlist to inspect its symbols and current prices.", "warn");
+        setToolbarCopyMessage("watchlistDetailMeta", "Create a watchlist to inspect its symbols and current prices.", "warn");
         renderTable(document.getElementById("watchlistDetailTable"), ["Symbol", "Company", "Instrument Token", "Current Price", "Price Source", "Active"], []);
         syncWatchlistDetailPreview();
       }
