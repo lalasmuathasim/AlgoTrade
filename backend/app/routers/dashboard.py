@@ -18,6 +18,8 @@ from backend.app.schemas import HistoricalCandlePayload
 from backend.app.services.market_scanner import DailyMarketScanner
 from backend.app.services.paper_trading_service import ensure_settings
 from backend.app.services.watchlists import get_selected_watchlist
+from backend.app.services.zerodha import HistoricalCandleProvider, ZerodhaApiClient, ZerodhaAuthService
+from backend.app.services.zerodha_sessions import get_current_zerodha_access_token, get_current_zerodha_session
 from backend.app.ui import render_app_shell
 
 
@@ -72,6 +74,18 @@ def _resolve_instrument_token(db: Session, symbol: WatchlistSymbol) -> int | Non
         return None
     instrument = db.get(Instrument, symbol.instrument_id)
     return instrument.instrument_token if instrument else None
+
+
+def _build_manual_scan_scanner(db: Session) -> DailyMarketScanner:
+    access_token = get_current_zerodha_access_token(db) or settings.zerodha_access_token
+    return DailyMarketScanner(
+        provider=HistoricalCandleProvider(
+            client=ZerodhaApiClient(
+                auth_service=ZerodhaAuthService(),
+                access_token=access_token,
+            )
+        )
+    )
 
 
 def _serialize_trigger_line(line: TriggerLine) -> dict:
@@ -1088,14 +1102,28 @@ def refresh_dashboard_daily_line_review(db: Session = Depends(get_db)) -> dict:
     selected_watchlist, selected_watchlist_id = _selected_watchlist_filter(db)
     if selected_watchlist_id is None:
         raise HTTPException(status_code=404, detail="No watchlist is currently selected")
+    auth = ZerodhaAuthService()
+    access_token = get_current_zerodha_access_token(db) or settings.zerodha_access_token
+    if not auth.has_credentials():
+        raise HTTPException(status_code=503, detail="Configure Zerodha credentials before refreshing the market structure table")
+    if not access_token:
+        raise HTTPException(status_code=503, detail="Connect Zerodha before refreshing the market structure table")
+    current_session = get_current_zerodha_session(db)
+    if current_session is not None and current_session.access_token_expires_at and current_session.access_token_expires_at <= datetime.now(UTC):
+        raise HTTPException(status_code=503, detail="Zerodha session has expired. Reconnect Zerodha before refreshing the market structure table")
 
-    scanner = DailyMarketScanner()
-    execution = scanner.run(
-        db,
-        watchlist_id=selected_watchlist_id,
-        scan_date=datetime.now(UTC).date(),
-        dry_run=False,
-    )
+    scanner = _build_manual_scan_scanner(db)
+    try:
+        execution = scanner.run(
+            db,
+            watchlist_id=selected_watchlist_id,
+            scan_date=datetime.now(UTC).date(),
+            dry_run=False,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Unable to refresh the market structure table: {exc}") from exc
     return {
         "execution_id": str(execution.id),
         "status": execution.status,

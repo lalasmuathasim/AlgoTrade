@@ -810,9 +810,13 @@ def render_app_shell(
         headers: {{ "Content-Type": "application/json" }},
         body: payload ? JSON.stringify(payload) : undefined,
       }});
-      const data = await res.json();
+      const contentType = res.headers.get("content-type") || "";
+      const data = contentType.includes("application/json") ? await res.json() : await res.text();
       if (!res.ok) {{
-        throw new Error(data.detail || data.message || "Request failed");
+        const message = typeof data === "string"
+          ? data
+          : data.detail || data.message || "Request failed";
+        throw new Error(message);
       }}
       return data;
     }}

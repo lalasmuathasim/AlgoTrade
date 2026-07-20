@@ -196,6 +196,39 @@ class DashboardDailyLineReviewTests(unittest.TestCase):
         self.assertEqual(payload["trigger_lines_updated"], 5)
         client.close()
 
+    def test_daily_line_review_refresh_uses_database_session_token_for_manual_scan(self):
+        self.app.dependency_overrides[get_db] = lambda: DummyDb([], [])
+        client = TestClient(self.app)
+        execution = ScanExecution(
+            id=uuid.uuid4(),
+            scan_name="daily_market_scan",
+            scan_date=datetime.fromisoformat("2026-07-19T00:00:00+00:00").date(),
+            status="COMPLETED",
+            symbols_scanned=2,
+            trigger_lines_created=1,
+            trigger_lines_updated=1,
+        )
+        captured: dict[str, object] = {}
+
+        def capture_client(*, auth_service, access_token):
+            captured["access_token"] = access_token
+            return SimpleNamespace(auth_service=auth_service, access_token=access_token)
+
+        with (
+            patch("backend.app.routers.dashboard.get_selected_watchlist", return_value=self.selected_watchlist),
+            patch("backend.app.routers.dashboard.get_current_zerodha_access_token", return_value="db-session-token"),
+            patch("backend.app.routers.dashboard.get_current_zerodha_session", return_value=None),
+            patch("backend.app.routers.dashboard.ZerodhaApiClient", side_effect=capture_client),
+            patch("backend.app.routers.dashboard.DailyMarketScanner.run", return_value=execution),
+        ):
+            response = client.post("/dashboard/reports/daily-line-review/refresh")
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(captured["access_token"], "db-session-token")
+        self.assertEqual(payload["status"], "COMPLETED")
+        client.close()
+
 
 if __name__ == "__main__":
     unittest.main()
