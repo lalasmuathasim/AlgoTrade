@@ -196,7 +196,7 @@ def dashboard_home() -> str:
             <p class="panel-copy">Review the market structure table built from the last 100 daily candles. These reference lines represent projected support and resistance zones for normal market conditions and can be refreshed after market close or whenever you explicitly rescan.</p>
           </div>
         </div>
-        <ul id="dashboardSummaryList" class="list">
+        <ul id="dashboardSummaryList" style="margin: 0; padding-left: 20px; color: var(--muted); font-size: 0.86rem; line-height: 1.55;">
           <li>Loading market structure summary...</li>
           <li>Loading active structure tuning values...</li>
         </ul>
@@ -209,7 +209,7 @@ def dashboard_home() -> str:
               <p class="panel-copy">This view now focuses only on the line details needed to verify the daily structure logic.</p>
             </div>
           </div>
-          <ul class="list">
+          <ul style="margin: 0; padding-left: 20px; color: var(--muted); font-size: 0.86rem; line-height: 1.55;">
             <li>One row is shown for each detected support or resistance line.</li>
             <li>Multiple lines for the same symbol remain in separate rows.</li>
             <li>Swing references stay visible for manual cross-checking.</li>
