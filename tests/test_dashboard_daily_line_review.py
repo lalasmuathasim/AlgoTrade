@@ -16,7 +16,7 @@ configure_test_env()
 
 from backend.app.database import get_db
 from backend.app.dependencies import require_admin_user, require_approved_user
-from backend.app.models import ScanExecution, TriggerLine, Watchlist, WatchlistSymbol
+from backend.app.models import PaperTradingSetting, ScanExecution, TriggerLine, Watchlist, WatchlistSymbol
 from backend.app.routers.dashboard import router
 
 
@@ -41,6 +41,29 @@ class DummyDb:
 
     def get(self, _model, _identifier):
         return None
+
+
+def build_runtime_settings() -> PaperTradingSetting:
+    return PaperTradingSetting(
+        id=uuid.uuid4(),
+        starting_capital=200000.0,
+        capital_per_trade=25000.0,
+        fixed_quantity=None,
+        risk_per_trade=2500.0,
+        brokerage_estimate=20.0,
+        slippage_estimate=0.2,
+        max_trades_per_day=3,
+        max_daily_loss=5000.0,
+        default_quantity_mode="RISK_BASED",
+        buy_volume_multiplier=5.0,
+        sell_volume_multiplier=3.0,
+        entry_buffer_ticks=0.05,
+        stop_loss_buffer_ticks=0.05,
+        daily_candle_lookback=100,
+        swing_window=2,
+        max_gap_percent=0.5,
+        min_swing_distance=1,
+    )
 
 
 class DashboardDailyLineReviewTests(unittest.TestCase):
@@ -102,7 +125,7 @@ class DashboardDailyLineReviewTests(unittest.TestCase):
             status="COMPLETED",
             finished_at=datetime.fromisoformat("2026-07-19T10:30:00+00:00"),
         )
-        self.app.dependency_overrides[get_db] = lambda: DummyDb([latest_scan], [[symbol], [line]])
+        self.app.dependency_overrides[get_db] = lambda: DummyDb([latest_scan, build_runtime_settings()], [[symbol], [line]])
         client = TestClient(self.app)
 
         with patch("backend.app.routers.dashboard.get_selected_watchlist", return_value=self.selected_watchlist):
@@ -133,7 +156,7 @@ class DashboardDailyLineReviewTests(unittest.TestCase):
             instrument_id=None,
             is_active=True,
         )
-        self.app.dependency_overrides[get_db] = lambda: DummyDb([None], [[symbol], []])
+        self.app.dependency_overrides[get_db] = lambda: DummyDb([None, build_runtime_settings()], [[symbol], []])
         client = TestClient(self.app)
 
         with patch("backend.app.routers.dashboard.get_selected_watchlist", return_value=self.selected_watchlist):

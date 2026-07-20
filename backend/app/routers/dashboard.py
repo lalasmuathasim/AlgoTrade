@@ -15,6 +15,7 @@ from backend.app.dependencies import require_admin_user, require_approved_user
 from backend.app.database import get_db
 from backend.app.models import BreakoutEvent, Instrument, PaperTrade, ScanExecution, TradingSignal, TriggerLine, Watchlist, WatchlistSymbol
 from backend.app.services.market_scanner import DailyMarketScanner
+from backend.app.services.paper_trading_service import ensure_settings
 from backend.app.services.watchlists import get_selected_watchlist
 from backend.app.ui import render_app_shell
 
@@ -197,6 +198,7 @@ def dashboard_home() -> str:
           <div class="badge">Review</div>
         </div>
         <div id="dashboardStatus" class="status-box">Loading stored market structure review...</div>
+        <div id="dailyReviewConfig" class="status-box" style="margin-top: 12px;">Loading active structure tuning values...</div>
         <div class="stack">
           <div class="inline">
             <a class="button secondary" href="/dashboard/reports/daily-line-review">Daily Line Review API</a>
@@ -215,19 +217,6 @@ def dashboard_home() -> str:
             <li class="pill">One row per detected support or resistance line</li>
             <li class="pill">Multiple lines for the same symbol stay in separate rows</li>
             <li class="pill">Swing references stay visible for manual cross-checking</li>
-          </ul>
-        </div>
-        <div class="panel">
-          <div class="panel-header">
-            <div>
-              <h2>Reading Priority</h2>
-              <p class="panel-copy">Read each row as a candidate structure level that can be checked against TradingView or later persisted into live monitoring.</p>
-            </div>
-          </div>
-          <ul class="list">
-            <li class="pill">1. Symbol and line type</li>
-            <li class="pill">2. Swing pair and gap percent</li>
-            <li class="pill">3. Nearest target above or below the line</li>
           </ul>
         </div>
       </div>
@@ -262,6 +251,11 @@ def dashboard_home() -> str:
       const selectedLabel = review.selected_watchlist
         ? `${review.selected_watchlist.name} (${review.selected_watchlist.exchange})`
         : "the selected watchlist";
+      setBox(
+        "dailyReviewConfig",
+        `Candle lookback ${summary.tuning.daily_candle_lookback} · Max gap ${summary.tuning.max_gap_percent}% · Swing window ${summary.tuning.swing_window} · Min swing distance ${summary.tuning.min_swing_distance} candles.`,
+        "success",
+      );
       setBox(
         "dailyReviewStatus",
         `Using ${selectedLabel}. ${summary.total_candidate_rows} stored rows across ${summary.symbols_with_lines} symbols. ${summary.unmapped_symbols} configured symbols are still unmapped. Last scan: ${summary.last_scan_finished_at ? new Date(summary.last_scan_finished_at).toLocaleString() : "not run yet"}${summary.last_scan_status ? ` · ${summary.last_scan_status}` : ""}.`,
@@ -374,6 +368,7 @@ def dashboard_daily_line_review(db: Session = Depends(get_db)) -> dict:
         .order_by(desc(ScanExecution.finished_at), desc(ScanExecution.created_at))
         .limit(1)
     )
+    runtime_settings = ensure_settings(db)
 
     rows: list[dict] = []
     for line in lines:
@@ -425,6 +420,12 @@ def dashboard_daily_line_review(db: Session = Depends(get_db)) -> dict:
             "total_candidate_rows": len(rows),
             "last_scan_status": latest_scan.status if latest_scan else None,
             "last_scan_finished_at": _serialize_datetime(latest_scan.finished_at) if latest_scan else None,
+            "tuning": {
+                "daily_candle_lookback": runtime_settings.daily_candle_lookback,
+                "max_gap_percent": runtime_settings.max_gap_percent,
+                "swing_window": runtime_settings.swing_window,
+                "min_swing_distance": runtime_settings.min_swing_distance,
+            },
         },
         "rows": rows,
     }
