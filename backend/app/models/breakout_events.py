@@ -31,6 +31,7 @@ class BreakoutEvent(Base):
     breakout_candle_low: Mapped[float | None] = mapped_column(Float, nullable=True)
     breakout_candle_volume: Mapped[float | None] = mapped_column(Float, nullable=True)
     previous_candle_volume: Mapped[float | None] = mapped_column(Float, nullable=True)
+    required_volume_multiplier: Mapped[float | None] = mapped_column(Float, nullable=True)
     volume_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
     volume_condition_required: Mapped[bool] = mapped_column(
         Boolean,
@@ -49,4 +50,5 @@ class BreakoutEvent(Base):
     target: Mapped[float | None] = mapped_column(Float, nullable=True)
     signal_generated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING", server_default="PENDING")
+    rejection_reason: Mapped[str | None] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

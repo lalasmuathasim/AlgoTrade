@@ -93,11 +93,7 @@ class VolumeValidator:
         previous_volume: float | None,
         buy_volume_multiplier: float | None = None,
         sell_volume_multiplier: float | None = None,
-    ) -> tuple[bool, float | None]:
-        if not previous_volume or previous_volume <= 0:
-            return False, None
-
-        ratio = current_volume / previous_volume
+    ) -> tuple[bool, float | None, float]:
         required = (
             buy_volume_multiplier
             if action == "BUY" and buy_volume_multiplier is not None
@@ -107,7 +103,11 @@ class VolumeValidator:
             if action == "BUY"
             else settings.sell_volume_multiplier
         )
-        return ratio >= required, round(ratio, 4)
+        if not previous_volume or previous_volume <= 0:
+            return False, None, required
+
+        ratio = current_volume / previous_volume
+        return ratio >= required, round(ratio, 4), required
 
 
 class BreakoutDetector:
@@ -136,7 +136,7 @@ class SignalGenerator:
     ) -> tuple[BreakoutCandidatePayload, TradingSignal | None]:
         action = "BUY" if line.line_type == "BUY" else "SELL"
         runtime_settings = ensure_settings(db)
-        volume_passed, volume_ratio = self.volume_validator.validate(
+        volume_passed, volume_ratio, required_volume_multiplier = self.volume_validator.validate(
             action,
             candle.volume,
             previous_candle_volume,
@@ -144,14 +144,14 @@ class SignalGenerator:
             sell_volume_multiplier=runtime_settings.sell_volume_multiplier,
         )
         entry_price = (
-            line.line_price + runtime_settings.entry_buffer_ticks
+            candle.high + runtime_settings.entry_buffer_ticks
             if action == "BUY"
-            else line.line_price - runtime_settings.entry_buffer_ticks
+            else candle.low - runtime_settings.entry_buffer_ticks
         )
         stop_loss = (
-            candle.low - runtime_settings.stop_loss_buffer_ticks
+            line.line_price - runtime_settings.stop_loss_buffer_ticks
             if action == "BUY"
-            else candle.high + runtime_settings.stop_loss_buffer_ticks
+            else line.line_price + runtime_settings.stop_loss_buffer_ticks
         )
 
         target = (
@@ -167,6 +167,7 @@ class SignalGenerator:
             trigger_line_id=line.id,
             symbol=line.symbol,
             exchange=line.exchange,
+            line_type=line.line_type,
             event_type="BREAKOUT" if action == "BUY" else "BREAKDOWN",
             event_time=candle.candle_end,
             breakout_or_breakdown_price=line.line_price,
@@ -174,20 +175,28 @@ class SignalGenerator:
             breakout_candle_low=candle.low,
             breakout_candle_volume=candle.volume,
             previous_candle_volume=previous_candle_volume,
+            required_volume_multiplier=required_volume_multiplier,
             volume_ratio=volume_ratio,
             volume_condition_passed=volume_passed,
             entry_price=entry_price,
             stop_loss=stop_loss,
             target=target,
             market_candle_id=market_candle_id,
+            rejection_reason=None,
         )
 
         if not volume_passed:
+            breakout_payload.rejection_reason = (
+                "NO_PREVIOUS_VOLUME"
+                if previous_candle_volume is None or previous_candle_volume <= 0
+                else "VOLUME_FAILED"
+            )
             return breakout_payload, None
 
         dedupe_key = f"{line.id}:{action}:{candle.candle_start.isoformat()}"
         existing = db.scalar(select(TradingSignal).where(TradingSignal.dedupe_key == dedupe_key).limit(1))
         if existing is not None:
+            breakout_payload.rejection_reason = "DUPLICATE_SIGNAL"
             return breakout_payload, None
 
         quantity, capital_used, risk_amount = self.risk_engine.compute(db, action, entry_price, stop_loss)
@@ -318,13 +327,15 @@ class MarketDataProcessor:
                 breakout_candle_low=breakout_payload.breakout_candle_low,
                 breakout_candle_volume=breakout_payload.breakout_candle_volume,
                 previous_candle_volume=breakout_payload.previous_candle_volume,
+                required_volume_multiplier=breakout_payload.required_volume_multiplier,
                 volume_ratio=breakout_payload.volume_ratio,
                 volume_condition_passed=breakout_payload.volume_condition_passed,
                 entry_price=breakout_payload.entry_price,
                 stop_loss=breakout_payload.stop_loss,
                 target=breakout_payload.target,
                 signal_generated=signal is not None,
-                status="PASSED" if signal is not None else "IGNORED",
+                status="PASSED" if signal is not None else (breakout_payload.rejection_reason or "IGNORED"),
+                rejection_reason=breakout_payload.rejection_reason,
             )
             db.add(breakout_event)
             db.flush()
