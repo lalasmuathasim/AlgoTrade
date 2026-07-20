@@ -1,11 +1,15 @@
 from datetime import UTC, datetime
+import logging
 
-from fastapi import APIRouter, Depends
+import httpx
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.config import get_settings
 from backend.app.database import get_db, verify_database_connectivity
 from backend.app.dependencies import require_admin_user
+from backend.app.models import WatchlistSymbol
 from backend.app.schemas import (
     DailyScanRequest,
     DependencyStatusResponse,
@@ -20,11 +24,33 @@ from backend.app.services.market_scanner import DailyMarketScanner
 from backend.app.services.market_stream import MarketDataProcessor
 from backend.app.services.zerodha import InstrumentMasterSyncService, ZerodhaApiClient, ZerodhaAuthService
 from backend.app.services.zerodha_sessions import get_current_zerodha_access_token
+from backend.app.services.watchlists import get_selected_watchlist
 from backend.app.queue import check_redis_connectivity
 
 
 router = APIRouter(prefix="/system", tags=["system"], dependencies=[Depends(require_admin_user)])
 settings = get_settings()
+logger = logging.getLogger(__name__)
+
+
+def _resolve_instrument_sync_scope(db: Session, watchlist_id=None) -> dict[str, set[str]]:
+    query = select(WatchlistSymbol).where(WatchlistSymbol.is_active.is_(True))
+    if watchlist_id is not None:
+        query = query.where(WatchlistSymbol.watchlist_id == watchlist_id)
+    else:
+        selected_watchlist = get_selected_watchlist(db)
+        if selected_watchlist is not None:
+            query = query.where(WatchlistSymbol.watchlist_id == selected_watchlist.id)
+
+    rows = db.scalars(query).all()
+    scope: dict[str, set[str]] = {}
+    for row in rows:
+        symbol = (row.symbol or "").strip().upper()
+        exchange = (row.exchange or "NSE").strip().upper()
+        if not symbol:
+            continue
+        scope.setdefault(exchange, set()).add(symbol)
+    return scope
 
 
 @router.get("/dependencies", response_model=DependencyStatusResponse)
@@ -59,8 +85,32 @@ def sync_instruments(
     instruments = None
     if payload.instruments is not None:
         instruments = [InstrumentPayload.model_validate(row) for row in payload.instruments]
-    synced = service.sync(db, instruments=instruments)
-    return InstrumentSyncResponse(synced=synced)
+    try:
+        if instruments is not None:
+            synced = service.sync(db, instruments=instruments)
+        elif payload.full_sync:
+            logger.info("Running full Zerodha instrument sync")
+            synced = service.sync(db)
+        else:
+            scope = _resolve_instrument_sync_scope(db, watchlist_id=payload.watchlist_id)
+            logger.info(
+                "Running scoped Zerodha instrument sync",
+                extra={
+                    "exchanges": sorted(scope.keys()),
+                    "symbols_considered": sum(len(symbols) for symbols in scope.values()),
+                },
+            )
+            synced = service.sync_watchlist_scope(db, exchange_symbols=scope)
+        return InstrumentSyncResponse(synced=synced)
+    except RuntimeError as exc:
+        logger.warning("Instrument sync blocked: %s", exc)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except httpx.HTTPError as exc:
+        logger.exception("Instrument sync failed while calling Zerodha")
+        raise HTTPException(status_code=502, detail="Zerodha instrument sync failed") from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Instrument sync failed unexpectedly")
+        raise HTTPException(status_code=500, detail="Instrument sync failed") from exc
 
 
 @router.post("/scans/daily", response_model=ScanExecutionResponse)

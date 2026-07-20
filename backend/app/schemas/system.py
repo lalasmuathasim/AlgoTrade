@@ -6,6 +6,8 @@ from pydantic import BaseModel
 
 class InstrumentSyncRequest(BaseModel):
     instruments: list[dict] | None = None
+    watchlist_id: uuid.UUID | None = None
+    full_sync: bool = False
 
 
 class InstrumentSyncResponse(BaseModel):

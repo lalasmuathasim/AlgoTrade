@@ -242,6 +242,25 @@ class InstrumentMasterSyncService:
     def __init__(self, client: ZerodhaApiClient | None = None) -> None:
         self.client = client or ZerodhaApiClient()
 
+    def fetch_scoped_instruments(self, exchange_symbols: dict[str, set[str]]) -> list[InstrumentPayload]:
+        scoped_rows: dict[tuple[str, str], InstrumentPayload] = {}
+        for exchange, symbols in exchange_symbols.items():
+            normalized_symbols = {symbol.strip().upper() for symbol in symbols if symbol and symbol.strip()}
+            exchange_rows = self.client.fetch_exchange_instruments(exchange)
+            if normalized_symbols:
+                exchange_rows = [
+                    row for row in exchange_rows if row.tradingsymbol.strip().upper() in normalized_symbols
+                ]
+            for row in exchange_rows:
+                scoped_rows[(row.exchange, row.tradingsymbol)] = row
+        return list(scoped_rows.values())
+
+    def sync_watchlist_scope(self, db: Session, exchange_symbols: dict[str, set[str]]) -> int:
+        if not exchange_symbols:
+            return 0
+        rows = self.fetch_scoped_instruments(exchange_symbols)
+        return self.sync(db, instruments=rows)
+
     def sync(self, db: Session, instruments: Iterable[InstrumentPayload] | None = None) -> int:
         rows = list(instruments) if instruments is not None else self.client.fetch_instruments()
         synced = 0
