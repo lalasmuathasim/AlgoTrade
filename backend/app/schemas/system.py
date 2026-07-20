@@ -35,4 +35,17 @@ class LiveEngineRuntimeResponse(BaseModel):
     access_token_configured: bool
     last_tick_at: str | None = None
     last_tick_symbol: str | None = None
+    finalized_candles_count: int = 0
+    signals_created_count: int = 0
+    last_finalized_candle: dict | None = None
+    last_signal_id: str | None = None
+    last_signal_symbol: str | None = None
     published_at: str | None = None
+
+
+class TickReplayResponse(BaseModel):
+    ticks_processed: int
+    finalized_candles_count: int
+    signals_created: int
+    signal_ids: list[str]
+    last_finalized_candle: dict | None = None

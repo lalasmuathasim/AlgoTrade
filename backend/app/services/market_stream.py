@@ -1,5 +1,6 @@
 import logging
 import uuid
+from dataclasses import dataclass
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -18,6 +19,21 @@ from backend.app.services.paper_trading_service import ensure_settings
 logger = logging.getLogger(__name__)
 settings = get_settings()
 market_tz = ZoneInfo(settings.market_timezone)
+
+
+@dataclass
+class TickProcessingResult:
+    ticks_processed: int
+    finalized_candles: list[CompletedCandlePayload]
+    signals: list[TradingSignal]
+
+    @property
+    def finalized_candles_count(self) -> int:
+        return len(self.finalized_candles)
+
+    @property
+    def signals_created_count(self) -> int:
+        return len(self.signals)
 
 
 class CandleBuilder:
@@ -236,14 +252,20 @@ class MarketDataProcessor:
         self.breakout_detector = BreakoutDetector()
         self.signal_generator = SignalGenerator()
 
-    def process_ticks(self, db: Session, ticks: list[TickPayload]) -> list[TradingSignal]:
+    def process_ticks(self, db: Session, ticks: list[TickPayload]) -> TickProcessingResult:
         signals: list[TradingSignal] = []
+        finalized_candles: list[CompletedCandlePayload] = []
         for tick in ticks:
-            finalized_candles = self.candle_builder.on_tick(tick)
-            for candle in finalized_candles:
+            tick_finalized_candles = self.candle_builder.on_tick(tick)
+            finalized_candles.extend(tick_finalized_candles)
+            for candle in tick_finalized_candles:
                 signals.extend(self._process_finalized_candle(db, candle))
         db.commit()
-        return signals
+        return TickProcessingResult(
+            ticks_processed=len(ticks),
+            finalized_candles=finalized_candles,
+            signals=signals,
+        )
 
     def _persist_candle(self, db: Session, candle: CompletedCandlePayload) -> MarketCandle:
         existing = db.scalar(

@@ -53,6 +53,11 @@ class SystemLiveEngineRuntimeTests(unittest.TestCase):
                 "access_token_configured": True,
                 "last_tick_at": None,
                 "last_tick_symbol": None,
+                "finalized_candles_count": 2,
+                "signals_created_count": 1,
+                "last_finalized_candle": {"symbol": "RELIANCE", "exchange": "NSE"},
+                "last_signal_id": str(uuid.uuid4()),
+                "last_signal_symbol": "RELIANCE",
                 "published_at": "2026-07-20T12:00:00+00:00",
             },
         ):
@@ -63,6 +68,8 @@ class SystemLiveEngineRuntimeTests(unittest.TestCase):
         self.assertEqual(payload["status"], "SUBSCRIPTION_PLAN_READY")
         self.assertEqual(payload["subscription_count"], 4)
         self.assertEqual(payload["selected_watchlist"]["name"], "Selected")
+        self.assertEqual(payload["finalized_candles_count"], 2)
+        self.assertEqual(payload["signals_created_count"], 1)
         client.close()
 
     def test_live_engine_runtime_builds_fallback_when_no_snapshot_is_published(self):

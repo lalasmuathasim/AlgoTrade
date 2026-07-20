@@ -51,6 +51,8 @@ class LiveEngineRuntimeTests(unittest.TestCase):
         self.assertEqual(payload["selected_watchlist"]["name"], "NSE Core")
         self.assertTrue(payload["credentials_configured"])
         self.assertTrue(payload["access_token_configured"])
+        self.assertEqual(payload["finalized_candles_count"], 0)
+        self.assertEqual(payload["signals_created_count"], 0)
 
     def test_subscription_manager_describes_selected_watchlist_scope_without_duplicates(self):
         selected_watchlist = SimpleNamespace(id=uuid.uuid4(), name="Selected", exchange="NSE")

@@ -21,6 +21,7 @@ from backend.app.schemas import (
     ScanExecutionResponse,
     TickPayload,
     TickReplayRequest,
+    TickReplayResponse,
 )
 from backend.app.services.market_scanner import DailyMarketScanner
 from backend.app.services.live_engine_runtime import build_live_engine_runtime_snapshot
@@ -154,12 +155,31 @@ def run_daily_scan(
     )
 
 
-@router.post("/ticks/replay")
+@router.post("/ticks/replay", response_model=TickReplayResponse)
 def replay_ticks(
     payload: TickReplayRequest,
     db: Session = Depends(get_db),
-) -> dict:
+) -> TickReplayResponse:
     processor = MarketDataProcessor()
     ticks = [TickPayload.model_validate(row) for row in payload.ticks]
-    signals = processor.process_ticks(db, ticks)
-    return {"signals_created": len(signals), "signal_ids": [str(signal.id) for signal in signals]}
+    result = processor.process_ticks(db, ticks)
+    last_finalized_candle = result.finalized_candles[-1] if result.finalized_candles else None
+    return TickReplayResponse(
+        ticks_processed=result.ticks_processed,
+        finalized_candles_count=result.finalized_candles_count,
+        signals_created=result.signals_created_count,
+        signal_ids=[str(signal.id) for signal in result.signals],
+        last_finalized_candle={
+            "symbol": last_finalized_candle.symbol,
+            "exchange": last_finalized_candle.exchange,
+            "candle_start": last_finalized_candle.candle_start.astimezone(UTC).isoformat(),
+            "candle_end": last_finalized_candle.candle_end.astimezone(UTC).isoformat(),
+            "open": last_finalized_candle.open,
+            "high": last_finalized_candle.high,
+            "low": last_finalized_candle.low,
+            "close": last_finalized_candle.close,
+            "volume": last_finalized_candle.volume,
+        }
+        if last_finalized_candle
+        else None,
+    )
