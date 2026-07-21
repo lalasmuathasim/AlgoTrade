@@ -694,6 +694,7 @@ def dashboard_home() -> str:
     let latestOverview = null;
     let currentTradeHistoryMode = "combined";
     let dashboardRuntimeStream = null;
+    let latestRuntimePrices = {};
     let lastRuntimePublishedAt = null;
     let lastRuntimeSignalId = null;
     let lastRuntimeFinalizedCount = 0;
@@ -891,9 +892,7 @@ def dashboard_home() -> str:
         { symbolFilter: { enabled: true, columnIndex: 0, placeholder: "Filter potential-hit symbols" } },
       );
       syncPotentialLineHitPreview();
-      if (payload.latest_prices) {
-        applyPotentialLineHitLivePrices(payload.latest_prices);
-      }
+      applyPotentialLineHitLivePrices(latestRuntimePrices);
       return payload;
     }
 
@@ -977,6 +976,7 @@ def dashboard_home() -> str:
     }
 
     async function init() {
+      initializeDashboardRuntimeStream();
       const [overview] = await Promise.all([
         apiGet("/dashboard/reports/overview"),
       ]);
@@ -985,7 +985,6 @@ def dashboard_home() -> str:
       renderDashboardSummary(overview);
       try {
         await Promise.all([loadDailyLineReview(), loadBreakoutReview(), loadPotentialLineHits(), loadTradeHistory("combined")]);
-        initializeDashboardRuntimeStream();
       } catch (error) {
         renderDashboardSummary(
           overview,
@@ -1005,7 +1004,8 @@ def dashboard_home() -> str:
       }
 
       if (snapshot.latest_prices) {
-        applyPotentialLineHitLivePrices(snapshot.latest_prices);
+        latestRuntimePrices = snapshot.latest_prices;
+        applyPotentialLineHitLivePrices(latestRuntimePrices);
       }
 
       const publishedAt = snapshot.published_at || null;
@@ -1371,6 +1371,7 @@ def dashboard_report_overview(db: Session = Depends(get_db)) -> dict:
 async def dashboard_runtime_stream():
     async def event_stream():
         last_published_at = None
+        heartbeat_started_at = datetime.now(UTC)
         while True:
             try:
                 snapshot = get_live_engine_runtime()
@@ -1378,15 +1379,17 @@ async def dashboard_runtime_stream():
                     published_at = snapshot.get("published_at")
                     if published_at != last_published_at:
                         last_published_at = published_at
+                        heartbeat_started_at = datetime.now(UTC)
                         yield f"data: {json.dumps(snapshot)}\n\n"
-                    else:
+                    elif (datetime.now(UTC) - heartbeat_started_at).total_seconds() >= 10:
+                        heartbeat_started_at = datetime.now(UTC)
                         yield ": keep-alive\n\n"
                 else:
                     yield ": waiting-for-runtime\n\n"
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Dashboard runtime stream read failed: %s", exc)
                 yield f"event: error\ndata: {json.dumps({'detail': 'runtime_unavailable'})}\n\n"
-            await asyncio.sleep(2)
+            await asyncio.sleep(0.35)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
