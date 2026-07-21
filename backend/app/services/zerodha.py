@@ -31,8 +31,8 @@ class ZerodhaAuthService:
     def has_credentials(self) -> bool:
         return bool(settings.zerodha_api_key and settings.zerodha_api_secret and settings.zerodha_redirect_url)
 
-    def has_access_token(self) -> bool:
-        return bool(settings.zerodha_access_token)
+    def has_access_token(self, access_token: str | None = None) -> bool:
+        return bool(self.resolve_access_token(access_token))
 
     def resolve_access_token(self, access_token: str | None = None) -> str | None:
         return access_token or settings.zerodha_access_token
@@ -437,6 +437,7 @@ class ZerodhaWebSocketClient:
         subscriptions: list[dict],
         on_ticks: Callable[[list[TickPayload]], None],
         on_state_change: Callable[[dict], None] | None = None,
+        access_token: str | None = None,
     ) -> dict:
         auth = ZerodhaAuthService()
         if not auth.has_credentials():
@@ -447,7 +448,7 @@ class ZerodhaWebSocketClient:
                 message="Zerodha credentials are not configured.",
                 transport="kite_ticker",
             )
-        if not auth.has_access_token():
+        if not auth.has_access_token(access_token):
             self._logger.warning("ZERODHA_ACCESS_TOKEN is not configured; websocket client is idle")
             return self._emit_state(
                 on_state_change,
@@ -476,8 +477,8 @@ class ZerodhaWebSocketClient:
                 error=exc.__class__.__name__,
             )
 
-        access_token = auth.resolve_access_token()
-        if not settings.zerodha_api_key or not access_token:
+        resolved_access_token = auth.resolve_access_token(access_token)
+        if not settings.zerodha_api_key or not resolved_access_token:
             return self._emit_state(
                 on_state_change,
                 status="IDLE_NO_TOKEN",
@@ -502,7 +503,7 @@ class ZerodhaWebSocketClient:
             message=f"Connecting KiteTicker for {len(instrument_tokens)} subscriptions.",
             transport="kite_ticker",
         )
-        kws = kite_ticker_cls(settings.zerodha_api_key, access_token)
+        kws = kite_ticker_cls(settings.zerodha_api_key, resolved_access_token)
 
         def on_connect(ws, response):
             ws.subscribe(instrument_tokens)

@@ -9,6 +9,7 @@ from backend.app.services.market_stream import MarketDataProcessor
 from backend.app.services.live_engine_runtime import build_live_engine_runtime_snapshot
 from backend.app.services.watchlists import get_selected_watchlist
 from backend.app.services.zerodha import SubscriptionManager, ZerodhaAuthService, ZerodhaWebSocketClient
+from backend.app.services.zerodha_sessions import get_current_zerodha_access_token, get_current_zerodha_session
 
 
 settings = get_settings()
@@ -31,6 +32,7 @@ def run_live_engine() -> None:
     subscription_manager = SubscriptionManager()
     auth = ZerodhaAuthService()
     latest_prices_state: dict[str, dict] = {}
+    current_access_token_configured = auth.has_access_token()
 
     def publish_runtime_state(
         *,
@@ -62,7 +64,7 @@ def run_live_engine() -> None:
                 subscriptions=subscriptions,
                 transport=transport,
                 credentials_configured=auth.has_credentials(),
-                access_token_configured=auth.has_access_token(),
+                access_token_configured=current_access_token_configured,
                 last_tick_at=last_tick_at,
                 last_tick_symbol=last_tick_symbol,
                 finalized_candles_count=finalized_candles_count,
@@ -119,6 +121,16 @@ def run_live_engine() -> None:
         with SessionLocal() as db:
             selected_watchlist = get_selected_watchlist(db)
             subscriptions = subscription_manager.describe_active_subscriptions(db)
+            zerodha_session = get_current_zerodha_session(db)
+            access_token = get_current_zerodha_access_token(db) or settings.zerodha_access_token
+            if (
+                zerodha_session is not None
+                and zerodha_session.access_token_expires_at is not None
+                and zerodha_session.access_token_expires_at <= datetime.now(UTC)
+                and not settings.zerodha_access_token
+            ):
+                access_token = None
+            current_access_token_configured = bool(access_token)
         result = client.connect_forever(
             subscriptions,
             handle_ticks,
@@ -128,7 +140,8 @@ def run_live_engine() -> None:
                 selected_watchlist=selected_watchlist,
                 subscriptions=subscriptions,
                 transport=state.get("transport", "kite_ticker"),
-            )
+            ),
+            access_token=access_token,
         )
         publish_runtime_state(
             status=result["status"],

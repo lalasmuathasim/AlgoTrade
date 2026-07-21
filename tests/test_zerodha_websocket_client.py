@@ -111,6 +111,26 @@ class ZerodhaWebSocketClientTests(unittest.TestCase):
         self.assertEqual(captured_ticks[0][0].last_price, 1525.5)
         self.assertEqual(captured_ticks[0][0].volume_traded, 6200.0)
 
+    def test_connect_forever_accepts_explicit_access_token_when_env_token_is_absent(self):
+        client = ZerodhaWebSocketClient()
+        captured_ticks: list[list[TickPayload]] = []
+
+        with (
+            patch("backend.app.services.zerodha.ZerodhaAuthService.has_credentials", return_value=True),
+            patch("backend.app.services.zerodha.ZerodhaAuthService.has_access_token", side_effect=lambda token=None: bool(token)),
+            patch("backend.app.services.zerodha.ZerodhaAuthService.resolve_access_token", side_effect=lambda token=None: token),
+            patch("backend.app.services.zerodha.settings.zerodha_api_key", "api-key"),
+            patch("backend.app.services.zerodha.import_module", return_value=_FakeKiteModule()),
+        ):
+            result = client.connect_forever(
+                [{"instrument_token": 111, "exchange": "NSE", "symbol": "RELIANCE", "source": "WATCHLIST"}],
+                lambda ticks: captured_ticks.append(ticks),
+                access_token="db-session-token",
+            )
+
+        self.assertEqual(result["status"], "CLOSED")
+        self.assertEqual(len(captured_ticks), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
