@@ -1384,7 +1384,15 @@ def dashboard_runtime_snapshot() -> dict:
         snapshot = get_live_engine_runtime()
     except Exception as exc:  # noqa: BLE001
         logger.warning("Dashboard runtime snapshot read failed: %s", exc)
-        raise HTTPException(status_code=503, detail="Live runtime is temporarily unavailable") from exc
+        return {
+            "status": "UNAVAILABLE",
+            "message": "Live runtime is temporarily unavailable. The dashboard will keep retrying automatically.",
+            "latest_prices": {},
+            "finalized_candles_count": 0,
+            "last_signal_id": None,
+            "published_at": None,
+            "error": "runtime_unavailable",
+        }
 
     if snapshot is None:
         return {
