@@ -1,7 +1,7 @@
 from datetime import date
 import uuid
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class InstrumentSyncRequest(BaseModel):
@@ -40,6 +40,7 @@ class LiveEngineRuntimeResponse(BaseModel):
     last_finalized_candle: dict | None = None
     last_signal_id: str | None = None
     last_signal_symbol: str | None = None
+    latest_prices: dict[str, dict] = Field(default_factory=dict)
     published_at: str | None = None
 
 

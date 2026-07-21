@@ -106,7 +106,7 @@ class DashboardPotentialLineHitTests(unittest.TestCase):
 
         self.assertIsNone(row)
 
-    def test_route_returns_live_price_without_pattern_and_last_daily_candle_columns(self):
+    def test_route_returns_runtime_tick_price_with_fallback_metadata(self):
         app = FastAPI()
         app.include_router(router)
         selected_watchlist = Watchlist(
@@ -157,14 +157,21 @@ class DashboardPotentialLineHitTests(unittest.TestCase):
                 return_value=SimpleNamespace(daily_candle_lookback=100, prediction_proximity_percent=2.0),
             ),
             patch("backend.app.routers.dashboard._load_recent_daily_candles_from_db", return_value=candles),
+            patch(
+                "backend.app.routers.dashboard._load_runtime_live_price_map",
+                return_value={"NSE:RELIANCE": {"price": 997.1, "timestamp": "2026-07-21T03:45:00+00:00", "source": "tick"}},
+            ),
             patch("backend.app.routers.dashboard._load_zerodha_ltp_map", return_value={"NSE:RELIANCE": 996.45}),
+            patch("backend.app.routers.dashboard._load_recent_3minute_close_map", return_value={"NSE:RELIANCE": {"price": 995.25, "timestamp": "2026-07-21T03:42:00+00:00", "source": "3minute_close"}}),
         ):
             response = client.get("/dashboard/reports/potential-line-hits")
 
         payload = response.json()
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(payload["rows"]), 1)
-        self.assertEqual(payload["rows"][0]["current_realtime_value"], 996.45)
+        self.assertEqual(payload["rows"][0]["current_realtime_value"], 997.1)
+        self.assertEqual(payload["rows"][0]["current_realtime_source"], "tick")
+        self.assertEqual(payload["rows"][0]["current_realtime_label"], "997.1 · Tick")
         self.assertNotIn("pattern", payload["rows"][0])
         client.close()
         app.dependency_overrides.clear()

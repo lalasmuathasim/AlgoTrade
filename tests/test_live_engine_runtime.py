@@ -56,13 +56,6 @@ class LiveEngineRuntimeTests(unittest.TestCase):
 
     def test_subscription_manager_describes_selected_watchlist_scope_without_duplicates(self):
         selected_watchlist = SimpleNamespace(id=uuid.uuid4(), name="Selected", exchange="NSE")
-        watchlist_symbol = SimpleNamespace(
-            watchlist_id=selected_watchlist.id,
-            instrument_token=111,
-            exchange="NSE",
-            symbol="RELIANCE",
-            is_active=True,
-        )
         instrument = SimpleNamespace(id=uuid.uuid4(), instrument_token=111, is_active=True)
         trigger_line = SimpleNamespace(
             watchlist_id=selected_watchlist.id,
@@ -71,7 +64,7 @@ class LiveEngineRuntimeTests(unittest.TestCase):
             symbol="RELIANCE",
             line_status="ACTIVE",
         )
-        db = _DummyDb([[watchlist_symbol], [instrument], [trigger_line]])
+        db = _DummyDb([[instrument], [trigger_line]])
 
         with patch("backend.app.services.zerodha.get_selected_watchlist", return_value=selected_watchlist):
             subscriptions = SubscriptionManager().describe_active_subscriptions(db)
@@ -79,7 +72,7 @@ class LiveEngineRuntimeTests(unittest.TestCase):
         self.assertEqual(len(subscriptions), 1)
         self.assertEqual(subscriptions[0]["instrument_token"], 111)
         self.assertEqual(subscriptions[0]["symbol"], "RELIANCE")
-        self.assertEqual(subscriptions[0]["source"], "WATCHLIST")
+        self.assertEqual(subscriptions[0]["source"], "TRIGGER_LINE")
 
 
 if __name__ == "__main__":

@@ -30,6 +30,7 @@ def run_live_engine() -> None:
     client = ZerodhaWebSocketClient()
     subscription_manager = SubscriptionManager()
     auth = ZerodhaAuthService()
+    latest_prices_state: dict[str, dict] = {}
 
     def publish_runtime_state(
         *,
@@ -40,7 +41,19 @@ def run_live_engine() -> None:
         transport: str,
         last_tick_at: datetime | None = None,
         last_tick_symbol: str | None = None,
+        latest_prices: dict[str, dict] | None = None,
+        finalized_candles_count: int = 0,
+        signals_created_count: int = 0,
+        last_finalized_candle: dict | None = None,
+        last_signal_id: str | None = None,
+        last_signal_symbol: str | None = None,
     ) -> None:
+        subscription_keys = {f"{row['exchange']}:{row['symbol']}" for row in subscriptions}
+        scoped_latest_prices = {
+            key: value
+            for key, value in (latest_prices or latest_prices_state).items()
+            if key in subscription_keys
+        }
         publish_live_engine_runtime(
             build_live_engine_runtime_snapshot(
                 status=status,
@@ -52,11 +65,23 @@ def run_live_engine() -> None:
                 access_token_configured=auth.has_access_token(),
                 last_tick_at=last_tick_at,
                 last_tick_symbol=last_tick_symbol,
+                finalized_candles_count=finalized_candles_count,
+                signals_created_count=signals_created_count,
+                last_finalized_candle=last_finalized_candle,
+                last_signal_id=last_signal_id,
+                last_signal_symbol=last_signal_symbol,
+                latest_prices=scoped_latest_prices,
             )
         )
 
     def handle_ticks(ticks):
         latest_tick = max(ticks, key=lambda item: item.timestamp) if ticks else None
+        for tick in ticks:
+            latest_prices_state[f"{tick.exchange}:{tick.symbol}"] = {
+                "price": tick.last_price,
+                "timestamp": tick.timestamp.astimezone(UTC).isoformat(),
+                "source": "tick",
+            }
         with SessionLocal() as db:
             result = processor.process_ticks(db, ticks)
             subscriptions = subscription_manager.describe_active_subscriptions(db)
@@ -70,6 +95,7 @@ def run_live_engine() -> None:
                 transport="kite_ticker",
                 last_tick_at=latest_tick.timestamp if latest_tick else datetime.now(UTC),
                 last_tick_symbol=latest_tick.symbol if latest_tick else None,
+                latest_prices=latest_prices_state,
                 finalized_candles_count=result.finalized_candles_count,
                 signals_created_count=result.signals_created_count,
                 last_finalized_candle={

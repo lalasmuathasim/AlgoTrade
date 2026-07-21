@@ -1,7 +1,7 @@
 import logging
 import csv
 from collections import defaultdict
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from io import StringIO
 from statistics import mean
 from uuid import UUID
@@ -15,6 +15,7 @@ from backend.app.config import get_settings
 from backend.app.dependencies import require_admin_user, require_approved_user
 from backend.app.database import get_db
 from backend.app.models import BrokerOrder, BreakoutEvent, Instrument, MarketCandle, PaperTrade, ScanExecution, TradingSignal, TriggerLine, Watchlist, WatchlistSymbol
+from backend.app.queue import get_live_engine_runtime
 from backend.app.schemas import HistoricalCandlePayload
 from backend.app.services.market_scanner import DailyMarketScanner
 from backend.app.services.paper_trading_service import ensure_settings
@@ -329,6 +330,105 @@ def _load_zerodha_ltp_map(db: Session, symbols: list[tuple[str, str]]) -> dict[s
     except Exception:  # noqa: BLE001
         logger.warning("Unable to fetch Zerodha LTP quotes for potential line hits", exc_info=True)
         return {}
+
+
+def _load_runtime_live_price_map() -> dict[str, dict]:
+    try:
+        snapshot = get_live_engine_runtime()
+    except Exception:  # noqa: BLE001
+        logger.warning("Unable to load live engine runtime snapshot for potential line hits", exc_info=True)
+        return {}
+    if not snapshot:
+        return {}
+    latest_prices = snapshot.get("latest_prices")
+    return latest_prices if isinstance(latest_prices, dict) else {}
+
+
+def _load_recent_3minute_close_map(
+    db: Session,
+    symbols: list[tuple[str, str]],
+) -> dict[str, dict]:
+    if not symbols:
+        return {}
+
+    symbol_keys = {(exchange, symbol) for exchange, symbol in symbols}
+    recent_threshold = datetime.now(UTC) - timedelta(days=2)
+    rows = db.scalars(
+        select(MarketCandle)
+        .where(MarketCandle.timeframe == "3minute", MarketCandle.candle_end >= recent_threshold)
+        .order_by(desc(MarketCandle.candle_end))
+        .limit(max(len(symbol_keys) * 12, 200))
+    ).all()
+    latest_map: dict[str, dict] = {}
+    for row in rows:
+        key_tuple = (row.exchange, row.symbol)
+        if key_tuple not in symbol_keys:
+            continue
+        key = f"{row.exchange}:{row.symbol}"
+        if key in latest_map:
+            continue
+        latest_map[key] = {
+            "price": round(float(row.close), 2),
+            "timestamp": row.candle_end.astimezone(UTC).isoformat(),
+            "source": "3minute_close",
+        }
+    return latest_map
+
+
+def _resolve_live_price_payload(
+    *,
+    quote_key: str,
+    runtime_price_map: dict[str, dict],
+    ltp_map: dict[str, float],
+    three_minute_close_map: dict[str, dict],
+    daily_close: float | None,
+) -> dict:
+    runtime_entry = runtime_price_map.get(quote_key)
+    if isinstance(runtime_entry, dict) and runtime_entry.get("price") is not None:
+        price = round(float(runtime_entry["price"]), 2)
+        timestamp = runtime_entry.get("timestamp")
+        return {
+            "value": price,
+            "source": "tick",
+            "label": f"{price} · Tick",
+            "timestamp": timestamp,
+        }
+
+    ltp_value = ltp_map.get(quote_key)
+    if ltp_value is not None:
+        price = round(float(ltp_value), 2)
+        return {
+            "value": price,
+            "source": "zerodha_ltp",
+            "label": f"{price} · Zerodha LTP",
+            "timestamp": None,
+        }
+
+    candle_entry = three_minute_close_map.get(quote_key)
+    if isinstance(candle_entry, dict) and candle_entry.get("price") is not None:
+        price = round(float(candle_entry["price"]), 2)
+        return {
+            "value": price,
+            "source": "3minute_close",
+            "label": f"{price} · 3-min close",
+            "timestamp": candle_entry.get("timestamp"),
+        }
+
+    if daily_close is not None:
+        price = round(float(daily_close), 2)
+        return {
+            "value": price,
+            "source": "daily_close",
+            "label": f"{price} · Daily close",
+            "timestamp": None,
+        }
+
+    return {
+        "value": None,
+        "source": None,
+        "label": "Unavailable",
+        "timestamp": None,
+    }
 
 
 def _serialize_broker_order(order: BrokerOrder, signal: TradingSignal | None = None) -> dict:
@@ -650,7 +750,7 @@ def dashboard_home() -> str:
       renderDashboardSummary(latestOverview, review.summary.tuning, review.summary);
       renderTable(
         document.getElementById("dailyReviewTable"),
-        ["Symbol", "Line Type", "Breakout Price", "Line Drawn Date", "Swing 1", "Swing 2", "Gap %", "Nearest Target"],
+        ["Symbol", "Line Type", "Breakout", "Line Drawn Date", "Swing 1", "Swing 2", "Gap %", "Nearest Target"],
         review.rows.map((item) => [
           item.symbol,
           `<span class="badge">${item.line_type}</span>`,
@@ -683,7 +783,7 @@ def dashboard_home() -> str:
       renderBreakoutReviewSummary(review.summary);
       renderTable(
         document.getElementById("breakoutReviewTable"),
-        ["Symbol", "Line Type", "Breakout Price", "Event", "Breakout Time", "Prev Volume", "Breakout Volume", "Required", "Ratio", "Passed", "Entry", "Stop Loss", "Target", "Signal", "Status"],
+        ["Symbol", "Line Type", "Breakout", "Event", "Breakout Time", "Prev Volume", "Breakout Volume", "Required", "Ratio", "Passed", "Entry", "Stop Loss", "Target", "Signal", "Status"],
         review.rows.map((item) => [
           item.symbol,
           `<span class="badge">${item.line_type}</span>`,
@@ -729,13 +829,13 @@ def dashboard_home() -> str:
       renderPotentialLineHitSummary(payload);
       renderTable(
         document.getElementById("potentialLineHitsTable"),
-        ["Symbol", "Line Type", "Breakout Price", "Last Close", "Live Price", "Distance %", "Toward Moves", "Nearest Target", "Line Drawn", "Readiness"],
+        ["Symbol", "Line Type", "Breakout", "Last Close", "Live Price", "Distance %", "Toward Moves", "Nearest Target", "Line Drawn", "Readiness"],
         payload.rows.map((item) => [
           `${item.exchange}:${item.symbol}`,
           `<span class="badge">${item.line_type}</span>`,
           item.line_price ?? "N/A",
           item.last_close ?? "N/A",
-          item.current_realtime_value ?? "Unavailable",
+          item.current_realtime_label || "Unavailable",
           item.distance_percent ?? "N/A",
           item.toward_moves ?? "N/A",
           item.nearest_target ?? "N/A",
@@ -1617,7 +1717,10 @@ def dashboard_potential_line_hits(db: Session = Depends(get_db)) -> dict:
             "rows": [],
         }
 
-    ltp_map = _load_zerodha_ltp_map(db, [(line.exchange, line.symbol) for line in active_lines])
+    symbol_keys = [(line.exchange, line.symbol) for line in active_lines]
+    runtime_price_map = _load_runtime_live_price_map()
+    ltp_map = _load_zerodha_ltp_map(db, symbol_keys)
+    three_minute_close_map = _load_recent_3minute_close_map(db, symbol_keys)
     candle_cache: dict[tuple[str, str], list[HistoricalCandlePayload]] = {}
     rows: list[dict] = []
     latest_daily_candle_date = None
@@ -1636,8 +1739,17 @@ def dashboard_potential_line_hits(db: Session = Depends(get_db)) -> dict:
         if row is None:
             continue
         quote_key = f"{line.exchange}:{line.symbol}"
-        current_realtime_value = ltp_map.get(quote_key)
-        row["current_realtime_value"] = round(float(current_realtime_value), 2) if current_realtime_value is not None else None
+        live_price_payload = _resolve_live_price_payload(
+            quote_key=quote_key,
+            runtime_price_map=runtime_price_map,
+            ltp_map=ltp_map,
+            three_minute_close_map=three_minute_close_map,
+            daily_close=row.get("last_close"),
+        )
+        row["current_realtime_value"] = live_price_payload["value"]
+        row["current_realtime_source"] = live_price_payload["source"]
+        row["current_realtime_label"] = live_price_payload["label"]
+        row["current_realtime_timestamp"] = live_price_payload["timestamp"]
         latest_daily_candle_date = row["last_daily_candle_date"] if latest_daily_candle_date is None else max(latest_daily_candle_date, row["last_daily_candle_date"])
         rows.append(row)
 

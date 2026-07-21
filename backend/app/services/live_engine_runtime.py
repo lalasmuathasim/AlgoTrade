@@ -29,6 +29,7 @@ def build_live_engine_runtime_snapshot(
     last_finalized_candle: dict | None = None,
     last_signal_id: str | None = None,
     last_signal_symbol: str | None = None,
+    latest_prices: dict[str, dict] | None = None,
 ) -> dict:
     return {
         "status": status,
@@ -46,4 +47,5 @@ def build_live_engine_runtime_snapshot(
         "last_finalized_candle": last_finalized_candle,
         "last_signal_id": last_signal_id,
         "last_signal_symbol": last_signal_symbol,
+        "latest_prices": latest_prices or {},
     }
