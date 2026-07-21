@@ -1,12 +1,10 @@
 import logging
 import csv
-import json
 from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta
 from io import StringIO
 from statistics import mean
 from uuid import UUID
-import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -693,7 +691,8 @@ def dashboard_home() -> str:
     script = """
     let latestOverview = null;
     let currentTradeHistoryMode = "combined";
-    let dashboardRuntimeStream = null;
+    let dashboardRuntimePollTimer = null;
+    let dashboardRuntimePollInFlight = false;
     let latestRuntimePrices = {};
     let lastRuntimePublishedAt = null;
     let lastRuntimeSignalId = null;
@@ -976,7 +975,7 @@ def dashboard_home() -> str:
     }
 
     async function init() {
-      initializeDashboardRuntimeStream();
+      startDashboardRuntimePolling();
       const [overview] = await Promise.all([
         apiGet("/dashboard/reports/overview"),
       ]);
@@ -1024,21 +1023,33 @@ def dashboard_home() -> str:
       }
     }
 
-    function initializeDashboardRuntimeStream() {
-      if (dashboardRuntimeStream) {
-        dashboardRuntimeStream.close();
+    async function pollDashboardRuntime() {
+      if (dashboardRuntimePollInFlight) {
+        return;
       }
-      dashboardRuntimeStream = new EventSource("/dashboard/stream/runtime");
-      dashboardRuntimeStream.onmessage = (event) => {
-        try {
-          handleRuntimeStreamMessage(JSON.parse(event.data));
-        } catch (error) {
-          console.warn("Unable to parse dashboard runtime stream payload", error);
+      dashboardRuntimePollInFlight = true;
+      try {
+        const snapshot = await apiGet("/dashboard/runtime");
+        if (snapshot && typeof snapshot === "object") {
+          handleRuntimeStreamMessage(snapshot);
         }
-      };
-      dashboardRuntimeStream.onerror = () => {
-        document.getElementById("potentialLineHitSummary").textContent = "Live runtime stream disconnected. The dashboard will keep trying to reconnect automatically.";
-      };
+      } catch (error) {
+        const summary = document.getElementById("potentialLineHitSummary");
+        if (summary) {
+          summary.textContent = `Live runtime updates are temporarily unavailable. Retrying automatically. ${error.message}`;
+          summary.className = "table-toolbar-copy warn";
+        }
+      } finally {
+        dashboardRuntimePollInFlight = false;
+      }
+    }
+
+    function startDashboardRuntimePolling() {
+      if (dashboardRuntimePollTimer) {
+        clearInterval(dashboardRuntimePollTimer);
+      }
+      pollDashboardRuntime();
+      dashboardRuntimePollTimer = window.setInterval(pollDashboardRuntime, 1000);
     }
 
     document.getElementById("refreshDailyReviewButton").addEventListener("click", async () => {
@@ -1367,31 +1378,24 @@ def dashboard_report_overview(db: Session = Depends(get_db)) -> dict:
     }
 
 
-@router.get("/dashboard/stream/runtime")
-async def dashboard_runtime_stream():
-    async def event_stream():
-        last_published_at = None
-        heartbeat_started_at = datetime.now(UTC)
-        while True:
-            try:
-                snapshot = get_live_engine_runtime()
-                if snapshot:
-                    published_at = snapshot.get("published_at")
-                    if published_at != last_published_at:
-                        last_published_at = published_at
-                        heartbeat_started_at = datetime.now(UTC)
-                        yield f"data: {json.dumps(snapshot)}\n\n"
-                    elif (datetime.now(UTC) - heartbeat_started_at).total_seconds() >= 10:
-                        heartbeat_started_at = datetime.now(UTC)
-                        yield ": keep-alive\n\n"
-                else:
-                    yield ": waiting-for-runtime\n\n"
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Dashboard runtime stream read failed: %s", exc)
-                yield f"event: error\ndata: {json.dumps({'detail': 'runtime_unavailable'})}\n\n"
-            await asyncio.sleep(0.35)
+@router.get("/dashboard/runtime")
+def dashboard_runtime_snapshot() -> dict:
+    try:
+        snapshot = get_live_engine_runtime()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Dashboard runtime snapshot read failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Live runtime is temporarily unavailable") from exc
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    if snapshot is None:
+        return {
+            "status": "NOT_PUBLISHED",
+            "message": "Live engine has not published runtime state yet.",
+            "latest_prices": {},
+            "finalized_candles_count": 0,
+            "last_signal_id": None,
+            "published_at": None,
+        }
+    return snapshot
 
 
 @router.get("/dashboard/reports/watched-symbols")

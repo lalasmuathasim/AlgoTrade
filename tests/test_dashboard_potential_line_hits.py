@@ -176,6 +176,29 @@ class DashboardPotentialLineHitTests(unittest.TestCase):
         client.close()
         app.dependency_overrides.clear()
 
+    def test_dashboard_runtime_snapshot_returns_unpublished_fallback(self):
+        app = FastAPI()
+        app.include_router(router)
+        app.dependency_overrides[require_approved_user] = lambda: SimpleNamespace(
+            id=uuid.uuid4(),
+            role="ADMIN",
+            approval_status="APPROVED",
+            is_active=True,
+        )
+        client = TestClient(app)
+
+        with patch("backend.app.routers.dashboard.get_live_engine_runtime", return_value=None):
+            response = client.get("/dashboard/runtime")
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["status"], "NOT_PUBLISHED")
+        self.assertEqual(payload["latest_prices"], {})
+        self.assertEqual(payload["finalized_candles_count"], 0)
+        self.assertIsNone(payload["published_at"])
+        client.close()
+        app.dependency_overrides.clear()
+
 
 if __name__ == "__main__":
     unittest.main()
