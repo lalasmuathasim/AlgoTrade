@@ -1,10 +1,12 @@
 import logging
 import csv
+import json
 from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta
 from io import StringIO
 from statistics import mean
 from uuid import UUID
+import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -691,6 +693,11 @@ def dashboard_home() -> str:
     script = """
     let latestOverview = null;
     let currentTradeHistoryMode = "combined";
+    let dashboardRuntimeStream = null;
+    let lastRuntimePublishedAt = null;
+    let lastRuntimeSignalId = null;
+    let lastRuntimeFinalizedCount = 0;
+    let liveRefreshInFlight = false;
     const syncDailyReviewPreview = bindCollapsibleTable({
       buttonId: "dailyReviewToggle",
       frameId: "dailyReviewFrame",
@@ -824,6 +831,45 @@ def dashboard_home() -> str:
       element.className = "table-toolbar-copy";
     }
 
+    function applyPotentialLineHitLivePrices(latestPrices = {}) {
+      document.querySelectorAll("[data-live-price-key]").forEach((element) => {
+        const key = element.dataset.livePriceKey;
+        const fallbackLabel = element.dataset.livePriceFallback || "Unavailable";
+        const pricePayload = latestPrices && typeof latestPrices === "object" ? latestPrices[key] : null;
+        if (pricePayload && pricePayload.price != null) {
+          const priceValue = Number(pricePayload.price);
+          const source = pricePayload.source === "tick"
+            ? "Tick"
+            : pricePayload.source === "zerodha_ltp"
+              ? "Zerodha LTP"
+              : pricePayload.source === "3minute_close"
+                ? "3-min close"
+                : "Live";
+          element.textContent = `${Number.isFinite(priceValue) ? priceValue.toFixed(2).replace(/\\.00$/, "") : pricePayload.price} · ${source}`;
+        } else {
+          element.textContent = fallbackLabel;
+        }
+      });
+    }
+
+    async function refreshDashboardFromRuntime() {
+      if (liveRefreshInFlight) {
+        return;
+      }
+      liveRefreshInFlight = true;
+      try {
+        await Promise.all([
+          loadPotentialLineHits(),
+          loadBreakoutReview(),
+          loadTradeHistory(currentTradeHistoryMode),
+        ]);
+      } catch (error) {
+        document.getElementById("potentialLineHitSummary").textContent = `Live dashboard refresh is temporarily unavailable: ${error.message}`;
+      } finally {
+        liveRefreshInFlight = false;
+      }
+    }
+
     async function loadPotentialLineHits() {
       const payload = await apiGet("/dashboard/reports/potential-line-hits");
       renderPotentialLineHitSummary(payload);
@@ -835,7 +881,7 @@ def dashboard_home() -> str:
           `<span class="badge">${item.line_type}</span>`,
           item.line_price ?? "N/A",
           item.last_close ?? "N/A",
-          item.current_realtime_label || "Unavailable",
+          `<span data-live-price-key="${item.exchange}:${item.symbol}" data-live-price-fallback="${item.current_realtime_label || "Unavailable"}">${item.current_realtime_label || "Unavailable"}</span>`,
           item.distance_percent ?? "N/A",
           item.toward_moves ?? "N/A",
           item.nearest_target ?? "N/A",
@@ -845,6 +891,9 @@ def dashboard_home() -> str:
         { symbolFilter: { enabled: true, columnIndex: 0, placeholder: "Filter potential-hit symbols" } },
       );
       syncPotentialLineHitPreview();
+      if (payload.latest_prices) {
+        applyPotentialLineHitLivePrices(payload.latest_prices);
+      }
       return payload;
     }
 
@@ -936,6 +985,7 @@ def dashboard_home() -> str:
       renderDashboardSummary(overview);
       try {
         await Promise.all([loadDailyLineReview(), loadBreakoutReview(), loadPotentialLineHits(), loadTradeHistory("combined")]);
+        initializeDashboardRuntimeStream();
       } catch (error) {
         renderDashboardSummary(
           overview,
@@ -947,6 +997,48 @@ def dashboard_home() -> str:
           ],
         );
       }
+    }
+
+    function handleRuntimeStreamMessage(snapshot) {
+      if (!snapshot || typeof snapshot !== "object") {
+        return;
+      }
+
+      if (snapshot.latest_prices) {
+        applyPotentialLineHitLivePrices(snapshot.latest_prices);
+      }
+
+      const publishedAt = snapshot.published_at || null;
+      const finalizedCount = Number(snapshot.finalized_candles_count || 0);
+      const signalId = snapshot.last_signal_id || null;
+      const requiresReload =
+        (publishedAt && publishedAt !== lastRuntimePublishedAt && finalizedCount > lastRuntimeFinalizedCount)
+        || (signalId && signalId !== lastRuntimeSignalId);
+
+      lastRuntimePublishedAt = publishedAt || lastRuntimePublishedAt;
+      lastRuntimeFinalizedCount = Math.max(lastRuntimeFinalizedCount, finalizedCount);
+      lastRuntimeSignalId = signalId || lastRuntimeSignalId;
+
+      if (requiresReload) {
+        refreshDashboardFromRuntime();
+      }
+    }
+
+    function initializeDashboardRuntimeStream() {
+      if (dashboardRuntimeStream) {
+        dashboardRuntimeStream.close();
+      }
+      dashboardRuntimeStream = new EventSource("/dashboard/stream/runtime");
+      dashboardRuntimeStream.onmessage = (event) => {
+        try {
+          handleRuntimeStreamMessage(JSON.parse(event.data));
+        } catch (error) {
+          console.warn("Unable to parse dashboard runtime stream payload", error);
+        }
+      };
+      dashboardRuntimeStream.onerror = () => {
+        document.getElementById("potentialLineHitSummary").textContent = "Live runtime stream disconnected. The dashboard will keep trying to reconnect automatically.";
+      };
     }
 
     document.getElementById("refreshDailyReviewButton").addEventListener("click", async () => {
@@ -1273,6 +1365,30 @@ def dashboard_report_overview(db: Session = Depends(get_db)) -> dict:
         "active_trigger_lines": sum(1 for line in trigger_lines if line.line_status == "ACTIVE"),
         "triggered_lines": sum(1 for line in trigger_lines if line.line_status == "TRIGGERED"),
     }
+
+
+@router.get("/dashboard/stream/runtime")
+async def dashboard_runtime_stream():
+    async def event_stream():
+        last_published_at = None
+        while True:
+            try:
+                snapshot = get_live_engine_runtime()
+                if snapshot:
+                    published_at = snapshot.get("published_at")
+                    if published_at != last_published_at:
+                        last_published_at = published_at
+                        yield f"data: {json.dumps(snapshot)}\n\n"
+                    else:
+                        yield ": keep-alive\n\n"
+                else:
+                    yield ": waiting-for-runtime\n\n"
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Dashboard runtime stream read failed: %s", exc)
+                yield f"event: error\ndata: {json.dumps({'detail': 'runtime_unavailable'})}\n\n"
+            await asyncio.sleep(2)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.get("/dashboard/reports/watched-symbols")
