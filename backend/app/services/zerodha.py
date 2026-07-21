@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.config import get_settings
-from backend.app.models import Instrument, TriggerLine
+from backend.app.models import Instrument, TriggerLine, WatchlistSymbol
 from backend.app.schemas import HistoricalCandlePayload, InstrumentPayload, TickPayload
 from backend.app.services.watchlists import get_selected_watchlist
 
@@ -344,18 +344,50 @@ class SubscriptionManager:
         subscriptions: dict[int, dict] = {}
         instruments = db.scalars(select(Instrument).where(Instrument.is_active.is_(True))).all()
         instrument_map = {instrument.id: instrument for instrument in instruments}
+        instrument_by_exchange_symbol: dict[tuple[str, str], Instrument] = {}
+        for instrument in instruments:
+            exchange = getattr(instrument, "exchange", None)
+            tradingsymbol = getattr(instrument, "tradingsymbol", None)
+            if exchange and tradingsymbol:
+                instrument_by_exchange_symbol.setdefault((exchange, tradingsymbol), instrument)
+
+        memberships_query = select(WatchlistSymbol).where(WatchlistSymbol.is_active.is_(True))
+        if selected_watchlist is not None:
+            memberships_query = memberships_query.where(WatchlistSymbol.watchlist_id == selected_watchlist.id)
+        memberships = db.scalars(memberships_query).all()
+        membership_by_watchlist_symbol = {
+            (membership.watchlist_id, membership.exchange, membership.symbol): membership
+            for membership in memberships
+        }
 
         active_lines_query = select(TriggerLine).where(TriggerLine.line_status == "ACTIVE")
         if selected_watchlist is not None:
             active_lines_query = active_lines_query.where(TriggerLine.watchlist_id == selected_watchlist.id)
         active_lines = db.scalars(active_lines_query).all()
         for line in active_lines:
+            instrument_token: int | None = None
+
             if line.instrument_id and line.instrument_id in instrument_map:
-                instrument = instrument_map[line.instrument_id]
+                instrument_token = instrument_map[line.instrument_id].instrument_token
+
+            if instrument_token is None:
+                membership = membership_by_watchlist_symbol.get((line.watchlist_id, line.exchange, line.symbol))
+                if membership is not None:
+                    if membership.instrument_token is not None:
+                        instrument_token = membership.instrument_token
+                    elif membership.instrument_id and membership.instrument_id in instrument_map:
+                        instrument_token = instrument_map[membership.instrument_id].instrument_token
+
+            if instrument_token is None:
+                instrument = instrument_by_exchange_symbol.get((line.exchange, line.symbol))
+                if instrument is not None:
+                    instrument_token = instrument.instrument_token
+
+            if instrument_token is not None:
                 subscriptions.setdefault(
-                    instrument.instrument_token,
+                    instrument_token,
                     {
-                        "instrument_token": instrument.instrument_token,
+                        "instrument_token": instrument_token,
                         "exchange": line.exchange,
                         "symbol": line.symbol,
                         "source": "TRIGGER_LINE",

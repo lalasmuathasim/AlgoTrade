@@ -10,7 +10,7 @@ from tests.support import configure_test_env
 
 configure_test_env()
 
-from backend.app.models import Instrument, TriggerLine
+from backend.app.models import Instrument, TriggerLine, WatchlistSymbol
 from backend.app.services.zerodha import SubscriptionManager
 
 
@@ -51,7 +51,16 @@ class SubscriptionManagerTests(unittest.TestCase):
             line_type="BUY",
             line_price=100.0,
         )
-        db = FakeSession([[instrument], [line]])
+        membership = WatchlistSymbol(
+            id=uuid.uuid4(),
+            watchlist_id=selected_watchlist.id,
+            instrument_id=instrument.id,
+            instrument_token=instrument.instrument_token,
+            exchange="NSE",
+            symbol="RELIANCE",
+            is_active=True,
+        )
+        db = FakeSession([[instrument], [membership], [line]])
 
         with patch("backend.app.services.zerodha.get_selected_watchlist", return_value=selected_watchlist):
             subscriptions = SubscriptionManager().describe_active_subscriptions(db)
@@ -60,6 +69,43 @@ class SubscriptionManagerTests(unittest.TestCase):
         self.assertEqual(subscriptions[0]["instrument_token"], 738561)
         self.assertEqual(subscriptions[0]["symbol"], "RELIANCE")
         self.assertEqual(subscriptions[0]["source"], "TRIGGER_LINE")
+
+    def test_describe_active_subscriptions_falls_back_to_watchlist_membership_mapping(self):
+        selected_watchlist = SimpleNamespace(id=uuid.uuid4())
+        instrument = Instrument(
+            id=uuid.uuid4(),
+            instrument_token=408065,
+            tradingsymbol="INFY",
+            exchange="NSE",
+            is_active=True,
+        )
+        membership = WatchlistSymbol(
+            id=uuid.uuid4(),
+            watchlist_id=selected_watchlist.id,
+            instrument_id=instrument.id,
+            instrument_token=instrument.instrument_token,
+            exchange="NSE",
+            symbol="INFY",
+            is_active=True,
+        )
+        line = TriggerLine(
+            id=uuid.uuid4(),
+            watchlist_id=selected_watchlist.id,
+            instrument_id=None,
+            exchange="NSE",
+            symbol="INFY",
+            line_status="ACTIVE",
+            line_type="SELL",
+            line_price=1499.0,
+        )
+        db = FakeSession([[instrument], [membership], [line]])
+
+        with patch("backend.app.services.zerodha.get_selected_watchlist", return_value=selected_watchlist):
+            subscriptions = SubscriptionManager().describe_active_subscriptions(db)
+
+        self.assertEqual(len(subscriptions), 1)
+        self.assertEqual(subscriptions[0]["instrument_token"], 408065)
+        self.assertEqual(subscriptions[0]["symbol"], "INFY")
 
 
 if __name__ == "__main__":

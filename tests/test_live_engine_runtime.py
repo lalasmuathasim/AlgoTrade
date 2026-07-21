@@ -64,7 +64,7 @@ class LiveEngineRuntimeTests(unittest.TestCase):
             symbol="RELIANCE",
             line_status="ACTIVE",
         )
-        db = _DummyDb([[instrument], [trigger_line]])
+        db = _DummyDb([[instrument], [], [trigger_line]])
 
         with patch("backend.app.services.zerodha.get_selected_watchlist", return_value=selected_watchlist):
             subscriptions = SubscriptionManager().describe_active_subscriptions(db)
