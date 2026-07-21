@@ -648,6 +648,7 @@ def dashboard_home() -> str:
           item.swing_gap_percent ?? "N/A",
           item.nearest_target ?? "N/A",
         ]),
+        { symbolFilter: { enabled: true, columnIndex: 0, placeholder: "Filter daily structure symbols" } },
       );
       syncDailyReviewPreview();
       return review;
@@ -687,6 +688,7 @@ def dashboard_home() -> str:
           item.signal_generated ? '<span class="badge">CREATED</span>' : '<span class="badge warn">SKIPPED</span>',
           item.rejection_reason ? `${item.status} · ${item.rejection_reason}` : item.status,
         ]),
+        { symbolFilter: { enabled: true, columnIndex: 0, placeholder: "Filter breakout symbols" } },
       );
       syncBreakoutReviewPreview();
       return review;
@@ -728,6 +730,7 @@ def dashboard_home() -> str:
           item.last_daily_candle_date || "N/A",
           item.readiness_score ?? "N/A",
         ]),
+        { symbolFilter: { enabled: true, columnIndex: 0, placeholder: "Filter potential-hit symbols" } },
       );
       syncPotentialLineHitPreview();
       return payload;
@@ -783,6 +786,7 @@ def dashboard_home() -> str:
           item.order_ref ?? "N/A",
           item.activity_time ? new Date(item.activity_time).toLocaleString() : "N/A",
         ]),
+        { symbolFilter: { enabled: true, columnIndex: 1, placeholder: "Filter trade symbols" } },
       );
       syncTradeHistoryPreview();
       return payload;

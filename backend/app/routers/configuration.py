@@ -1239,6 +1239,7 @@ def configuration_page() -> str:
               : "Unavailable",
           item.is_active ? '<span class="badge">ACTIVE</span>' : '<span class="badge warn">INACTIVE</span>',
         ]),
+        { symbolFilter: { enabled: true, columnIndex: 0, placeholder: "Filter watchlist symbols" } },
       );
       syncWatchlistDetailPreview();
     }
@@ -1300,6 +1301,7 @@ def configuration_page() -> str:
           row.latest_3minute_candle_at ? new Date(row.latest_3minute_candle_at).toLocaleString() : "No recent candle",
           row.latest_3minute_volume ?? "N/A",
         ]),
+        { symbolFilter: { enabled: true, columnIndex: 0, placeholder: "Filter coverage symbols" } },
       );
       syncSymbolActivityPreview();
     }
@@ -1421,6 +1423,7 @@ def configuration_page() -> str:
             match?.instrument_token ?? "N/A",
           ];
         }),
+        { symbolFilter: { enabled: true, columnIndex: 0, placeholder: "Filter validation symbols" } },
       );
     }
 
@@ -1504,7 +1507,12 @@ def configuration_page() -> str:
         await openWatchlistDetail(detailWatchlist.id);
       } else {
         setToolbarCopyMessage("watchlistDetailMeta", "Create a watchlist to inspect its symbols and current prices.", "warn");
-        renderTable(document.getElementById("watchlistDetailTable"), ["Symbol", "Company", "Instrument Token", "Current Price", "Price Source", "Active"], []);
+        renderTable(
+          document.getElementById("watchlistDetailTable"),
+          ["Symbol", "Company", "Instrument Token", "Current Price", "Price Source", "Active"],
+          [],
+          { symbolFilter: { enabled: true, columnIndex: 0, placeholder: "Filter watchlist symbols" } },
+        );
         syncWatchlistDetailPreview();
       }
     }

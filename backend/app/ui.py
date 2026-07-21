@@ -513,6 +513,17 @@ def render_app_shell(
       gap: 10px;
       flex-wrap: wrap;
     }}
+    .table-toolbar-search {{
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-left: auto;
+      min-width: min(320px, 100%);
+    }}
+    .table-toolbar-actions + .table-toolbar-search {{
+      margin-left: 0;
+    }}
     .table-toolbar-copy {{
       margin: 0;
       color: var(--muted);
@@ -542,6 +553,13 @@ def render_app_shell(
       min-width: var(--table-min-width, 760px);
       table-layout: auto;
     }}
+    thead th {{
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: rgba(247, 250, 254, 0.97);
+      box-shadow: inset 0 -1px 0 rgba(122, 151, 185, 0.14);
+    }}
     th,
     td {{
       padding: 11px 8px;
@@ -559,6 +577,21 @@ def render_app_shell(
       font-weight: 700;
       letter-spacing: 0.12em;
       text-transform: uppercase;
+    }}
+    .table-filter {{
+      width: min(280px, 100%);
+      min-height: 38px;
+      padding: 9px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(122, 151, 185, 0.18);
+      background: rgba(255, 255, 255, 0.94);
+      color: var(--text);
+      font-size: 0.9rem;
+    }}
+    .table-filter-meta {{
+      color: var(--muted);
+      font-size: 0.78rem;
+      white-space: nowrap;
     }}
     tbody tr:hover {{
       background: rgba(92, 167, 255, 0.035);
@@ -829,12 +862,99 @@ def render_app_shell(
         </article>
       `).join("");
     }}
-    function renderTable(element, headers, rows) {{
-      const head = `<tr>${{headers.map((header) => `<th>${{header}}</th>`).join("")}}</tr>`;
-      const body = rows.length
-        ? rows.map((row) => `<tr>${{row.map((cell) => `<td>${{cell ?? ""}}</td>`).join("")}}</tr>`).join("")
-        : `<tr><td colspan="${{headers.length}}" class="empty">No rows to display.</td></tr>`;
+    function tablePlainText(value) {{
+      if (value == null) {{
+        return "";
+      }}
+      const buffer = document.createElement("div");
+      buffer.innerHTML = String(value);
+      return (buffer.textContent || buffer.innerText || "").trim();
+    }}
+    function ensureTableSearch(element) {{
+      const state = element._tableState || null;
+      const toolbar = element.closest(".table-shell")?.querySelector(".table-toolbar");
+      if (!toolbar || !state) {{
+        return null;
+      }}
+
+      const filterConfig = state.options?.symbolFilter;
+      let slot = toolbar.querySelector(`[data-table-filter-for="${{element.id}}"]`);
+      if (!filterConfig?.enabled || !element.id) {{
+        if (slot) {{
+          slot.remove();
+        }}
+        return null;
+      }}
+
+      if (!slot) {{
+        slot = document.createElement("div");
+        slot.className = "table-toolbar-search";
+        slot.dataset.tableFilterFor = element.id;
+        slot.innerHTML = `
+          <input class="table-filter" type="search" autocomplete="off" spellcheck="false" />
+          <span class="table-filter-meta"></span>
+        `;
+        toolbar.appendChild(slot);
+      }}
+
+      const input = slot.querySelector(".table-filter");
+      const meta = slot.querySelector(".table-filter-meta");
+      const listId = `${{element.id}}-symbol-options`;
+      let datalist = toolbar.querySelector(`#${{listId}}`);
+      if (!datalist) {{
+        datalist = document.createElement("datalist");
+        datalist.id = listId;
+        toolbar.appendChild(datalist);
+      }}
+
+      const suggestions = Array.from(new Set(
+        state.rows
+          .map((row) => tablePlainText(row[filterConfig.columnIndex]))
+          .filter(Boolean),
+      )).sort((left, right) => left.localeCompare(right));
+      datalist.innerHTML = suggestions.map((item) => `<option value="${{item}}"></option>`).join("");
+
+      input.setAttribute("list", listId);
+      input.placeholder = filterConfig.placeholder || "Filter symbols";
+      input.value = state.query || "";
+      input.oninput = () => {{
+        state.query = input.value;
+        renderTableFromState(element);
+      }};
+
+      const filteredCount = state.filteredRows?.length ?? state.rows.length;
+      meta.textContent = `${{filteredCount}} of ${{state.rows.length}}`;
+      return slot;
+    }}
+    function renderTableFromState(element) {{
+      const state = element._tableState;
+      if (!state) {{
+        return;
+      }}
+      const query = (state.query || "").trim().toLowerCase();
+      const filterConfig = state.options?.symbolFilter;
+      const filteredRows = query && filterConfig?.enabled
+        ? state.rows.filter((row) => tablePlainText(row[filterConfig.columnIndex]).toLowerCase().includes(query))
+        : state.rows;
+      state.filteredRows = filteredRows;
+
+      const head = `<tr>${{state.headers.map((header) => `<th>${{header}}</th>`).join("")}}</tr>`;
+      const body = filteredRows.length
+        ? filteredRows.map((row) => `<tr>${{row.map((cell) => `<td>${{cell ?? ""}}</td>`).join("")}}</tr>`).join("")
+        : `<tr><td colspan="${{state.headers.length}}" class="empty">${{query ? "No matching symbols." : "No rows to display."}}</td></tr>`;
       element.innerHTML = `<thead>${{head}}</thead><tbody>${{body}}</tbody>`;
+      ensureTableSearch(element);
+    }}
+    function renderTable(element, headers, rows, options = {{}}) {{
+      const previousState = element._tableState || {{}};
+      element._tableState = {{
+        headers,
+        rows,
+        options,
+        query: previousState.query || "",
+        filteredRows: rows,
+      }};
+      renderTableFromState(element);
     }}
     function bindCollapsibleTable({{ buttonId, frameId, tableId, previewRows = 8 }}) {{
       const button = document.getElementById(buttonId);
