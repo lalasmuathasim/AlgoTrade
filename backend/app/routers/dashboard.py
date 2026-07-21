@@ -1,3 +1,4 @@
+import logging
 import csv
 from collections import defaultdict
 from datetime import UTC, date, datetime
@@ -25,6 +26,7 @@ from backend.app.ui import render_app_shell
 
 router = APIRouter(tags=["dashboard"], dependencies=[Depends(require_approved_user)])
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 def _serialize_datetime(value: datetime | None) -> str | None:
@@ -266,10 +268,6 @@ def _build_potential_trigger_row(
         + ((directional_moves / 3.0) * 10.0),
         1,
     )
-    pattern = (
-        f"{toward_moves}/3 closes moved closer and {directional_moves}/3 closes moved "
-        f"{'up' if line.line_type == 'BUY' else 'down'} toward the line"
-    )
     return {
         "exchange": line.exchange,
         "symbol": line.symbol,
@@ -279,7 +277,6 @@ def _build_potential_trigger_row(
         "distance_percent": distance_percent,
         "toward_moves": toward_moves,
         "directional_moves": directional_moves,
-        "pattern": pattern,
         "nearest_target": round(nearest_target, 2) if nearest_target is not None else None,
         "line_drawn_date": _serialize_date(line.line_drawn_date),
         "last_daily_candle_date": candles[-1].timestamp.date().isoformat(),
@@ -316,6 +313,22 @@ def _load_recent_daily_candles_from_db(
         )
         for row in ordered_rows
     ]
+
+
+def _load_zerodha_ltp_map(db: Session, symbols: list[tuple[str, str]]) -> dict[str, float]:
+    access_token = get_current_zerodha_access_token(db) or settings.zerodha_access_token
+    if not symbols or not access_token:
+        return {}
+
+    quote_keys = sorted({f"{exchange}:{symbol}" for exchange, symbol in symbols})
+    try:
+        return ZerodhaApiClient(
+            auth_service=ZerodhaAuthService(),
+            access_token=access_token,
+        ).fetch_ltp_quotes(quote_keys)
+    except Exception:  # noqa: BLE001
+        logger.warning("Unable to fetch Zerodha LTP quotes for potential line hits", exc_info=True)
+        return {}
 
 
 def _serialize_broker_order(order: BrokerOrder, signal: TradingSignal | None = None) -> dict:
@@ -637,7 +650,7 @@ def dashboard_home() -> str:
       renderDashboardSummary(latestOverview, review.summary.tuning, review.summary);
       renderTable(
         document.getElementById("dailyReviewTable"),
-        ["Symbol", "Line Type", "Line Price", "Line Drawn Date", "Swing 1", "Swing 2", "Gap %", "Nearest Target"],
+        ["Symbol", "Line Type", "Breakout Price", "Line Drawn Date", "Swing 1", "Swing 2", "Gap %", "Nearest Target"],
         review.rows.map((item) => [
           item.symbol,
           `<span class="badge">${item.line_type}</span>`,
@@ -670,7 +683,7 @@ def dashboard_home() -> str:
       renderBreakoutReviewSummary(review.summary);
       renderTable(
         document.getElementById("breakoutReviewTable"),
-        ["Symbol", "Line Type", "Line Price", "Event", "Breakout Time", "Prev Volume", "Breakout Volume", "Required", "Ratio", "Passed", "Entry", "Stop Loss", "Target", "Signal", "Status"],
+        ["Symbol", "Line Type", "Breakout Price", "Event", "Breakout Time", "Prev Volume", "Breakout Volume", "Required", "Ratio", "Passed", "Entry", "Stop Loss", "Target", "Signal", "Status"],
         review.rows.map((item) => [
           item.symbol,
           `<span class="badge">${item.line_type}</span>`,
@@ -716,18 +729,17 @@ def dashboard_home() -> str:
       renderPotentialLineHitSummary(payload);
       renderTable(
         document.getElementById("potentialLineHitsTable"),
-        ["Symbol", "Line Type", "Line Price", "Last Close", "Distance %", "Toward Moves", "Pattern", "Nearest Target", "Line Drawn", "Last Daily Candle", "Readiness"],
+        ["Symbol", "Line Type", "Breakout Price", "Last Close", "Live Price", "Distance %", "Toward Moves", "Nearest Target", "Line Drawn", "Readiness"],
         payload.rows.map((item) => [
           `${item.exchange}:${item.symbol}`,
           `<span class="badge">${item.line_type}</span>`,
           item.line_price ?? "N/A",
           item.last_close ?? "N/A",
+          item.current_realtime_value ?? "Unavailable",
           item.distance_percent ?? "N/A",
           item.toward_moves ?? "N/A",
-          item.pattern || "N/A",
           item.nearest_target ?? "N/A",
           item.line_drawn_date || "N/A",
-          item.last_daily_candle_date || "N/A",
           item.readiness_score ?? "N/A",
         ]),
         { symbolFilter: { enabled: true, columnIndex: 0, placeholder: "Filter potential-hit symbols" } },
@@ -1605,6 +1617,7 @@ def dashboard_potential_line_hits(db: Session = Depends(get_db)) -> dict:
             "rows": [],
         }
 
+    ltp_map = _load_zerodha_ltp_map(db, [(line.exchange, line.symbol) for line in active_lines])
     candle_cache: dict[tuple[str, str], list[HistoricalCandlePayload]] = {}
     rows: list[dict] = []
     latest_daily_candle_date = None
@@ -1622,6 +1635,9 @@ def dashboard_potential_line_hits(db: Session = Depends(get_db)) -> dict:
         row = _build_potential_trigger_row(line, candles, prediction_threshold)
         if row is None:
             continue
+        quote_key = f"{line.exchange}:{line.symbol}"
+        current_realtime_value = ltp_map.get(quote_key)
+        row["current_realtime_value"] = round(float(current_realtime_value), 2) if current_realtime_value is not None else None
         latest_daily_candle_date = row["last_daily_candle_date"] if latest_daily_candle_date is None else max(latest_daily_candle_date, row["last_daily_candle_date"])
         rows.append(row)
 

@@ -2,16 +2,40 @@
 from __future__ import annotations
 
 from datetime import datetime
+from types import SimpleNamespace
 import unittest
 import uuid
+from unittest.mock import patch
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from tests.support import configure_test_env
 
 configure_test_env()
 
+from backend.app.database import get_db
+from backend.app.dependencies import require_approved_user
 from backend.app.models import TriggerLine
-from backend.app.routers.dashboard import _build_potential_trigger_row
+from backend.app.models import Watchlist
+from backend.app.routers.dashboard import _build_potential_trigger_row, router
 from backend.app.schemas import HistoricalCandlePayload
+
+
+class FakeScalarRows:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def all(self):
+        return list(self._rows)
+
+
+class DummyDb:
+    def __init__(self, scalars_values):
+        self.scalars_values = list(scalars_values)
+
+    def scalars(self, _query):
+        return FakeScalarRows(self.scalars_values.pop(0))
 
 
 class DashboardPotentialLineHitTests(unittest.TestCase):
@@ -81,6 +105,69 @@ class DashboardPotentialLineHitTests(unittest.TestCase):
         row = _build_potential_trigger_row(line, candles, prediction_proximity_percent=2.0)
 
         self.assertIsNone(row)
+
+    def test_route_returns_live_price_without_pattern_and_last_daily_candle_columns(self):
+        app = FastAPI()
+        app.include_router(router)
+        selected_watchlist = Watchlist(
+            id=uuid.uuid4(),
+            name="Selected Watchlist",
+            exchange="NSE",
+            is_selected=True,
+        )
+        trigger_line = TriggerLine(
+            id=uuid.uuid4(),
+            watchlist_id=selected_watchlist.id,
+            exchange="NSE",
+            symbol="RELIANCE",
+            line_type="BUY",
+            line_price=1000.0,
+            line_status="ACTIVE",
+            nearest_daily_swing_high_target=1045.0,
+        )
+        candles = [
+            HistoricalCandlePayload(
+                timestamp=datetime.fromisoformat(timestamp),
+                open=close - 2,
+                high=close + 3,
+                low=close - 4,
+                close=close,
+                volume=1000.0,
+            )
+            for timestamp, close in [
+                ("2026-07-14T00:00:00+00:00", 970.0),
+                ("2026-07-15T00:00:00+00:00", 978.0),
+                ("2026-07-16T00:00:00+00:00", 987.0),
+                ("2026-07-17T00:00:00+00:00", 994.0),
+            ]
+        ]
+        app.dependency_overrides[get_db] = lambda: DummyDb([[trigger_line]])
+        app.dependency_overrides[require_approved_user] = lambda: SimpleNamespace(
+            id=uuid.uuid4(),
+            role="ADMIN",
+            approval_status="APPROVED",
+            is_active=True,
+        )
+        client = TestClient(app)
+
+        with (
+            patch("backend.app.routers.dashboard.get_selected_watchlist", return_value=selected_watchlist),
+            patch(
+                "backend.app.routers.dashboard.ensure_settings",
+                return_value=SimpleNamespace(daily_candle_lookback=100, prediction_proximity_percent=2.0),
+            ),
+            patch("backend.app.routers.dashboard._load_recent_daily_candles_from_db", return_value=candles),
+            patch("backend.app.routers.dashboard._load_zerodha_ltp_map", return_value={"NSE:RELIANCE": 996.45}),
+        ):
+            response = client.get("/dashboard/reports/potential-line-hits")
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(payload["rows"]), 1)
+        self.assertEqual(payload["rows"][0]["current_realtime_value"], 996.45)
+        self.assertNotIn("pattern", payload["rows"][0])
+        client.close()
+        app.dependency_overrides.clear()
 
 
 if __name__ == "__main__":
