@@ -18,6 +18,14 @@ jobs:
       DEPLOY_HOST: ${{ secrets.LINODE_HOST }}
       DEPLOY_USER: ${{ secrets.LINODE_USERNAME }}
       DEPLOY_PORT: ${{ secrets.LINODE_PORT || '22' }}
+      SSH_OPTS: >-
+        -o BatchMode=yes
+        -o ConnectTimeout=20
+        -o ServerAliveInterval=15
+        -o ServerAliveCountMax=4
+        -o TCPKeepAlive=yes
+        -o StrictHostKeyChecking=yes
+        -o UserKnownHostsFile=~/.ssh/known_hosts
       DEPLOY_BASE: /var/www/clients/client0/web13
       APP_DOMAIN: qubitx.ai
       HAS_DEPLOY_KEY: ${{ secrets.LINODE_SSH_KEY != '' }}
@@ -188,13 +196,18 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -p "${DEPLOY_PORT}" -H "${DEPLOY_HOST}" >> ~/.ssh/known_hosts
 
+      - name: Verify SSH connectivity
+        run: |
+          set -eu
+          ssh ${SSH_OPTS} -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" 'printf "ssh-ok\n"'
+
       - name: Resolve server deployment directory
         id: deploy_root
         run: |
           set -eu
 
           DEPLOY_ROOT="$(
-            ssh -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" '
+            ssh ${SSH_OPTS} -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" '
               set -eu
               BASE="/var/www/clients/client0/web13"
 
@@ -268,10 +281,10 @@ jobs:
         run: |
           set -eu
 
-          scp -P "${DEPLOY_PORT}" /tmp/qubitx-deploy.tgz "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/qubitx-deploy.tgz"
-          scp -P "${DEPLOY_PORT}" /tmp/qubitx.env "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/qubitx.env"
+          scp ${SSH_OPTS} -P "${DEPLOY_PORT}" /tmp/qubitx-deploy.tgz "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/qubitx-deploy.tgz"
+          scp ${SSH_OPTS} -P "${DEPLOY_PORT}" /tmp/qubitx.env "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/qubitx.env"
 
-          ssh -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" "
+          ssh ${SSH_OPTS} -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" "
             set -eu
 
             DEPLOY_ROOT='${DEPLOY_ROOT}'
@@ -302,7 +315,7 @@ jobs:
         run: |
           set -eu
 
-          ssh -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" "
+          ssh ${SSH_OPTS} -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" "
             set -eu
             cd '${DEPLOY_ROOT}'
 
