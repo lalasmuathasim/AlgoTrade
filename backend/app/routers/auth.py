@@ -608,10 +608,30 @@ def landing_page() -> str:
     const dashboardButton = document.getElementById("dashboardButton");
     const tabs = document.querySelector(".tabs");
     const logoutButton = document.getElementById("logoutButton");
+    const authStatusMessages = {
+      logged_out: { message: "You have been logged out successfully.", tone: "success" },
+      auth_required: { message: "You were logged out because authentication is required to open that page. Please sign in again.", tone: "warn" },
+      session_expired: { message: "You were logged out because your session expired or became invalid. Please sign in again.", tone: "warn" },
+    };
 
     function setStatus(message, tone = "") {
       statusBar.textContent = message;
       statusBar.className = `status-bar ${tone}`;
+    }
+
+    function applyAuthStatusMessage() {
+      const params = new URLSearchParams(window.location.search);
+      const status = params.get("auth_status");
+      if (!status || !authStatusMessages[status]) {
+        return;
+      }
+      const { message, tone } = authStatusMessages[status];
+      activateTab("login");
+      setStatus(message, tone);
+      params.delete("auth_status");
+      const nextQuery = params.toString();
+      const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}`;
+      window.history.replaceState({}, "", nextUrl);
     }
 
     function showSignedInState(user) {
@@ -696,7 +716,7 @@ def landing_page() -> str:
 
     logoutButton.addEventListener("click", async () => {
       await fetch("/auth/logout", { method: "POST" });
-      window.location.reload();
+      window.location.href = "/?auth_status=logged_out";
     });
 
     async function detectSession() {
@@ -708,6 +728,7 @@ def landing_page() -> str:
       showSignedInState(user);
     }
 
+    applyAuthStatusMessage();
     detectSession();
   </script>
 </body>

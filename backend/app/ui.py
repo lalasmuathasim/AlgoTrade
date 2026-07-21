@@ -999,7 +999,7 @@ def render_app_shell(
     }}
     document.getElementById("logoutButton").addEventListener("click", async () => {{
       await apiSend("/auth/logout", "POST");
-      window.location.href = "/";
+      window.location.href = "/?auth_status=logged_out";
     }});
     {script}
   </script>
