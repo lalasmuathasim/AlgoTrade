@@ -116,16 +116,37 @@ def publish_live_engine_runtime(snapshot: dict) -> dict:
         **snapshot,
         "published_at": datetime.now(UTC).isoformat(),
     }
-    get_redis_client().set(
-        settings.live_engine_runtime_key,
-        json.dumps(payload),
-        ex=settings.live_engine_runtime_ttl_seconds,
-    )
+    try:
+        get_redis_client().set(
+            settings.live_engine_runtime_key,
+            json.dumps(payload),
+            ex=settings.live_engine_runtime_ttl_seconds,
+        )
+    except Exception as exc:  # noqa: BLE001
+        diagnostics = describe_redis_url()
+        logger.warning(
+            "Unable to publish live engine runtime to Redis host=%s port=%s db=%s error=%s",
+            diagnostics["host"],
+            diagnostics["port"],
+            diagnostics["db"],
+            exc.__class__.__name__,
+        )
     return payload
 
 
 def get_live_engine_runtime() -> dict | None:
-    payload = get_redis_client().get(settings.live_engine_runtime_key)
+    try:
+        payload = get_redis_client().get(settings.live_engine_runtime_key)
+    except Exception as exc:  # noqa: BLE001
+        diagnostics = describe_redis_url()
+        logger.warning(
+            "Unable to read live engine runtime from Redis host=%s port=%s db=%s error=%s",
+            diagnostics["host"],
+            diagnostics["port"],
+            diagnostics["db"],
+            exc.__class__.__name__,
+        )
+        return None
     if not payload:
         return None
     return json.loads(payload)

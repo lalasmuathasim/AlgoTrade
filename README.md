@@ -195,10 +195,19 @@ Do not start another PostgreSQL container if your shared PostgreSQL server is al
 
 Redis remains part of the architecture, but it is no longer used for webhook payload buffering. It now carries internal Qubitx dispatch jobs such as signal execution handoff.
 
-Example:
+Use one shared Redis instance with:
+
+- a dedicated Redis database number for Qubitx
+- a dedicated `REDIS_QUEUE_PREFIX`
+
+You do not need to rename Redis containers. Isolation comes from the database number and key prefix.
+
+Examples:
 
 ```text
-REDIS_URL=redis://redis-host:6379/2
+REDIS_URL=redis://redis:6379/12
+# or, if Redis is published on the VPS host:
+# REDIS_URL=redis://host.docker.internal:6397/12
 REDIS_QUEUE_PREFIX=qubitx
 ```
 

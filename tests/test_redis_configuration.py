@@ -8,7 +8,7 @@ from tests.support import configure_test_env
 
 configure_test_env()
 
-from backend.app.queue import describe_redis_url, redis_diagnostics
+from backend.app.queue import describe_redis_url, get_live_engine_runtime, publish_live_engine_runtime, redis_diagnostics
 
 
 class RedisConfigurationTests(unittest.TestCase):
@@ -35,6 +35,29 @@ class RedisConfigurationTests(unittest.TestCase):
         self.assertEqual(diagnostics["port"], 6379)
         self.assertEqual(diagnostics["db"], 2)
         self.assertNotIn("super-secret", str(diagnostics))
+
+    def test_publish_live_engine_runtime_does_not_raise_when_redis_is_unavailable(self):
+        fake_client = type("FakeClient", (), {"set": lambda self, *args, **kwargs: (_ for _ in ()).throw(ConnectionError("down"))})()
+
+        with (
+            patch("backend.app.queue.settings.redis_url", "redis://:super-secret@host.docker.internal:6379/12"),
+            patch("backend.app.queue.get_redis_client", return_value=fake_client),
+        ):
+            payload = publish_live_engine_runtime({"status": "STREAMING"})
+
+        self.assertEqual(payload["status"], "STREAMING")
+        self.assertIn("published_at", payload)
+
+    def test_get_live_engine_runtime_returns_none_when_redis_is_unavailable(self):
+        fake_client = type("FakeClient", (), {"get": lambda self, *args, **kwargs: (_ for _ in ()).throw(ConnectionError("down"))})()
+
+        with (
+            patch("backend.app.queue.settings.redis_url", "redis://:super-secret@host.docker.internal:6379/12"),
+            patch("backend.app.queue.get_redis_client", return_value=fake_client),
+        ):
+            payload = get_live_engine_runtime()
+
+        self.assertIsNone(payload)
 
 
 if __name__ == "__main__":
