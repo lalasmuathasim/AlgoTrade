@@ -33,6 +33,11 @@ def run_live_engine() -> None:
     auth = ZerodhaAuthService()
     latest_prices_state: dict[str, dict] = {}
     current_access_token_configured = auth.has_access_token()
+    runtime_finalized_candles_count = 0
+    runtime_signals_created_count = 0
+    runtime_breakout_events_count = 0
+    runtime_last_breakout_event_id: str | None = None
+    runtime_last_breakout_event_symbol: str | None = None
 
     def publish_runtime_state(
         *,
@@ -46,7 +51,10 @@ def run_live_engine() -> None:
         latest_prices: dict[str, dict] | None = None,
         finalized_candles_count: int = 0,
         signals_created_count: int = 0,
+        breakout_events_count: int = 0,
         last_finalized_candle: dict | None = None,
+        last_breakout_event_id: str | None = None,
+        last_breakout_event_symbol: str | None = None,
         last_signal_id: str | None = None,
         last_signal_symbol: str | None = None,
     ) -> None:
@@ -69,7 +77,10 @@ def run_live_engine() -> None:
                 last_tick_symbol=last_tick_symbol,
                 finalized_candles_count=finalized_candles_count,
                 signals_created_count=signals_created_count,
+                breakout_events_count=breakout_events_count,
                 last_finalized_candle=last_finalized_candle,
+                last_breakout_event_id=last_breakout_event_id,
+                last_breakout_event_symbol=last_breakout_event_symbol,
                 last_signal_id=last_signal_id,
                 last_signal_symbol=last_signal_symbol,
                 latest_prices=scoped_latest_prices,
@@ -77,6 +88,11 @@ def run_live_engine() -> None:
         )
 
     def handle_ticks(ticks):
+        nonlocal runtime_finalized_candles_count
+        nonlocal runtime_signals_created_count
+        nonlocal runtime_breakout_events_count
+        nonlocal runtime_last_breakout_event_id
+        nonlocal runtime_last_breakout_event_symbol
         latest_tick = max(ticks, key=lambda item: item.timestamp) if ticks else None
         for tick in ticks:
             latest_prices_state[f"{tick.exchange}:{tick.symbol}"] = {
@@ -88,7 +104,14 @@ def run_live_engine() -> None:
             result = processor.process_ticks(db, ticks)
             subscriptions = subscription_manager.describe_active_subscriptions(db)
             last_finalized_candle = result.finalized_candles[-1] if result.finalized_candles else None
+            last_breakout_event = result.breakout_events[-1] if result.breakout_events else None
             last_signal = result.signals[-1] if result.signals else None
+            runtime_finalized_candles_count += result.finalized_candles_count
+            runtime_signals_created_count += result.signals_created_count
+            runtime_breakout_events_count += result.breakout_events_count
+            if last_breakout_event is not None:
+                runtime_last_breakout_event_id = str(last_breakout_event.id)
+                runtime_last_breakout_event_symbol = last_breakout_event.symbol
             publish_runtime_state(
                 status="STREAMING",
                 message=f"Processed {result.ticks_processed} ticks, finalized {result.finalized_candles_count} candles, and created {result.signals_created_count} signals.",
@@ -98,8 +121,9 @@ def run_live_engine() -> None:
                 last_tick_at=latest_tick.timestamp if latest_tick else datetime.now(UTC),
                 last_tick_symbol=latest_tick.symbol if latest_tick else None,
                 latest_prices=latest_prices_state,
-                finalized_candles_count=result.finalized_candles_count,
-                signals_created_count=result.signals_created_count,
+                finalized_candles_count=runtime_finalized_candles_count,
+                signals_created_count=runtime_signals_created_count,
+                breakout_events_count=runtime_breakout_events_count,
                 last_finalized_candle={
                     "symbol": last_finalized_candle.symbol,
                     "exchange": last_finalized_candle.exchange,
@@ -113,6 +137,8 @@ def run_live_engine() -> None:
                 }
                 if last_finalized_candle
                 else None,
+                last_breakout_event_id=runtime_last_breakout_event_id,
+                last_breakout_event_symbol=runtime_last_breakout_event_symbol,
                 last_signal_id=str(last_signal.id) if last_signal else None,
                 last_signal_symbol=last_signal.symbol if last_signal else None,
             )

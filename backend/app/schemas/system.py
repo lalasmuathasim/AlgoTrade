@@ -37,7 +37,10 @@ class LiveEngineRuntimeResponse(BaseModel):
     last_tick_symbol: str | None = None
     finalized_candles_count: int = 0
     signals_created_count: int = 0
+    breakout_events_count: int = 0
     last_finalized_candle: dict | None = None
+    last_breakout_event_id: str | None = None
+    last_breakout_event_symbol: str | None = None
     last_signal_id: str | None = None
     last_signal_symbol: str | None = None
     latest_prices: dict[str, dict] = Field(default_factory=dict)

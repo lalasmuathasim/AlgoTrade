@@ -36,6 +36,7 @@ class TickProcessingResult:
     ticks_processed: int
     finalized_candles: list[CompletedCandlePayload]
     signals: list[TradingSignal]
+    breakout_events: list[BreakoutEvent]
 
     @property
     def finalized_candles_count(self) -> int:
@@ -44,6 +45,10 @@ class TickProcessingResult:
     @property
     def signals_created_count(self) -> int:
         return len(self.signals)
+
+    @property
+    def breakout_events_count(self) -> int:
+        return len(self.breakout_events)
 
 
 class CandleBuilder:
@@ -450,16 +455,20 @@ class MarketDataProcessor:
     def process_ticks(self, db: Session, ticks: list[TickPayload]) -> TickProcessingResult:
         signals: list[TradingSignal] = []
         finalized_candles: list[CompletedCandlePayload] = []
+        breakout_events: list[BreakoutEvent] = []
         for tick in ticks:
             tick_finalized_candles = self.candle_builder.on_tick(tick)
             finalized_candles.extend(tick_finalized_candles)
             for candle in tick_finalized_candles:
-                signals.extend(self._process_finalized_candle(db, candle))
+                candle_signals, candle_breakout_events = self._process_finalized_candle(db, candle)
+                signals.extend(candle_signals)
+                breakout_events.extend(candle_breakout_events)
         db.commit()
         return TickProcessingResult(
             ticks_processed=len(ticks),
             finalized_candles=finalized_candles,
             signals=signals,
+            breakout_events=breakout_events,
         )
 
     def _persist_candle(self, db: Session, candle: CompletedCandlePayload) -> MarketCandle:
@@ -499,7 +508,7 @@ class MarketDataProcessor:
         db.flush()
         return existing
 
-    def _process_finalized_candle(self, db: Session, candle: CompletedCandlePayload) -> list[TradingSignal]:
+    def _process_finalized_candle(self, db: Session, candle: CompletedCandlePayload) -> tuple[list[TradingSignal], list[BreakoutEvent]]:
         persisted_candle = self._persist_candle(db, candle)
         previous_candle = db.scalar(
             select(MarketCandle)
@@ -524,6 +533,7 @@ class MarketDataProcessor:
         ).all()
 
         created_signals: list[TradingSignal] = []
+        created_breakout_events: list[BreakoutEvent] = []
         for line, event_type in self.breakout_detector.detect(
             candle,
             active_lines,
@@ -576,6 +586,7 @@ class MarketDataProcessor:
             )
             db.add(breakout_event)
             db.flush()
+            created_breakout_events.append(breakout_event)
 
             if signal is None:
                 continue
@@ -592,4 +603,4 @@ class MarketDataProcessor:
             enqueue_signal_dispatch(SignalDispatchJob(signal_id=signal.id))
             created_signals.append(signal)
 
-        return created_signals
+        return created_signals, created_breakout_events

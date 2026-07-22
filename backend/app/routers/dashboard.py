@@ -715,6 +715,7 @@ def dashboard_home() -> str:
     let latestRuntimePrices = {};
     let lastRuntimePublishedAt = null;
     let lastRuntimeSignalId = null;
+    let lastRuntimeBreakoutEventId = null;
     let lastRuntimeFinalizedCount = 0;
     let liveRefreshInFlight = false;
     const syncDailyReviewPreview = bindCollapsibleTable({
@@ -1034,12 +1035,15 @@ def dashboard_home() -> str:
       const publishedAt = snapshot.published_at || null;
       const finalizedCount = Number(snapshot.finalized_candles_count || 0);
       const signalId = snapshot.last_signal_id || null;
+      const breakoutEventId = snapshot.last_breakout_event_id || null;
       const requiresReload =
         (publishedAt && publishedAt !== lastRuntimePublishedAt && finalizedCount > lastRuntimeFinalizedCount)
-        || (signalId && signalId !== lastRuntimeSignalId);
+        || (signalId && signalId !== lastRuntimeSignalId)
+        || (breakoutEventId && breakoutEventId !== lastRuntimeBreakoutEventId);
 
       lastRuntimePublishedAt = publishedAt || lastRuntimePublishedAt;
       lastRuntimeFinalizedCount = Math.max(lastRuntimeFinalizedCount, finalizedCount);
+      lastRuntimeBreakoutEventId = breakoutEventId || lastRuntimeBreakoutEventId;
       lastRuntimeSignalId = signalId || lastRuntimeSignalId;
 
       if (requiresReload) {
@@ -1434,6 +1438,9 @@ def dashboard_runtime_snapshot() -> dict:
             "message": "Live runtime is temporarily unavailable. The dashboard will keep retrying automatically.",
             "latest_prices": {},
             "finalized_candles_count": 0,
+            "breakout_events_count": 0,
+            "last_breakout_event_id": None,
+            "last_breakout_event_symbol": None,
             "last_signal_id": None,
             "published_at": None,
             "error": "runtime_unavailable",
@@ -1445,6 +1452,9 @@ def dashboard_runtime_snapshot() -> dict:
             "message": "Live engine has not published runtime state yet.",
             "latest_prices": {},
             "finalized_candles_count": 0,
+            "breakout_events_count": 0,
+            "last_breakout_event_id": None,
+            "last_breakout_event_symbol": None,
             "last_signal_id": None,
             "published_at": None,
         }
