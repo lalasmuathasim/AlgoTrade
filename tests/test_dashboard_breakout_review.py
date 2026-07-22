@@ -114,10 +114,11 @@ class DashboardBreakoutReviewTests(unittest.TestCase):
         client = TestClient(self.app)
 
         with patch("backend.app.routers.dashboard.get_selected_watchlist", return_value=self.selected_watchlist):
-            response = client.get("/dashboard/reports/breakout-review")
+            response = client.get("/dashboard/reports/breakout-review?trade_date=2026-07-20")
 
         payload = response.json()
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["summary"]["report_date"], "2026-07-20")
         self.assertEqual(payload["summary"]["total_events"], 1)
         self.assertEqual(payload["summary"]["passed_events"], 1)
         self.assertEqual(payload["summary"]["failed_events"], 0)

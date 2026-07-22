@@ -539,6 +539,18 @@ def render_app_shell(
       font-size: 0.82rem;
       font-weight: 600;
     }}
+    .subtle-input {{
+      min-height: 34px;
+      width: auto;
+      min-width: 154px;
+      padding: 7px 10px;
+      border-radius: 12px;
+      border: 1px solid rgba(122, 151, 185, 0.16);
+      background: rgba(248, 251, 255, 0.98);
+      color: var(--text);
+      font-size: 0.82rem;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
+    }}
     .table-scroll-frame {{
       min-width: 0;
       overflow: auto;

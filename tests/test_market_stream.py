@@ -4,6 +4,8 @@ from __future__ import annotations
 from datetime import datetime
 import unittest
 import uuid
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from tests.support import configure_test_env
 
@@ -11,7 +13,7 @@ configure_test_env()
 
 from backend.app.models import PaperTradingSetting, TriggerLine, TradingSignal
 from backend.app.schemas import TickPayload
-from backend.app.services.market_stream import CandleBuilder, SignalGenerator, VolumeValidator
+from backend.app.services.market_stream import CandleBuilder, MarketDataProcessor, SignalGenerator, VolumeValidator
 
 
 class ScalarQueueSession:
@@ -23,6 +25,25 @@ class ScalarQueueSession:
 
     def add(self, _obj):
         return None
+
+    def flush(self):
+        return None
+
+
+class BreakoutAwareSession:
+    def __init__(self, scalar_values, active_lines):
+        self.scalar_values = list(scalar_values)
+        self.active_lines = list(active_lines)
+        self.added = []
+
+    def scalar(self, _query):
+        return self.scalar_values.pop(0) if self.scalar_values else None
+
+    def scalars(self, _query):
+        return SimpleNamespace(all=lambda: list(self.active_lines))
+
+    def add(self, obj):
+        self.added.append(obj)
 
     def flush(self):
         return None
@@ -246,6 +267,47 @@ class MarketStreamTests(unittest.TestCase):
         self.assertEqual(breakout.entry_price, 594.95)
         self.assertEqual(breakout.stop_loss, 600.05)
         self.assertEqual(breakout.rejection_reason, "VOLUME_FAILED")
+
+    def test_market_data_processor_skips_repeat_breakout_for_same_line_on_same_day(self):
+        line = TriggerLine(
+            id=uuid.uuid4(),
+            watchlist_id=uuid.uuid4(),
+            exchange="NSE",
+            symbol="RELIANCE",
+            line_type="BUY",
+            line_price=100.0,
+        )
+        candle = type(
+            "Candle",
+            (),
+            {
+                "instrument_token": 111,
+                "symbol": "RELIANCE",
+                "exchange": "NSE",
+                "timeframe": "3minute",
+                "candle_start": datetime.fromisoformat("2026-07-22T03:45:00+00:00"),
+                "candle_end": datetime.fromisoformat("2026-07-22T03:48:00+00:00"),
+                "open": 99.5,
+                "high": 101.0,
+                "low": 99.4,
+                "close": 100.8,
+                "volume": 6000.0,
+            },
+        )()
+        previous_candle = SimpleNamespace(volume=1000.0)
+        existing_event = SimpleNamespace(id=uuid.uuid4())
+        db = BreakoutAwareSession([previous_candle, existing_event], [line])
+        processor = MarketDataProcessor()
+
+        with patch.object(processor, "_persist_candle", return_value=SimpleNamespace(id=uuid.uuid4())), \
+             patch("backend.app.services.market_stream.ensure_settings", return_value=SimpleNamespace(require_candle_close_beyond_line=True)), \
+             patch.object(processor.breakout_detector, "detect", return_value=[(line, "BREAKOUT")]), \
+             patch.object(processor.signal_generator, "build") as mock_build:
+            signals = processor._process_finalized_candle(db, candle)
+
+        self.assertEqual(signals, [])
+        mock_build.assert_not_called()
+        self.assertEqual(db.added, [])
 
 
 if __name__ == "__main__":

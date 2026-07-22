@@ -5,6 +5,7 @@ from datetime import UTC, date, datetime, timedelta
 from io import StringIO
 from statistics import mean
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -28,6 +29,7 @@ from backend.app.ui import render_app_shell
 router = APIRouter(tags=["dashboard"], dependencies=[Depends(require_approved_user)])
 settings = get_settings()
 logger = logging.getLogger(__name__)
+market_tz = ZoneInfo(settings.market_timezone)
 
 
 def _serialize_datetime(value: datetime | None) -> str | None:
@@ -36,6 +38,21 @@ def _serialize_datetime(value: datetime | None) -> str | None:
 
 def _serialize_date(value: date | None) -> str | None:
     return value.isoformat() if value else None
+
+
+def _market_day_bounds(day: date) -> tuple[datetime, datetime]:
+    start_local = datetime.combine(day, datetime.min.time(), tzinfo=market_tz)
+    end_local = start_local + timedelta(days=1)
+    return start_local.astimezone(UTC), end_local.astimezone(UTC)
+
+
+def _resolve_report_date(raw_value: str | None) -> date:
+    if not raw_value:
+        return datetime.now(market_tz).date()
+    try:
+        return date.fromisoformat(raw_value)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid report date format. Use YYYY-MM-DD.") from exc
 
 
 def _paper_trade_summary(trades: list[PaperTrade]) -> dict:
@@ -625,14 +642,15 @@ def dashboard_home() -> str:
       <div class="panel-header">
         <div>
           <h2>3-Minute Breakout Review</h2>
-          <p class="panel-copy">Review every saved breakout or breakdown attempt for the selected watchlist, including the previous candle volume, the required multiplier, and whether the event converted into a signal.</p>
+          <p class="panel-copy">Review the first saved 3-minute breakout attempt for each trigger line on the selected trading day, including the previous candle volume, the required multiplier, and whether that first attempt converted into a signal.</p>
         </div>
       </div>
       <div id="breakoutReviewSummary" class="table-toolbar-copy" style="margin-bottom: 14px;">Loading breakout review summary...</div>
       <div class="table-shell">
         <div class="table-toolbar">
-          <p class="table-toolbar-copy">This review stays collapsed by default so you can scan the latest breakout attempts without stretching the dashboard.</p>
+          <p class="table-toolbar-copy">Pick a trading date to review only that day's first breakout attempt per line. Older sessions remain available through history.</p>
           <div class="table-toolbar-actions">
+            <input id="breakoutReviewDate" class="subtle-input" type="date" aria-label="Breakout review date" />
             <button id="refreshBreakoutReviewButton" class="secondary table-toggle" type="button">Refresh Table</button>
             <button id="breakoutReviewToggle" class="secondary table-toggle hidden" type="button" aria-expanded="false">Expand table</button>
           </div>
@@ -691,6 +709,7 @@ def dashboard_home() -> str:
     script = """
     let latestOverview = null;
     let currentTradeHistoryMode = "combined";
+    let currentBreakoutReviewDate = null;
     let dashboardRuntimePollTimer = null;
     let dashboardRuntimePollInFlight = false;
     let latestRuntimePrices = {};
@@ -781,21 +800,26 @@ def dashboard_home() -> str:
         element.className = "table-toolbar-copy";
         return;
       }
-      element.textContent = `${summary.selected_watchlist.name} · ${summary.total_events} breakout attempts · ${summary.passed_events} volume-confirmed · ${summary.failed_events} rejected · latest event ${summary.latest_event_time ? new Date(summary.latest_event_time).toLocaleString() : "not recorded yet"}`;
+      element.textContent = `${summary.selected_watchlist.name} · ${summary.report_date || "Today"} · ${summary.total_events} first-attempt rows · ${summary.passed_events} volume-confirmed · ${summary.failed_events} rejected · latest event ${summary.latest_event_time ? new Date(summary.latest_event_time).toLocaleString() : "not recorded yet"}`;
       element.className = "table-toolbar-copy";
     }
 
     async function loadBreakoutReview() {
-      const review = await apiGet("/dashboard/reports/breakout-review");
+      const dateInput = document.getElementById("breakoutReviewDate");
+      const requestedDate = dateInput?.value || currentBreakoutReviewDate || new Date().toISOString().slice(0, 10);
+      currentBreakoutReviewDate = requestedDate;
+      if (dateInput && dateInput.value !== requestedDate) {
+        dateInput.value = requestedDate;
+      }
+      const review = await apiGet(`/dashboard/reports/breakout-review?trade_date=${encodeURIComponent(requestedDate)}`);
       renderBreakoutReviewSummary(review.summary);
       renderTable(
         document.getElementById("breakoutReviewTable"),
-        ["Symbol", "Line Type", "Breakout", "Event", "Breakout Time", "Prev Volume", "Breakout Volume", "Required", "Ratio", "Passed", "Entry", "Stop Loss", "Target", "Signal", "Status"],
+        ["Symbol", "Line Type", "Breakout", "Breakout Time", "Prev Volume", "Breakout Volume", "Required", "Ratio", "Passed", "Entry", "Stop Loss", "Target", "Signal", "Status"],
         review.rows.map((item) => [
           item.symbol,
           `<span class="badge">${item.line_type}</span>`,
           item.line_price ?? "N/A",
-          item.event_type,
           item.event_time ? new Date(item.event_time).toLocaleString() : "N/A",
           item.previous_candle_volume ?? "N/A",
           item.breakout_candle_volume ?? "N/A",
@@ -1078,6 +1102,16 @@ def dashboard_home() -> str:
       }
     });
 
+    document.getElementById("breakoutReviewDate").addEventListener("change", async (event) => {
+      currentBreakoutReviewDate = event.target.value || null;
+      try {
+        await loadBreakoutReview();
+      } catch (error) {
+        renderBreakoutReviewSummary(null);
+        document.getElementById("breakoutReviewSummary").textContent = `Unable to load breakout review: ${error.message}`;
+      }
+    });
+
     document.getElementById("refreshPotentialLineHitsButton").addEventListener("click", async () => {
       try {
         await loadPotentialLineHits();
@@ -1244,13 +1278,15 @@ def dashboard_daily_line_review(db: Session = Depends(get_db)) -> dict:
 
 
 @router.get("/dashboard/reports/breakout-review")
-def dashboard_breakout_review(db: Session = Depends(get_db)) -> dict:
+def dashboard_breakout_review(trade_date: str | None = None, db: Session = Depends(get_db)) -> dict:
     selected_watchlist, selected_watchlist_id = _selected_watchlist_filter(db)
+    report_date = _resolve_report_date(trade_date)
     if selected_watchlist is None or selected_watchlist_id is None:
         return {
             "selected_watchlist": None,
             "summary": {
                 "selected_watchlist": None,
+                "report_date": _serialize_date(report_date),
                 "total_events": 0,
                 "passed_events": 0,
                 "failed_events": 0,
@@ -1259,13 +1295,21 @@ def dashboard_breakout_review(db: Session = Depends(get_db)) -> dict:
             "rows": [],
         }
 
+    report_start, report_end = _market_day_bounds(report_date)
     lines = db.scalars(
         select(TriggerLine)
         .where(TriggerLine.watchlist_id == selected_watchlist_id)
         .order_by(TriggerLine.symbol, TriggerLine.line_type)
     ).all()
     line_map = {line.id: line for line in lines}
-    events = db.scalars(select(BreakoutEvent).order_by(desc(BreakoutEvent.event_time), desc(BreakoutEvent.created_at))).all()
+    events = db.scalars(
+        select(BreakoutEvent)
+        .where(
+            BreakoutEvent.event_time >= report_start,
+            BreakoutEvent.event_time < report_end,
+        )
+        .order_by(desc(BreakoutEvent.event_time), desc(BreakoutEvent.created_at))
+    ).all()
 
     rows: list[dict] = []
     for event in events:
@@ -1307,6 +1351,7 @@ def dashboard_breakout_review(db: Session = Depends(get_db)) -> dict:
                 "name": selected_watchlist.name,
                 "exchange": selected_watchlist.exchange,
             },
+            "report_date": _serialize_date(report_date),
             "total_events": len(rows),
             "passed_events": sum(1 for row in rows if row["volume_condition_passed"]),
             "failed_events": sum(1 for row in rows if not row["volume_condition_passed"]),

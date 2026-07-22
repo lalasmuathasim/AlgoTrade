@@ -2,7 +2,7 @@ import logging
 import uuid
 from dataclasses import dataclass
 from collections.abc import Sequence
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import desc, select
@@ -23,6 +23,12 @@ market_tz = ZoneInfo(settings.market_timezone)
 
 def _coalesce(value, default):
     return default if value is None else value
+
+
+def _market_day_bounds(day: date) -> tuple[datetime, datetime]:
+    start_local = datetime.combine(day, time.min, tzinfo=market_tz)
+    end_local = start_local + timedelta(days=1)
+    return start_local.astimezone(UTC), end_local.astimezone(UTC)
 
 
 @dataclass
@@ -523,6 +529,21 @@ class MarketDataProcessor:
             active_lines,
             require_candle_close_beyond_line=bool(getattr(runtime_settings, "require_candle_close_beyond_line", True)),
         ):
+            trading_day = candle.candle_end.astimezone(market_tz).date()
+            trading_day_start, trading_day_end = _market_day_bounds(trading_day)
+            existing_breakout = db.scalar(
+                select(BreakoutEvent)
+                .where(
+                    BreakoutEvent.trigger_line_id == line.id,
+                    BreakoutEvent.event_time >= trading_day_start,
+                    BreakoutEvent.event_time < trading_day_end,
+                )
+                .order_by(desc(BreakoutEvent.event_time))
+                .limit(1)
+            )
+            if existing_breakout is not None:
+                continue
+
             breakout_payload, signal = self.signal_generator.build(
                 db,
                 line,
