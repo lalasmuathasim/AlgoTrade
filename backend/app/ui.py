@@ -131,6 +131,9 @@ def render_app_shell(
       min-width: 0;
       align-items: center;
     }}
+    .workspace-nav-spacer {{
+      flex: 1 1 auto;
+    }}
     .workspace-link {{
       display: inline-flex;
       align-items: center;
@@ -161,6 +164,12 @@ def render_app_shell(
       box-shadow:
         inset 0 0 0 1px rgba(255,255,255,0.7),
         0 10px 24px rgba(61, 126, 240, 0.08);
+    }}
+    .workspace-link-action {{
+      background: rgba(255, 255, 255, 0.72);
+      border-color: rgba(61, 126, 240, 0.14);
+      cursor: pointer;
+      font: inherit;
     }}
     .main-shell {{
       min-width: 0;
@@ -202,12 +211,6 @@ def render_app_shell(
       color: var(--muted);
       font-size: 1rem;
       line-height: 1.65;
-    }}
-    .topbar-actions {{
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      justify-content: flex-end;
     }}
     button,
     .button {{
@@ -503,26 +506,25 @@ def render_app_shell(
     .table-toolbar {{
       display: flex;
       justify-content: space-between;
-      align-items: center;
+      align-items: flex-start;
       gap: 12px;
       flex-wrap: wrap;
     }}
     .table-toolbar-actions {{
-      display: inline-flex;
+      display: flex;
       align-items: center;
       gap: 10px;
       flex-wrap: wrap;
+      justify-content: flex-end;
+      margin-left: auto;
+      min-width: min(100%, 840px);
     }}
     .table-toolbar-search {{
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-left: auto;
-      min-width: min(320px, 100%);
-    }}
-    .table-toolbar-actions + .table-toolbar-search {{
-      margin-left: 0;
+      display: grid;
+      gap: 4px;
+      min-width: min(260px, 100%);
+      max-width: 340px;
+      flex: 1 1 260px;
     }}
     .table-toolbar-copy {{
       margin: 0;
@@ -591,7 +593,7 @@ def render_app_shell(
       text-transform: uppercase;
     }}
     .table-filter {{
-      width: min(280px, 100%);
+      width: 100%;
       min-height: 38px;
       padding: 9px 12px;
       border-radius: 12px;
@@ -600,10 +602,87 @@ def render_app_shell(
       color: var(--text);
       font-size: 0.9rem;
     }}
+    .table-filter-shell {{
+      position: relative;
+      width: 100%;
+    }}
+    .table-filter-input {{
+      position: relative;
+      z-index: 2;
+      background: transparent;
+    }}
+    .table-filter-ghost {{
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      pointer-events: none;
+      padding: 9px 12px;
+      font-size: 0.9rem;
+      color: rgba(18, 32, 51, 0.28);
+      white-space: nowrap;
+      overflow: hidden;
+    }}
+    .table-filter-ghost-query {{
+      visibility: hidden;
+      white-space: pre;
+      flex: 0 0 auto;
+    }}
+    .table-filter-ghost-suffix {{
+      white-space: pre;
+      flex: 0 0 auto;
+    }}
+    .table-filter-measure {{
+      position: absolute;
+      visibility: hidden;
+      white-space: pre;
+      inset: auto;
+      font-size: 0.9rem;
+      font-family: inherit;
+      font-weight: 400;
+      padding: 0;
+      margin: 0;
+    }}
+    .table-filter-suggestions {{
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      right: 0;
+      z-index: 5;
+      display: grid;
+      gap: 2px;
+      max-height: 220px;
+      overflow: auto;
+      padding: 8px;
+      border-radius: 14px;
+      border: 1px solid rgba(122, 151, 185, 0.18);
+      background: rgba(255, 255, 255, 0.98);
+      box-shadow: 0 18px 34px rgba(20, 34, 56, 0.12);
+    }}
+    .table-filter-suggestion {{
+      display: flex;
+      width: 100%;
+      padding: 9px 10px;
+      border: none;
+      border-radius: 10px;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+      font: inherit;
+      font-size: 0.88rem;
+      text-align: left;
+    }}
+    .table-filter-suggestion:hover,
+    .table-filter-suggestion.is-active {{
+      background: rgba(61, 126, 240, 0.08);
+      color: #163150;
+      transform: none;
+    }}
     .table-filter-meta {{
       color: var(--muted);
       font-size: 0.78rem;
       white-space: nowrap;
+      padding-left: 2px;
     }}
     tbody tr:hover {{
       background: rgba(92, 167, 255, 0.035);
@@ -820,7 +899,7 @@ def render_app_shell(
         <div class="brand-title">Market Control</div>
         <div class="brand-copy">A focused trading workspace for watchlists, structure tracking, runtime readiness, and review-grade reporting.</div>
         </div>
-        <nav class="workspace-nav">{nav_html}</nav>
+        <nav class="workspace-nav">{nav_html}<span class="workspace-nav-spacer"></span><button id="logoutNavButton" class="workspace-link workspace-link-action" type="button">Log Out</button></nav>
       </section>
       <main class="main-shell">
       <section class="topbar">
@@ -828,9 +907,6 @@ def render_app_shell(
           <div class="eyebrow">Trading Workspace</div>
           <h1>{escape(heading)}</h1>
           <p>{escape(subtitle)}</p>
-        </div>
-        <div class="topbar-actions">
-          <button id="logoutButton" class="secondary" type="button">Log Out</button>
         </div>
       </section>
       <div class="content">
@@ -882,15 +958,63 @@ def render_app_shell(
       buffer.innerHTML = String(value);
       return (buffer.textContent || buffer.innerText || "").trim();
     }}
+    function updateTableFilterGhost(slot, query, suggestions) {{
+      const querySpan = slot.querySelector(".table-filter-ghost-query");
+      const suffixSpan = slot.querySelector(".table-filter-ghost-suffix");
+      const firstMatch = Array.isArray(suggestions)
+        ? suggestions.find((item) => item.toLowerCase().startsWith((query || "").toLowerCase()))
+        : null;
+      querySpan.textContent = query || "";
+      if (firstMatch && query && firstMatch.length > query.length) {{
+        suffixSpan.textContent = firstMatch.slice(query.length);
+      }} else {{
+        suffixSpan.textContent = "";
+      }}
+    }}
+    function renderTableSearchSuggestions(slot, state, filterConfig) {{
+      const suggestionsPanel = slot.querySelector(".table-filter-suggestions");
+      if (!suggestionsPanel) {{
+        return;
+      }}
+      const query = (state.query || "").trim().toLowerCase();
+      const suggestions = Array.isArray(state.suggestions) ? state.suggestions : [];
+      const matches = suggestions
+        .filter((item) => !query || item.toLowerCase().includes(query))
+        .slice(0, 8);
+      slot._visibleSuggestions = matches;
+      updateTableFilterGhost(slot, state.query || "", suggestions);
+      if (!matches.length || !slot._showSuggestions) {{
+        suggestionsPanel.classList.add("hidden");
+        suggestionsPanel.innerHTML = "";
+        return;
+      }}
+      suggestionsPanel.classList.remove("hidden");
+      suggestionsPanel.innerHTML = matches.map((item, index) => `
+        <button class="table-filter-suggestion${{index === 0 ? " is-active" : ""}}" type="button" data-suggestion-value="${{item}}">
+          ${{item}}
+        </button>
+      `).join("");
+      suggestionsPanel.querySelectorAll(".table-filter-suggestion").forEach((button) => {{
+        button.addEventListener("mousedown", (event) => {{
+          event.preventDefault();
+          const value = button.dataset.suggestionValue || "";
+          state.query = value;
+          slot.querySelector(".table-filter-input").value = value;
+          slot._showSuggestions = false;
+          renderTableFromState(slot._tableElement);
+        }});
+      }});
+    }}
     function ensureTableSearch(element) {{
       const state = element._tableState || null;
       const toolbar = element.closest(".table-shell")?.querySelector(".table-toolbar");
-      if (!toolbar || !state) {{
+      const actions = toolbar?.querySelector(".table-toolbar-actions") || toolbar;
+      if (!toolbar || !actions || !state) {{
         return null;
       }}
 
       const filterConfig = state.options?.symbolFilter;
-      let slot = toolbar.querySelector(`[data-table-filter-for="${{element.id}}"]`);
+      let slot = actions.querySelector(`[data-table-filter-for="${{element.id}}"]`);
       if (!filterConfig?.enabled || !element.id) {{
         if (slot) {{
           slot.remove();
@@ -903,39 +1027,67 @@ def render_app_shell(
         slot.className = "table-toolbar-search";
         slot.dataset.tableFilterFor = element.id;
         slot.innerHTML = `
-          <input class="table-filter" type="search" autocomplete="off" spellcheck="false" />
+          <div class="table-filter-shell">
+            <div class="table-filter-ghost">
+              <span class="table-filter-ghost-query"></span><span class="table-filter-ghost-suffix"></span>
+            </div>
+            <input class="table-filter table-filter-input" type="search" autocomplete="off" spellcheck="false" />
+            <span class="table-filter-measure"></span>
+            <div class="table-filter-suggestions hidden"></div>
+          </div>
           <span class="table-filter-meta"></span>
         `;
-        toolbar.appendChild(slot);
+        actions.prepend(slot);
       }}
 
-      const input = slot.querySelector(".table-filter");
+      slot._tableElement = element;
+      const input = slot.querySelector(".table-filter-input");
       const meta = slot.querySelector(".table-filter-meta");
-      const listId = `${{element.id}}-symbol-options`;
-      let datalist = toolbar.querySelector(`#${{listId}}`);
-      if (!datalist) {{
-        datalist = document.createElement("datalist");
-        datalist.id = listId;
-        toolbar.appendChild(datalist);
-      }}
-
       const suggestions = Array.from(new Set(
         state.rows
           .map((row) => tablePlainText(row[filterConfig.columnIndex]))
           .filter(Boolean),
       )).sort((left, right) => left.localeCompare(right));
-      datalist.innerHTML = suggestions.map((item) => `<option value="${{item}}"></option>`).join("");
-
-      input.setAttribute("list", listId);
+      state.suggestions = suggestions;
       input.placeholder = filterConfig.placeholder || "Filter symbols";
       input.value = state.query || "";
+      slot._showSuggestions = false;
       input.oninput = () => {{
         state.query = input.value;
+        slot._showSuggestions = true;
         renderTableFromState(element);
+      }};
+      input.onfocus = () => {{
+        slot._showSuggestions = true;
+        renderTableSearchSuggestions(slot, state, filterConfig);
+      }};
+      input.onblur = () => {{
+        window.setTimeout(() => {{
+          slot._showSuggestions = false;
+          renderTableSearchSuggestions(slot, state, filterConfig);
+        }}, 120);
+      }};
+      input.onkeydown = (event) => {{
+        if (event.key === "Escape") {{
+          slot._showSuggestions = false;
+          renderTableSearchSuggestions(slot, state, filterConfig);
+          return;
+        }}
+        if (event.key === "Enter") {{
+          const matches = Array.isArray(slot._visibleSuggestions) ? slot._visibleSuggestions : [];
+          if (matches.length && input.value.trim()) {{
+            event.preventDefault();
+            state.query = matches[0];
+            input.value = matches[0];
+            slot._showSuggestions = false;
+            renderTableFromState(element);
+          }}
+        }}
       }};
 
       const filteredCount = state.filteredRows?.length ?? state.rows.length;
       meta.textContent = `${{filteredCount}} of ${{state.rows.length}}`;
+      renderTableSearchSuggestions(slot, state, filterConfig);
       return slot;
     }}
     function renderTableFromState(element) {{
@@ -977,9 +1129,8 @@ def render_app_shell(
       }}
 
       const sync = () => {{
-        const hasEmpty = Boolean(table.querySelector("td.empty"));
-        const rows = table.querySelectorAll("tbody tr").length;
-        const needsToggle = !hasEmpty && rows > previewRows;
+        const totalRows = Array.isArray(table._tableState?.rows) ? table._tableState.rows.length : table.querySelectorAll("tbody tr").length;
+        const needsToggle = totalRows > previewRows;
         if (!needsToggle) {{
           button.classList.add("hidden");
           frame.classList.add("is-collapsed");
@@ -1009,7 +1160,7 @@ def render_app_shell(
       element.textContent = message;
       element.className = `status-box ${{tone}}`;
     }}
-    document.getElementById("logoutButton").addEventListener("click", async () => {{
+    document.getElementById("logoutNavButton").addEventListener("click", async () => {{
       await apiSend("/auth/logout", "POST");
       window.location.href = "/?auth_status=logged_out";
     }});

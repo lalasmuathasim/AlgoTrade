@@ -474,7 +474,7 @@ def _serialize_broker_order(order: BrokerOrder, signal: TradingSignal | None = N
     }
 
 
-def _trade_history_summary(rows: list[dict]) -> dict:
+def _trade_history_summary(rows: list[dict], *, date_from: date | None = None, date_to: date | None = None) -> dict:
     paper_rows = [row for row in rows if row["trade_mode"] == "PAPER"]
     live_rows = [row for row in rows if row["trade_mode"] == "LIVE"]
     return {
@@ -494,10 +494,18 @@ def _trade_history_summary(rows: list[dict]) -> dict:
             ),
             None,
         ),
+        "date_from": _serialize_date(date_from),
+        "date_to": _serialize_date(date_to),
     }
 
 
-def _dashboard_trade_history_payload(db: Session, mode: str = "combined") -> dict:
+def _dashboard_trade_history_payload(
+    db: Session,
+    mode: str = "combined",
+    *,
+    date_from: date | None = None,
+    date_to: date | None = None,
+) -> dict:
     selected_watchlist, selected_watchlist_id = _selected_watchlist_filter(db)
     watchlist_symbols: set[tuple[str, str]] = set()
     if selected_watchlist_id:
@@ -515,6 +523,11 @@ def _dashboard_trade_history_payload(db: Session, mode: str = "combined") -> dic
         paper_trades = db.scalars(select(PaperTrade).order_by(desc(PaperTrade.entry_time), desc(PaperTrade.created_at))).all()
         for trade in paper_trades:
             if watchlist_symbols and (trade.exchange, trade.symbol) not in watchlist_symbols:
+                continue
+            trade_date = (trade.entry_time or trade.created_at).astimezone(UTC).date()
+            if date_from and trade_date < date_from:
+                continue
+            if date_to and trade_date > date_to:
                 continue
             rows.append(
                 {
@@ -547,6 +560,11 @@ def _dashboard_trade_history_payload(db: Session, mode: str = "combined") -> dic
             if order.mode != "LIVE":
                 continue
             if watchlist_symbols and (order.exchange, order.symbol) not in watchlist_symbols:
+                continue
+            order_date = order.created_at.astimezone(UTC).date()
+            if date_from and order_date < date_from:
+                continue
+            if date_to and order_date > date_to:
                 continue
             signal = signal_map.get(order.signal_id) if order.signal_id else None
             rows.append(
@@ -584,7 +602,7 @@ def _dashboard_trade_history_payload(db: Session, mode: str = "combined") -> dic
         if selected_watchlist
         else None,
         "mode": mode,
-        "summary": _trade_history_summary(rows),
+        "summary": _trade_history_summary(rows, date_from=date_from, date_to=date_to),
         "rows": rows,
     }
 
@@ -625,7 +643,7 @@ def dashboard_home() -> str:
     <section class="panel">
       <div class="panel-header">
         <div>
-          <h2>Market Structure Table</h2>
+          <h2>Strategic Breakout Stocks</h2>
           <p class="panel-copy">Review the saved support and resistance rows for the selected watchlist, including the swing references, gap percentage, and nearest target used for validation.</p>
         </div>
       </div>
@@ -639,6 +657,27 @@ def dashboard_home() -> str:
         </div>
         <div id="dailyReviewFrame" class="table-scroll-frame is-collapsed" style="--table-min-width: 920px;">
           <table id="dailyReviewTable"></table>
+        </div>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Potential Line Hits</h2>
+          <p class="panel-copy">This shortlist highlights active support and resistance lines that may be tested soon, using the latest daily close together with recent daily closing movement toward the line.</p>
+        </div>
+      </div>
+      <div id="potentialLineHitSummary" class="table-toolbar-copy" style="margin-bottom: 14px;">Loading potential line-hit candidates...</div>
+      <div class="table-shell">
+        <div class="table-toolbar">
+          <p class="table-toolbar-copy">Rows appear only when an active line remains within the configured prediction threshold and the recent daily closes have been moving toward that level.</p>
+          <div class="table-toolbar-actions">
+            <button id="refreshPotentialLineHitsButton" class="secondary table-toggle" type="button">Refresh Table</button>
+            <button id="potentialLineHitsToggle" class="secondary table-toggle hidden" type="button" aria-expanded="false">Expand table</button>
+          </div>
+        </div>
+        <div id="potentialLineHitsFrame" class="table-scroll-frame is-collapsed" style="--table-min-width: 1320px;">
+          <table id="potentialLineHitsTable"></table>
         </div>
       </div>
     </section>
@@ -667,27 +706,6 @@ def dashboard_home() -> str:
     <section class="panel">
       <div class="panel-header">
         <div>
-          <h2>Potential Line Hits</h2>
-          <p class="panel-copy">This shortlist highlights active support and resistance lines that may be tested soon, using the latest daily close together with recent daily closing movement toward the line.</p>
-        </div>
-      </div>
-      <div id="potentialLineHitSummary" class="table-toolbar-copy" style="margin-bottom: 14px;">Loading potential line-hit candidates...</div>
-      <div class="table-shell">
-        <div class="table-toolbar">
-          <p class="table-toolbar-copy">Rows appear only when an active line remains within the configured prediction threshold and the recent daily closes have been moving toward that level.</p>
-          <div class="table-toolbar-actions">
-            <button id="refreshPotentialLineHitsButton" class="secondary table-toggle" type="button">Refresh Table</button>
-            <button id="potentialLineHitsToggle" class="secondary table-toggle hidden" type="button" aria-expanded="false">Expand table</button>
-          </div>
-        </div>
-        <div id="potentialLineHitsFrame" class="table-scroll-frame is-collapsed" style="--table-min-width: 1320px;">
-          <table id="potentialLineHitsTable"></table>
-        </div>
-      </div>
-    </section>
-    <section class="panel">
-      <div class="panel-header">
-        <div>
           <h2>Trade History</h2>
           <p class="panel-copy">Review simulated and live execution history from one place. Switch between paper results, live Zerodha orders, or a combined view for later analytics and model training.</p>
         </div>
@@ -697,6 +715,8 @@ def dashboard_home() -> str:
         <div class="table-toolbar">
           <p class="table-toolbar-copy">Trade history stays collapsed by default so long lists remain readable while still supporting full horizontal inspection when expanded.</p>
           <div class="table-toolbar-actions">
+            <input id="tradeHistoryDateFrom" class="subtle-input" type="date" aria-label="Trade history start date" />
+            <input id="tradeHistoryDateTo" class="subtle-input" type="date" aria-label="Trade history end date" />
             <button id="tradeHistoryCombinedButton" class="primary table-toggle" type="button">Combined</button>
             <button id="tradeHistoryPaperButton" class="secondary table-toggle" type="button">Paper</button>
             <button id="tradeHistoryLiveButton" class="secondary table-toggle" type="button">Live</button>
@@ -714,6 +734,8 @@ def dashboard_home() -> str:
     let latestOverview = null;
     let currentTradeHistoryMode = "combined";
     let currentBreakoutReviewDate = null;
+    let currentTradeHistoryDateFrom = "";
+    let currentTradeHistoryDateTo = "";
     let dashboardRuntimePollTimer = null;
     let dashboardRuntimePollInFlight = false;
     let latestRuntimePrices = {};
@@ -933,7 +955,10 @@ def dashboard_home() -> str:
       }
       const watchlistLabel = payload.selected_watchlist ? `${payload.selected_watchlist.name} · ` : "";
       const modeLabel = payload.mode ? `${payload.mode.toUpperCase()} view · ` : "";
-      element.textContent = `${watchlistLabel}${modeLabel}${payload.summary.total_rows} rows · ${payload.summary.paper_rows} paper · ${payload.summary.live_rows} live · paper PnL ${payload.summary.paper_total_pnl} · latest activity ${payload.summary.latest_activity_at ? new Date(payload.summary.latest_activity_at).toLocaleString() : "not recorded yet"}`;
+      const rangeLabel = payload.summary.date_from || payload.summary.date_to
+        ? `range ${payload.summary.date_from || "start"} → ${payload.summary.date_to || "today"} · `
+        : "";
+      element.textContent = `${watchlistLabel}${modeLabel}${rangeLabel}${payload.summary.total_rows} rows · ${payload.summary.paper_rows} paper · ${payload.summary.live_rows} live · paper PnL ${payload.summary.paper_total_pnl} · latest activity ${payload.summary.latest_activity_at ? new Date(payload.summary.latest_activity_at).toLocaleString() : "not recorded yet"}`;
       element.className = "table-toolbar-copy";
     }
 
@@ -952,7 +977,19 @@ def dashboard_home() -> str:
 
     async function loadTradeHistory(mode = currentTradeHistoryMode) {
       setTradeHistoryMode(mode);
-      const payload = await apiGet(`/dashboard/reports/trade-history?mode=${encodeURIComponent(mode)}`);
+      const fromInput = document.getElementById("tradeHistoryDateFrom");
+      const toInput = document.getElementById("tradeHistoryDateTo");
+      currentTradeHistoryDateFrom = fromInput?.value || currentTradeHistoryDateFrom || "";
+      currentTradeHistoryDateTo = toInput?.value || currentTradeHistoryDateTo || "";
+      const params = new URLSearchParams();
+      params.set("mode", mode);
+      if (currentTradeHistoryDateFrom) {
+        params.set("date_from", currentTradeHistoryDateFrom);
+      }
+      if (currentTradeHistoryDateTo) {
+        params.set("date_to", currentTradeHistoryDateTo);
+      }
+      const payload = await apiGet(`/dashboard/reports/trade-history?${params.toString()}`);
       renderTradeHistorySummary(payload);
       renderTable(
         document.getElementById("tradeHistoryTable"),
@@ -1157,6 +1194,22 @@ def dashboard_home() -> str:
         await loadTradeHistory(currentTradeHistoryMode);
       } catch (error) {
         document.getElementById("tradeHistorySummary").textContent = `Unable to refresh trade history: ${error.message}`;
+      }
+    });
+    document.getElementById("tradeHistoryDateFrom").addEventListener("change", async (event) => {
+      currentTradeHistoryDateFrom = event.target.value || "";
+      try {
+        await loadTradeHistory(currentTradeHistoryMode);
+      } catch (error) {
+        document.getElementById("tradeHistorySummary").textContent = `Unable to load trade history range: ${error.message}`;
+      }
+    });
+    document.getElementById("tradeHistoryDateTo").addEventListener("change", async (event) => {
+      currentTradeHistoryDateTo = event.target.value || "";
+      try {
+        await loadTradeHistory(currentTradeHistoryMode);
+      } catch (error) {
+        document.getElementById("tradeHistorySummary").textContent = `Unable to load trade history range: ${error.message}`;
       }
     });
 
@@ -1994,9 +2047,11 @@ def dashboard_potential_line_hits(db: Session = Depends(get_db)) -> dict:
 @router.get("/dashboard/reports/trade-history")
 def dashboard_trade_history(
     mode: str = "combined",
+    date_from: date | None = None,
+    date_to: date | None = None,
     db: Session = Depends(get_db),
 ) -> dict:
     normalized_mode = mode.strip().lower()
     if normalized_mode not in {"combined", "paper", "live"}:
         raise HTTPException(status_code=422, detail="Mode must be one of combined, paper, or live")
-    return _dashboard_trade_history_payload(db, mode=normalized_mode)
+    return _dashboard_trade_history_payload(db, mode=normalized_mode, date_from=date_from, date_to=date_to)

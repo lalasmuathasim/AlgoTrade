@@ -122,6 +122,9 @@ def landing_page() -> str:
       min-width: 0;
       align-items: center;
     }
+    .workspace-nav-spacer {
+      flex: 1 1 auto;
+    }
     .workspace-link {
       display: inline-flex;
       align-items: center;
@@ -152,18 +155,33 @@ def landing_page() -> str:
         inset 0 0 0 1px rgba(255,255,255,0.7),
         0 10px 24px rgba(61, 126, 240, 0.08);
     }
+    .workspace-link-action {
+      background: rgba(255,255,255,0.72);
+      border-color: rgba(61, 126, 240, 0.14);
+      cursor: pointer;
+      font: inherit;
+    }
     .brand-mark {
-      color: var(--accent);
-      text-transform: uppercase;
+      font-size: 0.78rem;
       letter-spacing: 0.16em;
-      font-size: 0.76rem;
+      text-transform: uppercase;
+      color: var(--accent);
       font-weight: 700;
     }
     .brand-title {
+      margin-top: 8px;
       font-family: "Space Grotesk", "Avenir Next", sans-serif;
-      font-size: 1.45rem;
+      font-size: clamp(2.1rem, 4vw, 3.1rem);
       font-weight: 700;
-      letter-spacing: -0.02em;
+      line-height: 0.95;
+      letter-spacing: -0.05em;
+    }
+    .brand-copy {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.5;
+      max-width: 420px;
     }
     .shell-action, .cta, .ghost, .inline-button, .tab-button {
       border: 1px solid var(--line);
@@ -444,12 +462,15 @@ def landing_page() -> str:
       <div class="brand">
         <div class="brand-mark">Qubitx</div>
         <div class="brand-title">Market Control</div>
+        <div class="brand-copy">A focused trading workspace for watchlists, structure tracking, runtime readiness, and review-grade reporting.</div>
       </div>
       <nav class="workspace-nav">
         <a class="workspace-link active" href="/">Home</a>
         <a class="workspace-link" href="/dashboard">Dashboard</a>
         <a class="workspace-link" href="/configuration">Configuration</a>
         <a class="workspace-link" href="/analytics">Analytics</a>
+        <span class="workspace-nav-spacer"></span>
+        <button id="logoutNavButton" class="workspace-link workspace-link-action hidden" type="button">Log Out</button>
       </nav>
     </section>
     <section class="hero">
@@ -508,7 +529,6 @@ def landing_page() -> str:
             <a class="inline-button" href="/dashboard">Open Dashboard</a>
             <a class="inline-button" href="/configuration">Open Configuration</a>
           </div>
-          <button class="ghost" id="logoutButton" type="button">Log Out</button>
         </div>
         <div id="signupPanel" class="panel">
           <form id="signupForm">
@@ -607,7 +627,7 @@ def landing_page() -> str:
     const twoFactorField = document.getElementById("twoFactorField");
     const dashboardButton = document.getElementById("dashboardButton");
     const tabs = document.querySelector(".tabs");
-    const logoutButton = document.getElementById("logoutButton");
+    const logoutNavButton = document.getElementById("logoutNavButton");
     const authStatusMessages = {
       logged_out: { message: "You have been logged out successfully.", tone: "success" },
       auth_required: { message: "You were logged out because authentication is required to open that page. Please sign in again.", tone: "warn" },
@@ -641,6 +661,7 @@ def landing_page() -> str:
       loginPanel.classList.add("hidden");
       signupPanel.classList.add("hidden");
       signedInPanel.classList.add("active");
+      logoutNavButton.classList.remove("hidden");
       dashboardButton.classList.remove("hidden");
       signedInStatus.textContent = `Signed in as ${user.email}. Your workspace is ready.`;
       setStatus("You already have an active session. Open the dashboard or continue to configuration.", "success");
@@ -714,7 +735,7 @@ def landing_page() -> str:
       window.location.href = "/dashboard";
     });
 
-    logoutButton.addEventListener("click", async () => {
+    logoutNavButton.addEventListener("click", async () => {
       await fetch("/auth/logout", { method: "POST" });
       window.location.href = "/?auth_status=logged_out";
     });
