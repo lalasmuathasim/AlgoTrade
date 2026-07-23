@@ -588,17 +588,22 @@ class MarketDataProcessor:
             db.flush()
             created_breakout_events.append(breakout_event)
 
+            line.is_untouched = False
+            line.triggered_at = breakout_event.event_time
+            line.line_status = "ARCHIVED"
+            line.archived_at = datetime.now(UTC)
+            line.archive_reason = (
+                "BUY_BREAKOUT_RECORDED"
+                if line.line_type == "BUY"
+                else "SELL_BREAKDOWN_RECORDED"
+            )
+            db.flush()
+
             if signal is None:
                 continue
 
             signal.breakout_event_id = breakout_event.id
             db.add(signal)
-            line.is_untouched = False
-            line.triggered_at = datetime.now(UTC)
-            if bool(_coalesce(getattr(runtime_settings, "allow_repeat_entry_same_line", None), False)):
-                line.line_status = "ACTIVE"
-            else:
-                line.line_status = "TRIGGERED"
             db.flush()
             enqueue_signal_dispatch(SignalDispatchJob(signal_id=signal.id))
             created_signals.append(signal)

@@ -309,6 +309,65 @@ class MarketStreamTests(unittest.TestCase):
         mock_build.assert_not_called()
         self.assertEqual(db.added, [])
 
+    def test_market_data_processor_archives_line_after_first_breakout_even_without_signal(self):
+        line = TriggerLine(
+            id=uuid.uuid4(),
+            watchlist_id=uuid.uuid4(),
+            exchange="NSE",
+            symbol="RELIANCE",
+            line_type="BUY",
+            line_price=100.0,
+            line_status="ACTIVE",
+            is_untouched=True,
+        )
+        candle = type(
+            "Candle",
+            (),
+            {
+                "instrument_token": 111,
+                "symbol": "RELIANCE",
+                "exchange": "NSE",
+                "timeframe": "3minute",
+                "candle_start": datetime.fromisoformat("2026-07-22T03:45:00+00:00"),
+                "candle_end": datetime.fromisoformat("2026-07-22T03:48:00+00:00"),
+                "open": 99.5,
+                "high": 101.0,
+                "low": 99.4,
+                "close": 100.8,
+                "volume": 4200.0,
+            },
+        )()
+        previous_candle = SimpleNamespace(volume=1000.0)
+        db = BreakoutAwareSession([previous_candle, None], [line])
+        processor = MarketDataProcessor()
+        breakout_payload = SimpleNamespace(
+            breakout_or_breakdown_price=100.0,
+            breakout_candle_high=101.0,
+            breakout_candle_low=99.4,
+            breakout_candle_volume=4200.0,
+            previous_candle_volume=1000.0,
+            required_volume_multiplier=5.0,
+            volume_ratio=4.2,
+            volume_condition_passed=False,
+            entry_price=101.05,
+            stop_loss=99.95,
+            target=110.0,
+            rejection_reason="VOLUME_FAILED",
+        )
+
+        with patch.object(processor, "_persist_candle", return_value=SimpleNamespace(id=uuid.uuid4())), \
+             patch("backend.app.services.market_stream.ensure_settings", return_value=SimpleNamespace(require_candle_close_beyond_line=True)), \
+             patch.object(processor.breakout_detector, "detect", return_value=[(line, "BREAKOUT")]), \
+             patch.object(processor.signal_generator, "build", return_value=(breakout_payload, None)):
+            signals, breakout_events = processor._process_finalized_candle(db, candle)
+
+        self.assertEqual(signals, [])
+        self.assertEqual(len(breakout_events), 1)
+        self.assertEqual(line.line_status, "ARCHIVED")
+        self.assertFalse(line.is_untouched)
+        self.assertEqual(line.archive_reason, "BUY_BREAKOUT_RECORDED")
+        self.assertIsNotNone(line.archived_at)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -10,6 +10,7 @@ from backend.app.config import get_settings
 from backend.app.database import SessionLocal, initialize_runtime_state
 from backend.app.models import ScanExecution
 from backend.app.services.market_scanner import DailyMarketScanner
+from backend.app.services.paper_trading_service import ensure_settings
 from backend.app.services.zerodha import HistoricalCandleProvider, ZerodhaApiClient, ZerodhaAuthService
 from backend.app.services.zerodha_sessions import get_current_zerodha_access_token, get_current_zerodha_session
 
@@ -27,8 +28,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def _should_run(now_local: datetime) -> bool:
-    scan_hour, scan_minute = [int(part) for part in settings.daily_scan_time.split(":", maxsplit=1)]
+def _scheduled_scan_time(runtime_settings) -> str:
+    configured = getattr(runtime_settings, "daily_structure_rebuild_time", None) or settings.daily_scan_time
+    return configured
+
+
+def _should_run(now_local: datetime, scheduled_time: str) -> bool:
+    scan_hour, scan_minute = [int(part) for part in scheduled_time.split(":", maxsplit=1)]
     return (now_local.hour, now_local.minute) >= (scan_hour, scan_minute)
 
 
@@ -135,7 +141,12 @@ def run_scheduler() -> None:
 
     while True:
         now_local = datetime.now(market_tz)
-        if _should_run(now_local):
+        with SessionLocal() as db:
+            runtime_settings = ensure_settings(db)
+            auto_rebuild_enabled = bool(getattr(runtime_settings, "daily_structure_rebuild_enabled", True))
+            scheduled_time = _scheduled_scan_time(runtime_settings)
+
+        if auto_rebuild_enabled and _should_run(now_local, scheduled_time):
             with SessionLocal() as db:
                 scanner = _build_scheduler_scanner(db)
                 _run_due_scan(db, now_local, scanner)

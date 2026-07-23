@@ -10,7 +10,7 @@ from tests.support import configure_test_env
 configure_test_env()
 
 from backend.app.models import ScanExecution
-from backend.app.scheduler import _run_due_scan
+from backend.app.scheduler import _run_due_scan, _scheduled_scan_time, _should_run
 
 
 class FakeSchedulerDb:
@@ -30,6 +30,13 @@ class FakeSchedulerDb:
 
 
 class SchedulerTests(unittest.TestCase):
+    def test_scheduler_uses_runtime_rebuild_time(self):
+        runtime_settings = SimpleNamespace(daily_structure_rebuild_time="15:52")
+        now_local = datetime.fromisoformat("2026-07-19T15:53:00+05:30")
+
+        self.assertEqual(_scheduled_scan_time(runtime_settings), "15:52")
+        self.assertTrue(_should_run(now_local, _scheduled_scan_time(runtime_settings)))
+
     def test_scheduler_skips_and_records_scan_when_credentials_are_missing(self):
         db = FakeSchedulerDb([None, None])
         scanner = SimpleNamespace(run=lambda *args, **kwargs: self.fail("scanner.run should not be called"))

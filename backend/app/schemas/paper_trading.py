@@ -39,6 +39,8 @@ class PaperTradingSettingsPayload(BaseModel):
     swing_window: int = 2
     max_gap_percent: float = 0.5
     min_swing_distance: int = 1
+    daily_structure_rebuild_enabled: bool = True
+    daily_structure_rebuild_time: str = "15:45"
     prediction_proximity_percent: float = 2.0
     max_open_positions: int = 3
     max_loss_per_symbol_per_day: float = 2500.0

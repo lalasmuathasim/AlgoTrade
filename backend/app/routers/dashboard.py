@@ -137,6 +137,9 @@ def _serialize_trigger_line(line: TriggerLine) -> dict:
         "swing_gap_percent": line.swing_gap_percent,
         "nearest_daily_swing_high_target": line.nearest_daily_swing_high_target,
         "nearest_daily_swing_low_target": line.nearest_daily_swing_low_target,
+        "triggered_at": _serialize_datetime(line.triggered_at),
+        "archived_at": _serialize_datetime(line.archived_at),
+        "archive_reason": line.archive_reason,
         "created_at": _serialize_datetime(line.created_at),
         "updated_at": _serialize_datetime(line.updated_at),
     }
@@ -1423,7 +1426,7 @@ def dashboard_report_overview(db: Session = Depends(get_db)) -> dict:
         "configured_symbols": len(configured_symbol_keys),
         "drawn_symbols": len(drawn_symbol_keys),
         "active_trigger_lines": sum(1 for line in trigger_lines if line.line_status == "ACTIVE"),
-        "triggered_lines": sum(1 for line in trigger_lines if line.line_status == "TRIGGERED"),
+        "triggered_lines": sum(1 for line in trigger_lines if line.line_status in {"TRIGGERED", "ARCHIVED"}),
     }
 
 
@@ -1638,7 +1641,7 @@ def get_watchlist_summary(db: Session = Depends(get_db)) -> list[dict]:
                 "symbols_with_active_buy_lines": len(active_buy_symbols),
                 "symbols_with_active_sell_lines": len(active_sell_symbols),
                 "active_trigger_lines": sum(1 for line in watchlist_lines if line.line_status == "ACTIVE"),
-                "triggered_lines": sum(1 for line in watchlist_lines if line.line_status == "TRIGGERED"),
+                "triggered_lines": sum(1 for line in watchlist_lines if line.line_status in {"TRIGGERED", "ARCHIVED"}),
                 "paper_trades": len(watchlist_trades),
                 "total_paper_pnl": round(sum(trade.pnl or 0.0 for trade in watchlist_trades), 2),
             }

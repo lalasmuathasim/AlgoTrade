@@ -59,6 +59,8 @@ def get_default_settings_payload() -> PaperTradingSettingsPayload:
         swing_window=settings.swing_window,
         max_gap_percent=settings.max_gap_percent,
         min_swing_distance=max(int(settings.min_swing_distance), 1),
+        daily_structure_rebuild_enabled=True,
+        daily_structure_rebuild_time=settings.daily_scan_time,
         prediction_proximity_percent=2.0,
         max_open_positions=3,
         max_loss_per_symbol_per_day=2500.0,
@@ -115,6 +117,8 @@ def ensure_settings(db: Session) -> PaperTradingSetting:
         swing_window=defaults.swing_window,
         max_gap_percent=defaults.max_gap_percent,
         min_swing_distance=defaults.min_swing_distance,
+        daily_structure_rebuild_enabled=defaults.daily_structure_rebuild_enabled,
+        daily_structure_rebuild_time=defaults.daily_structure_rebuild_time,
         prediction_proximity_percent=defaults.prediction_proximity_percent,
         max_open_positions=defaults.max_open_positions,
         max_loss_per_symbol_per_day=defaults.max_loss_per_symbol_per_day,
@@ -170,6 +174,8 @@ def update_settings(db: Session, payload: PaperTradingSettingsPayload) -> PaperT
     current.swing_window = payload.swing_window
     current.max_gap_percent = payload.max_gap_percent
     current.min_swing_distance = payload.min_swing_distance
+    current.daily_structure_rebuild_enabled = payload.daily_structure_rebuild_enabled
+    current.daily_structure_rebuild_time = payload.daily_structure_rebuild_time
     current.prediction_proximity_percent = payload.prediction_proximity_percent
     current.max_open_positions = payload.max_open_positions
     current.max_loss_per_symbol_per_day = payload.max_loss_per_symbol_per_day
@@ -273,6 +279,8 @@ def get_strategy_settings_payload(db: Session) -> StrategySettingsPayload:
         swing_window=current.swing_window,
         max_gap_percent=current.max_gap_percent,
         min_swing_distance=current.min_swing_distance,
+        daily_structure_rebuild_enabled=current.daily_structure_rebuild_enabled,
+        daily_structure_rebuild_time=current.daily_structure_rebuild_time,
         prediction_proximity_percent=current.prediction_proximity_percent,
         buy_volume_multiplier=current.buy_volume_multiplier,
         sell_volume_multiplier=current.sell_volume_multiplier,
@@ -287,6 +295,8 @@ def update_strategy_settings(db: Session, payload: StrategySettingsPayload) -> P
     current.swing_window = payload.swing_window
     current.max_gap_percent = payload.max_gap_percent
     current.min_swing_distance = payload.min_swing_distance
+    current.daily_structure_rebuild_enabled = payload.daily_structure_rebuild_enabled
+    current.daily_structure_rebuild_time = payload.daily_structure_rebuild_time
     current.prediction_proximity_percent = payload.prediction_proximity_percent
     current.buy_volume_multiplier = payload.buy_volume_multiplier
     current.sell_volume_multiplier = payload.sell_volume_multiplier

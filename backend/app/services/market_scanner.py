@@ -320,7 +320,11 @@ class TriggerLineManager:
                 TriggerLine.source == "ZERODHA",
             )
         ).all()
-        existing_by_key = {line.level_key: line for line in existing_lines if line.level_key}
+        existing_by_key = {
+            line.level_key: line
+            for line in existing_lines
+            if line.level_key and line.line_status == "ACTIVE"
+        }
 
         for row in rows:
             line = existing_by_key.get(row.level_key)
@@ -349,6 +353,9 @@ class TriggerLineManager:
             line.scan_execution_id = scan_execution_id
             line.line_status = "ACTIVE"
             line.is_untouched = True
+            line.triggered_at = None
+            line.archived_at = None
+            line.archive_reason = None
             line.line_price = row.line_price
             line.line_drawn_date = row.line_drawn_date
             line.lookback_candles = row.lookback_candles
@@ -378,6 +385,8 @@ class TriggerLineManager:
                 line.line_status = "EXPIRED"
                 line.is_untouched = False
                 line.invalidated_at = now
+                line.archived_at = now
+                line.archive_reason = "DAILY_REBUILD_EXPIRED"
 
         if not dry_run:
             db.flush()

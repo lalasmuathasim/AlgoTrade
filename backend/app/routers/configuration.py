@@ -34,10 +34,11 @@ from backend.app.services.paper_trading_service import (
     update_execution_rules,
     update_strategy_settings,
 )
+from backend.app.services.market_scanner import DailyMarketScanner
 from backend.app.services.live_engine_runtime import build_live_engine_runtime_snapshot
 from backend.app.services.watchlists import ensure_selected_watchlist, set_selected_watchlist
 from backend.app.services.zerodha_sessions import get_current_zerodha_access_token, get_current_zerodha_session
-from backend.app.services.zerodha import InstrumentMasterSyncService, SubscriptionManager, ZerodhaApiClient, ZerodhaAuthService
+from backend.app.services.zerodha import HistoricalCandleProvider, InstrumentMasterSyncService, SubscriptionManager, ZerodhaApiClient, ZerodhaAuthService
 from backend.app.ui import render_app_shell
 
 
@@ -51,6 +52,16 @@ def _normalize_exchange(exchange: str) -> str:
     if value not in {"NSE", "BSE"}:
         raise HTTPException(status_code=422, detail="Exchange must be NSE or BSE")
     return value
+
+
+def _validate_time_string(value: str, *, field_name: str) -> str:
+    candidate = value.strip()
+    if not re.fullmatch(r"\d{2}:\d{2}", candidate):
+        raise HTTPException(status_code=422, detail=f"{field_name} must use HH:MM format")
+    hour, minute = [int(part) for part in candidate.split(":", maxsplit=1)]
+    if hour not in range(24) or minute not in range(60):
+        raise HTTPException(status_code=422, detail=f"{field_name} must use a valid 24-hour time")
+    return candidate
 
 
 def _parse_symbols(symbols_text: str) -> list[str]:
@@ -625,6 +636,16 @@ def configuration_page() -> str:
           <div class="field-help">Minimum candle spacing between the two chosen swings.</div>
         </div>
         <div class="field">
+          <label for="dailyStructureRebuildEnabledInput">Enable daily market structure rebuild</label>
+          <select id="dailyStructureRebuildEnabledInput"><option value="true">ON</option><option value="false">OFF</option></select>
+          <div class="field-help">When ON, the scheduler rebuilds active support and resistance once each trading day after market close.</div>
+        </div>
+        <div class="field">
+          <label for="dailyStructureRebuildTimeInput">Daily rebuild time</label>
+          <input id="dailyStructureRebuildTimeInput" type="time" step="60" />
+          <div class="field-help">24-hour market-local time used by the automatic daily rebuild scheduler.</div>
+        </div>
+        <div class="field">
           <label for="predictionProximityPercentInput">Prediction proximity percent</label>
           <input id="predictionProximityPercentInput" type="number" min="0.1" max="20" step="0.1" />
           <div class="field-help">A symbol appears in the potential-hit table when its latest daily close stays within this percent of an active support or resistance line and recent closes are moving toward that line.</div>
@@ -660,6 +681,7 @@ def configuration_page() -> str:
       <div class="inline" style="margin-top: 14px;">
         <button id="saveStrategySettingsButton" class="primary" type="button">Save Strategy Tuning</button>
         <button id="refreshStrategySettingsButton" class="secondary" type="button">Reload Values</button>
+        <button id="redrawMarketStructureButton" class="secondary" type="button">Redraw Market Structure Now</button>
       </div>
     </section>
     <section class="panel">
@@ -1057,6 +1079,8 @@ def configuration_page() -> str:
       document.getElementById("swingWindowInput").value = settingsPayload.swing_window;
       document.getElementById("maxGapPercentInput").value = settingsPayload.max_gap_percent;
       document.getElementById("minSwingDistanceInput").value = settingsPayload.min_swing_distance;
+      document.getElementById("dailyStructureRebuildEnabledInput").value = booleanSelectValue(settingsPayload.daily_structure_rebuild_enabled);
+      document.getElementById("dailyStructureRebuildTimeInput").value = settingsPayload.daily_structure_rebuild_time;
       document.getElementById("predictionProximityPercentInput").value = settingsPayload.prediction_proximity_percent;
       document.getElementById("buyVolumeMultiplierInput").value = settingsPayload.buy_volume_multiplier;
       document.getElementById("sellVolumeMultiplierInput").value = settingsPayload.sell_volume_multiplier;
@@ -1064,7 +1088,7 @@ def configuration_page() -> str:
       document.getElementById("stopLossBufferTicksInput").value = settingsPayload.stop_loss_buffer_ticks;
       setInlineMessage(
         "strategySettingsStatus",
-        `Daily scan uses ${settingsPayload.daily_candle_lookback} candles with swing window ${settingsPayload.swing_window}. Gap filter ${settingsPayload.max_gap_percent}% · min swing distance ${settingsPayload.min_swing_distance} candles · potential-hit threshold ${settingsPayload.prediction_proximity_percent}% · BUY volume ${settingsPayload.buy_volume_multiplier}x · SELL volume ${settingsPayload.sell_volume_multiplier}x.`,
+        `Daily scan uses ${settingsPayload.daily_candle_lookback} candles with swing window ${settingsPayload.swing_window}. Gap filter ${settingsPayload.max_gap_percent}% · min swing distance ${settingsPayload.min_swing_distance} candles · auto rebuild ${settingsPayload.daily_structure_rebuild_enabled ? `ON at ${settingsPayload.daily_structure_rebuild_time}` : "OFF"} · potential-hit threshold ${settingsPayload.prediction_proximity_percent}% · BUY volume ${settingsPayload.buy_volume_multiplier}x · SELL volume ${settingsPayload.sell_volume_multiplier}x.`,
         "success",
       );
     }
@@ -1614,6 +1638,8 @@ def configuration_page() -> str:
           swing_window: Number(document.getElementById("swingWindowInput").value),
           max_gap_percent: Number(document.getElementById("maxGapPercentInput").value),
           min_swing_distance: Number(document.getElementById("minSwingDistanceInput").value),
+          daily_structure_rebuild_enabled: parseBooleanSelect("dailyStructureRebuildEnabledInput"),
+          daily_structure_rebuild_time: document.getElementById("dailyStructureRebuildTimeInput").value,
           prediction_proximity_percent: Number(document.getElementById("predictionProximityPercentInput").value),
           buy_volume_multiplier: Number(document.getElementById("buyVolumeMultiplierInput").value),
           sell_volume_multiplier: Number(document.getElementById("sellVolumeMultiplierInput").value),
@@ -1632,6 +1658,20 @@ def configuration_page() -> str:
       try {
         const result = await loadStrategySettings();
         renderStrategySettings(result);
+      } catch (error) {
+        setInlineMessage("strategySettingsStatus", error.message, "error");
+      }
+    });
+
+    document.getElementById("redrawMarketStructureButton").addEventListener("click", async () => {
+      try {
+        setInlineMessage("strategySettingsStatus", "Running the same daily market-structure rebuild used by the scheduler.", "warn");
+        const result = await apiSend("/configuration/market-structure/redraw-now", "POST", {});
+        setInlineMessage(
+          "strategySettingsStatus",
+          `Redraw completed. Scan ${result.status.toLowerCase()} · ${result.symbols_scanned} symbols scanned · ${result.trigger_lines_created} new lines · ${result.trigger_lines_updated} refreshed lines.`,
+          "success",
+        );
       } catch (error) {
         setInlineMessage("strategySettingsStatus", error.message, "error");
       }
@@ -1884,8 +1924,46 @@ def save_configuration_strategy_settings(
     payload: StrategySettingsPayload,
     db: Session = Depends(get_db),
 ) -> StrategySettingsResponse:
+    _validate_time_string(payload.daily_structure_rebuild_time, field_name="Daily structure rebuild time")
     current = update_strategy_settings(db, payload)
     return StrategySettingsResponse.model_validate(current, from_attributes=True)
+
+
+@router.post("/configuration/market-structure/redraw-now")
+def configuration_redraw_market_structure_now(db: Session = Depends(get_db)) -> dict:
+    zerodha_auth = ZerodhaAuthService()
+    if not zerodha_auth.has_credentials():
+        raise HTTPException(status_code=503, detail="Configure Zerodha credentials before redrawing market structure")
+
+    zerodha_session = get_current_zerodha_session(db)
+    if zerodha_session is None:
+        raise HTTPException(status_code=503, detail="Connect Zerodha before redrawing market structure")
+    if zerodha_session.access_token_expires_at and zerodha_session.access_token_expires_at <= datetime.now(UTC):
+        raise HTTPException(status_code=503, detail="Zerodha session has expired. Reconnect Zerodha before redrawing market structure")
+
+    current_access_token = get_current_zerodha_access_token(db)
+    scanner = DailyMarketScanner(
+        provider=HistoricalCandleProvider(
+            client=ZerodhaApiClient(
+                auth_service=zerodha_auth,
+                access_token=current_access_token,
+            )
+        )
+    )
+    try:
+        execution = scanner.run(db, scan_date=datetime.now(UTC).date(), dry_run=False)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Unable to redraw market structure: {exc}") from exc
+
+    return {
+        "execution_id": str(execution.id),
+        "status": execution.status,
+        "symbols_scanned": execution.symbols_scanned,
+        "trigger_lines_created": execution.trigger_lines_created,
+        "trigger_lines_updated": execution.trigger_lines_updated,
+    }
 
 
 @router.get("/configuration/execution-rules", response_model=ExecutionRulesResponse)
