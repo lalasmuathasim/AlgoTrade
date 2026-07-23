@@ -612,6 +612,12 @@ def render_app_shell(
       font-size: 0.82rem;
       line-height: 1.45;
     }}
+    .table-helper-copy {{
+      margin: 0 0 2px;
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.45;
+    }}
     .table-toolbar-copy.success {{ color: var(--ok); }}
     .table-toolbar-copy.warn {{ color: var(--warn); }}
     .table-toolbar-copy.error {{ color: var(--danger); }}

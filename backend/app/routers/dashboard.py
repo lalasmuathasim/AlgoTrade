@@ -648,8 +648,8 @@ def dashboard_home() -> str:
         </div>
       </div>
       <div class="table-shell">
+        <p class="table-helper-copy">Preview mode keeps long market-structure lists compact. Expand when you want the full saved table.</p>
         <div class="table-toolbar">
-          <p class="table-toolbar-copy">Preview mode keeps long market-structure lists compact. Expand when you want the full saved table.</p>
           <div class="table-toolbar-actions">
             <button id="refreshDailyReviewButton" class="secondary table-toggle" type="button">Update Table</button>
             <button id="dailyReviewToggle" class="secondary table-toggle hidden" type="button" aria-expanded="false">Expand table</button>
@@ -669,8 +669,8 @@ def dashboard_home() -> str:
       </div>
       <div id="potentialLineHitSummary" class="table-toolbar-copy" style="margin-bottom: 14px;">Loading potential line-hit candidates...</div>
       <div class="table-shell">
+        <p class="table-helper-copy">Rows appear only when an active line remains within the configured prediction threshold and the recent daily closes have been moving toward that level.</p>
         <div class="table-toolbar">
-          <p class="table-toolbar-copy">Rows appear only when an active line remains within the configured prediction threshold and the recent daily closes have been moving toward that level.</p>
           <div class="table-toolbar-actions">
             <button id="refreshPotentialLineHitsButton" class="secondary table-toggle" type="button">Refresh Table</button>
             <button id="potentialLineHitsToggle" class="secondary table-toggle hidden" type="button" aria-expanded="false">Expand table</button>
@@ -690,8 +690,8 @@ def dashboard_home() -> str:
       </div>
       <div id="breakoutReviewSummary" class="table-toolbar-copy" style="margin-bottom: 14px;">Loading breakout review summary...</div>
       <div class="table-shell">
+        <p class="table-helper-copy">Pick a trading date to review only that day's first breakout attempt per line. Older sessions remain available through history.</p>
         <div class="table-toolbar">
-          <p class="table-toolbar-copy">Pick a trading date to review only that day's first breakout attempt per line. Older sessions remain available through history.</p>
           <div class="table-toolbar-actions">
             <input id="breakoutReviewDate" class="subtle-input" type="date" aria-label="Breakout review date" />
             <button id="refreshBreakoutReviewButton" class="secondary table-toggle" type="button">Refresh Table</button>
@@ -712,8 +712,8 @@ def dashboard_home() -> str:
       </div>
       <div id="tradeHistorySummary" class="table-toolbar-copy" style="margin-bottom: 14px;">Loading trade history...</div>
       <div class="table-shell">
+        <p class="table-helper-copy">Trade history stays collapsed by default so long lists remain readable while still supporting full horizontal inspection when expanded.</p>
         <div class="table-toolbar">
-          <p class="table-toolbar-copy">Trade history stays collapsed by default so long lists remain readable while still supporting full horizontal inspection when expanded.</p>
           <div class="table-toolbar-actions">
             <input id="tradeHistoryDateFrom" class="subtle-input" type="date" aria-label="Trade history start date" />
             <input id="tradeHistoryDateTo" class="subtle-input" type="date" aria-label="Trade history end date" />

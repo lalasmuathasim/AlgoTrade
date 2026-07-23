@@ -931,8 +931,8 @@ def configuration_page() -> str:
         </div>
       </div>
       <div class="table-shell">
+        <p id="watchlistDetailMeta" class="table-helper-copy">Select a watchlist to inspect its tracked symbols and current prices.</p>
         <div class="table-toolbar">
-          <p id="watchlistDetailMeta" class="table-toolbar-copy">Select a watchlist to inspect its tracked symbols and current prices.</p>
           <button id="watchlistDetailToggle" class="secondary table-toggle hidden" type="button" aria-expanded="false">Expand table</button>
         </div>
         <div id="watchlistDetailFrame" class="table-scroll-frame is-collapsed" style="--table-min-width: 820px;">
@@ -948,8 +948,8 @@ def configuration_page() -> str:
         </div>
       </div>
       <div class="table-shell">
+        <p class="table-helper-copy">Preview mode trims large coverage lists while keeping horizontal scrolling available for the full market monitor view.</p>
         <div class="table-toolbar">
-          <p class="table-toolbar-copy">Preview mode trims large coverage lists while keeping horizontal scrolling available for the full market monitor view.</p>
           <button id="symbolActivityToggle" class="secondary table-toggle hidden" type="button" aria-expanded="false">Expand table</button>
         </div>
         <div id="symbolActivityFrame" class="table-scroll-frame is-collapsed" style="--table-min-width: 760px;">
