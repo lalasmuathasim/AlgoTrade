@@ -541,19 +541,22 @@ def render_app_shell(
     }}
     .table-toolbar-actions {{
       display: flex;
-      align-items: center;
-      gap: 10px;
+      align-items: flex-start;
+      gap: 8px;
       flex-wrap: wrap;
       justify-content: flex-end;
       margin-left: auto;
       min-width: min(100%, 840px);
     }}
     .table-toolbar-search {{
-      display: grid;
-      gap: 4px;
-      min-width: min(260px, 100%);
-      max-width: 340px;
-      flex: 1 1 260px;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-self: flex-start;
+      min-width: min(220px, 100%);
+      max-width: 260px;
+      flex: 0 1 240px;
+      padding-bottom: 18px;
     }}
     .table-toolbar-copy {{
       margin: 0;
@@ -573,7 +576,7 @@ def render_app_shell(
     .subtle-input {{
       min-height: 34px;
       width: auto;
-      min-width: 154px;
+      min-width: 128px;
       padding: 7px 10px;
       border-radius: 12px;
       border: 1px solid rgba(122, 151, 185, 0.16);
@@ -690,6 +693,8 @@ def render_app_shell(
     }}
     .table-filter-suggestion {{
       display: flex;
+      justify-content: flex-start;
+      align-items: center;
       width: 100%;
       padding: 9px 10px;
       border: none;
@@ -708,10 +713,13 @@ def render_app_shell(
       transform: none;
     }}
     .table-filter-meta {{
+      position: absolute;
+      top: calc(100% - 14px);
+      left: 2px;
       color: var(--muted);
       font-size: 0.78rem;
+      line-height: 1;
       white-space: nowrap;
-      padding-left: 2px;
     }}
     tbody tr:hover {{
       background: rgba(92, 167, 255, 0.035);
@@ -1080,7 +1088,9 @@ def render_app_shell(
       state.suggestions = suggestions;
       input.placeholder = filterConfig.placeholder || "Filter symbols";
       input.value = state.query || "";
-      slot._showSuggestions = false;
+      if (slot._showSuggestions == null) {{
+        slot._showSuggestions = false;
+      }}
       input.oninput = () => {{
         state.query = input.value;
         slot._showSuggestions = true;
