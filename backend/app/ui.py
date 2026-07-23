@@ -928,7 +928,7 @@ def render_app_shell(
         <div class="brand-title">Market Control</div>
         <div class="brand-copy">A focused trading workspace for watchlists, structure tracking, runtime readiness, and review-grade reporting.</div>
         </div>
-        <nav class="workspace-nav">{nav_html}<span class="workspace-nav-spacer"></span><div id="workspaceUser" class="workspace-user hidden"><span id="workspaceGreeting" class="workspace-user-name"></span><button id="logoutNavButton" class="workspace-link workspace-link-action" type="button">Log out</button></div></nav>
+        <nav class="workspace-nav">{nav_html}<span id="workspaceNavSpacer" class="workspace-nav-spacer hidden"></span><div id="workspaceUser" class="workspace-user hidden"><span id="workspaceGreeting" class="workspace-user-name"></span><button id="logoutNavButton" class="workspace-link workspace-link-action" type="button">Log out</button></div></nav>
       </section>
       <main class="main-shell">
       <section class="topbar">
@@ -1208,12 +1208,15 @@ def render_app_shell(
     }}
     async function syncWorkspaceUser() {{
       const workspaceUser = document.getElementById("workspaceUser");
+      const workspaceNavSpacer = document.getElementById("workspaceNavSpacer");
       const greeting = document.getElementById("workspaceGreeting");
       try {{
         const user = await apiGet("/auth/me");
         greeting.textContent = `Hi ${{formatWorkspaceName(user)}}`;
+        workspaceNavSpacer.classList.remove("hidden");
         workspaceUser.classList.remove("hidden");
       }} catch (_error) {{
+        workspaceNavSpacer.classList.add("hidden");
         workspaceUser.classList.add("hidden");
         greeting.textContent = "";
       }}

@@ -498,7 +498,7 @@ def landing_page() -> str:
         <a class="workspace-link" href="/dashboard">Dashboard</a>
         <a class="workspace-link" href="/configuration">Configuration</a>
         <a class="workspace-link" href="/analytics">Analytics</a>
-        <span class="workspace-nav-spacer"></span>
+        <span id="workspaceNavSpacer" class="workspace-nav-spacer hidden"></span>
         <div id="workspaceUser" class="workspace-user hidden">
           <span id="workspaceGreeting" class="workspace-user-name"></span>
           <button id="logoutNavButton" class="workspace-link workspace-link-action" type="button">Log out</button>
@@ -533,10 +533,6 @@ def landing_page() -> str:
             <p>Approved users can access the protected workspace. New signups still require admin approval before login is enabled.</p>
           </div>
         </div>
-        <div class="tabs">
-          <button id="loginTab" class="tab-button active" type="button">Login</button>
-          <button id="signupTab" class="tab-button" type="button">Request Access</button>
-        </div>
         <div id="loginPanel" class="panel active">
           <form id="loginForm">
             <div class="field">
@@ -551,8 +547,8 @@ def landing_page() -> str:
               <label for="twoFactorCode">Two-factor code</label>
               <input id="twoFactorCode" name="two_factor_code" type="text" inputmode="numeric" maxlength="6" placeholder="123456" />
             </div>
-            <button class="cta" type="submit">Enter Dashboard</button>
-            <button class="ghost hidden" id="dashboardButton" type="button">Continue to Dashboard</button>
+            <button class="cta" type="submit">Log In</button>
+            <button class="ghost" id="requestAccessButton" type="button">Request Access</button>
           </form>
         </div>
         <div id="signedInPanel" class="signed-session">
@@ -577,6 +573,7 @@ def landing_page() -> str:
               <input id="signupPassword" name="password" type="password" autocomplete="new-password" required />
             </div>
             <button class="cta" type="submit">Request Approval</button>
+            <button class="ghost" id="backToLoginButton" type="button">Back to Login</button>
           </form>
         </div>
         <div id="statusBar" class="status-bar">Approved users can access the protected dashboard. New signups require admin approval before login is enabled.</div>
@@ -650,15 +647,12 @@ def landing_page() -> str:
   </div>
   <script>
     const statusBar = document.getElementById("statusBar");
-    const loginTab = document.getElementById("loginTab");
-    const signupTab = document.getElementById("signupTab");
     const loginPanel = document.getElementById("loginPanel");
     const signupPanel = document.getElementById("signupPanel");
     const signedInPanel = document.getElementById("signedInPanel");
     const signedInStatus = document.getElementById("signedInStatus");
     const twoFactorField = document.getElementById("twoFactorField");
-    const dashboardButton = document.getElementById("dashboardButton");
-    const tabs = document.querySelector(".tabs");
+    const workspaceNavSpacer = document.getElementById("workspaceNavSpacer");
     const logoutNavButton = document.getElementById("logoutNavButton");
     const authStatusMessages = {
       logged_out: { message: "You have been logged out successfully.", tone: "success" },
@@ -704,16 +698,15 @@ def landing_page() -> str:
     }
 
     function showSignedInState(user) {
-      tabs.classList.add("hidden");
       loginPanel.classList.remove("active");
       signupPanel.classList.remove("active");
       loginPanel.classList.add("hidden");
       signupPanel.classList.add("hidden");
       signedInPanel.classList.add("active");
+      workspaceNavSpacer.classList.remove("hidden");
       logoutNavButton.classList.remove("hidden");
       document.getElementById("workspaceUser").classList.remove("hidden");
       document.getElementById("workspaceGreeting").textContent = `Hi ${formatWorkspaceName(user)}`;
-      dashboardButton.classList.remove("hidden");
       signedInStatus.textContent = "Workspace ready.";
       setStatus("You already have an active session. Open the dashboard or continue to configuration.", "success");
     }
@@ -723,15 +716,11 @@ def landing_page() -> str:
       signedInPanel.classList.remove("active");
       loginPanel.classList.remove("hidden");
       signupPanel.classList.remove("hidden");
-      tabs.classList.remove("hidden");
-      loginTab.classList.toggle("active", isLogin);
-      signupTab.classList.toggle("active", !isLogin);
       loginPanel.classList.toggle("active", isLogin);
       signupPanel.classList.toggle("active", !isLogin);
     }
-
-    loginTab.addEventListener("click", () => activateTab("login"));
-    signupTab.addEventListener("click", () => activateTab("signup"));
+    document.getElementById("requestAccessButton").addEventListener("click", () => activateTab("signup"));
+    document.getElementById("backToLoginButton").addEventListener("click", () => activateTab("login"));
 
     document.getElementById("loginForm").addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -756,7 +745,6 @@ def landing_page() -> str:
         return;
       }
       setStatus(data.message, "success");
-      dashboardButton.classList.remove("hidden");
       showSignedInState(data.user);
       window.location.href = "/dashboard";
     });
@@ -780,10 +768,6 @@ def landing_page() -> str:
       }
       setStatus(data.message, "success");
       activateTab("login");
-    });
-
-    dashboardButton.addEventListener("click", () => {
-      window.location.href = "/dashboard";
     });
 
     logoutNavButton.addEventListener("click", async () => {
