@@ -156,10 +156,39 @@ def landing_page() -> str:
         0 10px 24px rgba(61, 126, 240, 0.08);
     }
     .workspace-link-action {
-      background: rgba(255,255,255,0.72);
-      border-color: rgba(61, 126, 240, 0.14);
+      min-height: auto;
+      padding: 0;
+      border: none;
+      background: transparent;
+      box-shadow: none;
+      border-radius: 0;
+      color: var(--muted);
       cursor: pointer;
       font: inherit;
+      font-size: 0.9rem;
+      font-weight: 500;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+    .workspace-link-action:hover {
+      background: transparent;
+      border-color: transparent;
+      color: #0d2137;
+      box-shadow: none;
+    }
+    .workspace-user {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 40px;
+      margin-left: 6px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      white-space: nowrap;
+    }
+    .workspace-user-name {
+      color: #2b435f;
+      font-weight: 500;
     }
     .brand-mark {
       font-size: 0.78rem;
@@ -470,7 +499,10 @@ def landing_page() -> str:
         <a class="workspace-link" href="/configuration">Configuration</a>
         <a class="workspace-link" href="/analytics">Analytics</a>
         <span class="workspace-nav-spacer"></span>
-        <button id="logoutNavButton" class="workspace-link workspace-link-action hidden" type="button">Log Out</button>
+        <div id="workspaceUser" class="workspace-user hidden">
+          <span id="workspaceGreeting" class="workspace-user-name"></span>
+          <button id="logoutNavButton" class="workspace-link workspace-link-action" type="button">Log out</button>
+        </div>
       </nav>
     </section>
     <section class="hero">
@@ -638,6 +670,23 @@ def landing_page() -> str:
       statusBar.textContent = message;
       statusBar.className = `status-bar ${tone}`;
     }
+    function formatWorkspaceName(user) {
+      const fullName = (user?.full_name || "").trim();
+      if (fullName) {
+        return fullName;
+      }
+      const email = (user?.email || "").trim();
+      if (!email) {
+        return "there";
+      }
+      const localPart = email.split("@")[0] || email;
+      return localPart
+        .replace(/[._-]+/g, " ")
+        .split(" ")
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ");
+    }
 
     function applyAuthStatusMessage() {
       const params = new URLSearchParams(window.location.search);
@@ -662,8 +711,10 @@ def landing_page() -> str:
       signupPanel.classList.add("hidden");
       signedInPanel.classList.add("active");
       logoutNavButton.classList.remove("hidden");
+      document.getElementById("workspaceUser").classList.remove("hidden");
+      document.getElementById("workspaceGreeting").textContent = `Hi ${formatWorkspaceName(user)}`;
       dashboardButton.classList.remove("hidden");
-      signedInStatus.textContent = `Signed in as ${user.email}. Your workspace is ready.`;
+      signedInStatus.textContent = "Workspace ready.";
       setStatus("You already have an active session. Open the dashboard or continue to configuration.", "success");
     }
 

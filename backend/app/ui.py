@@ -166,10 +166,39 @@ def render_app_shell(
         0 10px 24px rgba(61, 126, 240, 0.08);
     }}
     .workspace-link-action {{
-      background: rgba(255, 255, 255, 0.72);
-      border-color: rgba(61, 126, 240, 0.14);
+      min-height: auto;
+      padding: 0;
+      border: none;
+      background: transparent;
+      box-shadow: none;
+      border-radius: 0;
+      color: var(--muted);
       cursor: pointer;
       font: inherit;
+      font-size: 0.9rem;
+      font-weight: 500;
+      letter-spacing: 0;
+      text-transform: none;
+    }}
+    .workspace-link-action:hover {{
+      background: transparent;
+      border-color: transparent;
+      color: #0d2137;
+      box-shadow: none;
+    }}
+    .workspace-user {{
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 40px;
+      margin-left: 6px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      white-space: nowrap;
+    }}
+    .workspace-user-name {{
+      color: #2b435f;
+      font-weight: 500;
     }}
     .main-shell {{
       min-width: 0;
@@ -899,7 +928,7 @@ def render_app_shell(
         <div class="brand-title">Market Control</div>
         <div class="brand-copy">A focused trading workspace for watchlists, structure tracking, runtime readiness, and review-grade reporting.</div>
         </div>
-        <nav class="workspace-nav">{nav_html}<span class="workspace-nav-spacer"></span><button id="logoutNavButton" class="workspace-link workspace-link-action" type="button">Log Out</button></nav>
+        <nav class="workspace-nav">{nav_html}<span class="workspace-nav-spacer"></span><div id="workspaceUser" class="workspace-user hidden"><span id="workspaceGreeting" class="workspace-user-name"></span><button id="logoutNavButton" class="workspace-link workspace-link-action" type="button">Log out</button></div></nav>
       </section>
       <main class="main-shell">
       <section class="topbar">
@@ -1160,10 +1189,40 @@ def render_app_shell(
       element.textContent = message;
       element.className = `status-box ${{tone}}`;
     }}
+    function formatWorkspaceName(user) {{
+      const fullName = (user?.full_name || "").trim();
+      if (fullName) {{
+        return fullName;
+      }}
+      const email = (user?.email || "").trim();
+      if (!email) {{
+        return "there";
+      }}
+      const localPart = email.split("@")[0] || email;
+      return localPart
+        .replace(/[._-]+/g, " ")
+        .split(" ")
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ");
+    }}
+    async function syncWorkspaceUser() {{
+      const workspaceUser = document.getElementById("workspaceUser");
+      const greeting = document.getElementById("workspaceGreeting");
+      try {{
+        const user = await apiGet("/auth/me");
+        greeting.textContent = `Hi ${{formatWorkspaceName(user)}}`;
+        workspaceUser.classList.remove("hidden");
+      }} catch (_error) {{
+        workspaceUser.classList.add("hidden");
+        greeting.textContent = "";
+      }}
+    }}
     document.getElementById("logoutNavButton").addEventListener("click", async () => {{
       await apiSend("/auth/logout", "POST");
       window.location.href = "/?auth_status=logged_out";
     }});
+    syncWorkspaceUser();
     {script}
   </script>
 </body>
