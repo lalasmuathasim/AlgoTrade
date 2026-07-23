@@ -75,6 +75,11 @@ def render_app_shell(
       pointer-events: none;
       z-index: 0;
     }}
+    body.is-routing .main-shell,
+    body.is-routing .masthead {{
+      opacity: 0.72;
+      transition: opacity 0.16s ease;
+    }}
     a {{
       color: inherit;
     }}
@@ -770,11 +775,12 @@ def render_app_shell(
     .table-filter-meta {{
       position: absolute;
       top: calc(100% - 14px);
-      left: 2px;
+      right: 2px;
       color: var(--muted);
       font-size: 0.7rem;
       line-height: 1;
       white-space: nowrap;
+      text-align: right;
     }}
     tbody tr:hover {{
       background: rgba(92, 167, 255, 0.035);
@@ -1329,10 +1335,69 @@ def render_app_shell(
         greeting.textContent = "";
       }}
     }}
+    function isWorkspaceNavClick(event, link) {{
+      if (!link || !link.classList.contains("workspace-link")) {{
+        return false;
+      }}
+      if (event.defaultPrevented || event.button !== 0) {{
+        return false;
+      }}
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {{
+        return false;
+      }}
+      if (link.target && link.target !== "_self") {{
+        return false;
+      }}
+      const url = new URL(link.href, window.location.origin);
+      return url.origin === window.location.origin;
+    }}
+    async function navigateWorkspace(url, options = {{}}) {{
+      const nextUrl = new URL(url, window.location.origin);
+      const currentUrl = new URL(window.location.href);
+      if (!options.force && nextUrl.pathname === currentUrl.pathname && nextUrl.search === currentUrl.search) {{
+        return;
+      }}
+      document.body.classList.add("is-routing");
+      try {{
+        const response = await fetch(nextUrl.toString(), {{
+          headers: {{ "X-Qubitx-Navigation": "workspace" }},
+          credentials: "same-origin",
+        }});
+        if (!response.ok) {{
+          throw new Error(`Navigation failed with status ${{response.status}}`);
+        }}
+        const html = await response.text();
+        if (options.replace) {{
+          window.history.replaceState({{ qubitx: true }}, "", nextUrl.toString());
+        }} else {{
+          window.history.pushState({{ qubitx: true }}, "", nextUrl.toString());
+        }}
+        document.open();
+        document.write(html);
+        document.close();
+      }} catch (_error) {{
+        window.location.href = nextUrl.toString();
+      }}
+    }}
+    function bindWorkspaceNavLinks() {{
+      document.querySelectorAll(".workspace-link").forEach((link) => {{
+        link.addEventListener("click", (event) => {{
+          if (!isWorkspaceNavClick(event, link)) {{
+            return;
+          }}
+          event.preventDefault();
+          navigateWorkspace(link.href);
+        }});
+      }});
+      window.addEventListener("popstate", () => {{
+        navigateWorkspace(window.location.href, {{ replace: true, force: true }});
+      }});
+    }}
     document.getElementById("logoutNavButton").addEventListener("click", async () => {{
       await apiSend("/auth/logout", "POST");
       window.location.href = "/?auth_status=logged_out";
     }});
+    bindWorkspaceNavLinks();
     syncWorkspaceUser();
     {script}
   </script>

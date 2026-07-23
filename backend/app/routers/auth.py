@@ -100,6 +100,12 @@ def landing_page() -> str:
       background-size: 32px 32px;
       pointer-events: none;
     }
+    body.is-routing .masthead,
+    body.is-routing .hero,
+    body.is-routing .grid-panels {
+      opacity: 0.72;
+      transition: opacity 0.16s ease;
+    }
     a { color: inherit; }
     .wrap { max-width: 1380px; margin: 0 auto; padding: 24px 20px 56px; position: relative; }
     .masthead {
@@ -696,6 +702,64 @@ def landing_page() -> str:
       const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}`;
       window.history.replaceState({}, "", nextUrl);
     }
+    function isWorkspaceNavClick(event, link) {
+      if (!link || !link.classList.contains("workspace-link")) {
+        return false;
+      }
+      if (event.defaultPrevented || event.button !== 0) {
+        return false;
+      }
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return false;
+      }
+      if (link.target && link.target !== "_self") {
+        return false;
+      }
+      const url = new URL(link.href, window.location.origin);
+      return url.origin === window.location.origin;
+    }
+    async function navigateWorkspace(url, options = {}) {
+      const nextUrl = new URL(url, window.location.origin);
+      const currentUrl = new URL(window.location.href);
+      if (!options.force && nextUrl.pathname === currentUrl.pathname && nextUrl.search === currentUrl.search) {
+        return;
+      }
+      document.body.classList.add("is-routing");
+      try {
+        const response = await fetch(nextUrl.toString(), {
+          headers: { "X-Qubitx-Navigation": "workspace" },
+          credentials: "same-origin",
+        });
+        if (!response.ok) {
+          throw new Error(`Navigation failed with status ${response.status}`);
+        }
+        const html = await response.text();
+        if (options.replace) {
+          window.history.replaceState({ qubitx: true }, "", nextUrl.toString());
+        } else {
+          window.history.pushState({ qubitx: true }, "", nextUrl.toString());
+        }
+        document.open();
+        document.write(html);
+        document.close();
+      } catch (_error) {
+        window.location.href = nextUrl.toString();
+      }
+    }
+    function bindWorkspaceNavLinks() {
+      document.querySelectorAll(".workspace-link").forEach((link) => {
+        link.addEventListener("click", (event) => {
+          if (!isWorkspaceNavClick(event, link)) {
+            return;
+          }
+          event.preventDefault();
+          navigateWorkspace(link.href);
+        });
+      });
+      window.addEventListener("popstate", () => {
+        navigateWorkspace(window.location.href, { replace: true, force: true });
+      });
+    }
 
     function showSignedInState(user) {
       loginPanel.classList.remove("active");
@@ -785,6 +849,7 @@ def landing_page() -> str:
     }
 
     applyAuthStatusMessage();
+    bindWorkspaceNavLinks();
     detectSession();
   </script>
 </body>
