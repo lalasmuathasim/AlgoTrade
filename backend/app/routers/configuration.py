@@ -5,14 +5,14 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
-from sqlalchemy import desc, func, select
+from sqlalchemy import delete, desc, func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from backend.app.config import get_settings
 from backend.app.database import get_db, verify_database_connectivity
 from backend.app.dependencies import require_admin_user
-from backend.app.models import Instrument, MarketCandle, Watchlist, WatchlistSymbol
+from backend.app.models import BreakoutEvent, Instrument, MarketCandle, PaperTrade, ScanExecution, TradingSignal, TriggerLine, Watchlist, WatchlistSymbol
 from backend.app.queue import check_redis_connectivity, get_live_engine_runtime
 from backend.app.schemas import (
     ExecutionModePayload,
@@ -357,6 +357,28 @@ def _fallback_readiness_payload() -> dict:
     }
 
 
+def _truncate_market_structure_tables(db: Session) -> dict[str, int]:
+    deleted_counts = {
+        "paper_trades": db.execute(delete(PaperTrade)).rowcount or 0,
+        "trading_signals": db.execute(
+            delete(TradingSignal).where(TradingSignal.source == "ZERODHA")
+        ).rowcount
+        or 0,
+        "breakout_events": db.execute(delete(BreakoutEvent)).rowcount or 0,
+        "trigger_lines": db.execute(delete(TriggerLine)).rowcount or 0,
+        "scan_executions": db.execute(
+            delete(ScanExecution).where(ScanExecution.scan_name == "daily_market_scan")
+        ).rowcount
+        or 0,
+        "market_candles": db.execute(
+            delete(MarketCandle).where(MarketCandle.timeframe.in_(["day", "3minute"]))
+        ).rowcount
+        or 0,
+    }
+    db.commit()
+    return deleted_counts
+
+
 def _readiness_payload(db: Session) -> dict:
     database_ok = False
     try:
@@ -678,10 +700,14 @@ def configuration_page() -> str:
         <li>Higher volume multipliers produce fewer but stronger breakout confirmations.</li>
         <li>Entry and stop buffers reduce exact-line fills when price is noisy.</li>
       </ul>
+      <p class="inline-note" style="margin-top: 14px;">
+        Use the truncate action only when cached candles or derived market-structure records are clearly wrong. It clears stored daily and 3-minute market-structure data so the next redraw can rebuild from a clean state without touching watchlists, instruments, users, or Zerodha login state.
+      </p>
       <div class="inline" style="margin-top: 14px;">
         <button id="saveStrategySettingsButton" class="primary" type="button">Save Strategy Tuning</button>
         <button id="refreshStrategySettingsButton" class="secondary" type="button">Reload Values</button>
         <button id="redrawMarketStructureButton" class="secondary" type="button">Redraw Market Structure Now</button>
+        <button id="truncateMarketStructureButton" class="ghost" type="button">Truncate Market Structure Tables</button>
       </div>
     </section>
     <section class="panel">
@@ -1677,6 +1703,28 @@ def configuration_page() -> str:
       }
     });
 
+    document.getElementById("truncateMarketStructureButton").addEventListener("click", async () => {
+      const confirmed = window.confirm(
+        "This will clear stored daily and 3-minute market structure data, trigger lines, breakout history, and derived paper-signal rows. Watchlists, instruments, users, and Zerodha login state will remain. Continue?",
+      );
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        setInlineMessage("strategySettingsStatus", "Clearing stored market-structure data so the next redraw starts clean.", "warn");
+        const result = await apiSend("/configuration/market-structure/truncate", "POST", {});
+        await refreshAll();
+        setInlineMessage(
+          "strategySettingsStatus",
+          `Market structure data cleared. ${result.market_candles} candles, ${result.trigger_lines} trigger lines, ${result.breakout_events} breakout events, ${result.trading_signals} signals, ${result.paper_trades} paper trades, and ${result.scan_executions} scan runs removed.`,
+          "success",
+        );
+      } catch (error) {
+        setInlineMessage("strategySettingsStatus", error.message, "error");
+      }
+    });
+
     document.getElementById("saveExecutionRulesButton").addEventListener("click", async () => {
       try {
         const payload = {
@@ -1964,6 +2012,18 @@ def configuration_redraw_market_structure_now(db: Session = Depends(get_db)) -> 
         "trigger_lines_created": execution.trigger_lines_created,
         "trigger_lines_updated": execution.trigger_lines_updated,
     }
+
+
+@router.post("/configuration/market-structure/truncate")
+def configuration_truncate_market_structure(db: Session = Depends(get_db)) -> dict:
+    try:
+        deleted_counts = _truncate_market_structure_tables(db)
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("Unable to truncate market structure tables")
+        raise HTTPException(status_code=500, detail="Unable to truncate market structure tables") from exc
+
+    return deleted_counts
 
 
 @router.get("/configuration/execution-rules", response_model=ExecutionRulesResponse)

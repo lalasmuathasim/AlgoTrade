@@ -21,7 +21,8 @@ from backend.app.schemas import ExecutionModeResponse, ExecutionRulesResponse
 
 
 class DummyDb:
-    pass
+    def rollback(self):
+        return None
 
 
 def build_execution_rules_payload() -> dict:
@@ -159,6 +160,22 @@ class ConfigurationExecutionSettingsTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
         self.assertEqual(response.json()["detail"], "Select at least one allowed exchange")
+
+    def test_truncate_market_structure_returns_deleted_counts(self):
+        deleted_counts = {
+            "paper_trades": 3,
+            "trading_signals": 4,
+            "breakout_events": 2,
+            "trigger_lines": 5,
+            "scan_executions": 1,
+            "market_candles": 40,
+        }
+
+        with patch("backend.app.routers.configuration._truncate_market_structure_tables", return_value=deleted_counts):
+            response = self.client.post("/configuration/market-structure/truncate")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), deleted_counts)
 
 
 if __name__ == "__main__":

@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 import uuid
 
-from sqlalchemy import select
+import httpx
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from backend.app.config import get_settings
@@ -461,7 +462,105 @@ class DailyMarketScanner:
 
         db.flush()
 
-    def run(self, db: Session, watchlist_id=None, scan_date: date | None = None, dry_run: bool = False) -> ScanExecution:
+    def _load_cached_daily_candles(
+        self,
+        db: Session,
+        *,
+        symbol: str,
+        exchange: str,
+        instrument_token: int | None,
+        lookback: int,
+    ) -> list[HistoricalCandlePayload]:
+        query = select(MarketCandle).where(
+            MarketCandle.timeframe == "day",
+            MarketCandle.is_final.is_(True),
+        )
+        if instrument_token is not None:
+            query = query.where(MarketCandle.instrument_token == instrument_token)
+        else:
+            query = query.where(
+                MarketCandle.exchange == exchange,
+                MarketCandle.symbol == symbol,
+            )
+
+        rows = db.scalars(query.order_by(desc(MarketCandle.candle_start)).limit(lookback)).all()
+        ordered_rows = list(reversed(rows))
+        return [
+            HistoricalCandlePayload(
+                timestamp=row.candle_start,
+                open=row.open,
+                high=row.high,
+                low=row.low,
+                close=row.close,
+                volume=row.volume,
+            )
+            for row in ordered_rows
+        ]
+
+    def _resolve_daily_candles(
+        self,
+        db: Session,
+        *,
+        watchlist_symbol: WatchlistSymbol,
+        instrument_token: int,
+        lookback: int,
+        refresh_market_data: bool,
+        dry_run: bool,
+    ) -> list[HistoricalCandlePayload]:
+        cached_candles = self._load_cached_daily_candles(
+            db,
+            symbol=watchlist_symbol.symbol,
+            exchange=watchlist_symbol.exchange,
+            instrument_token=instrument_token,
+            lookback=lookback,
+        )
+        if cached_candles and not refresh_market_data:
+            return cached_candles
+
+        try:
+            candles = self.provider.fetch_last_n_completed_daily_candles(
+                watchlist_symbol.symbol,
+                instrument_token,
+                lookback,
+            )
+        except (RuntimeError, httpx.HTTPError) as exc:
+            if cached_candles:
+                logger.warning(
+                    "Falling back to stored daily candles for %s after upstream fetch failed: %s",
+                    watchlist_symbol.symbol,
+                    exc,
+                )
+                return cached_candles
+            raise
+
+        if candles:
+            self._persist_daily_candles(
+                db,
+                symbol=watchlist_symbol.symbol,
+                exchange=watchlist_symbol.exchange,
+                instrument_token=instrument_token,
+                candles=candles,
+                dry_run=dry_run,
+            )
+            return candles
+
+        if cached_candles:
+            logger.warning(
+                "Using stored daily candles for %s because the upstream fetch returned no completed candles",
+                watchlist_symbol.symbol,
+            )
+            return cached_candles
+
+        return candles
+
+    def run(
+        self,
+        db: Session,
+        watchlist_id=None,
+        scan_date: date | None = None,
+        dry_run: bool = False,
+        refresh_market_data: bool = True,
+    ) -> ScanExecution:
         if watchlist_id is None:
             selected_watchlist = get_selected_watchlist(db)
             watchlist_id = selected_watchlist.id if selected_watchlist is not None else None
@@ -504,17 +603,12 @@ class DailyMarketScanner:
                     logger.warning("Skipping %s because no instrument token is linked", symbol.symbol)
                     continue
 
-                candles = self.provider.fetch_last_n_completed_daily_candles(
-                    symbol.symbol,
-                    instrument_token,
-                    runtime_settings.daily_candle_lookback,
-                )
-                self._persist_daily_candles(
+                candles = self._resolve_daily_candles(
                     db,
-                    symbol=symbol.symbol,
-                    exchange=symbol.exchange,
+                    watchlist_symbol=symbol,
                     instrument_token=instrument_token,
-                    candles=candles,
+                    lookback=runtime_settings.daily_candle_lookback,
+                    refresh_market_data=refresh_market_data,
                     dry_run=dry_run,
                 )
                 if len(candles) < (runtime_settings.swing_window * 2) + 1:

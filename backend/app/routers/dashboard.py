@@ -7,6 +7,7 @@ from statistics import mean
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from sqlalchemy import desc, select
@@ -1390,9 +1391,22 @@ def refresh_dashboard_daily_line_review(db: Session = Depends(get_db)) -> dict:
             watchlist_id=selected_watchlist_id,
             scan_date=datetime.now(UTC).date(),
             dry_run=False,
+            refresh_market_data=False,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except httpx.HTTPStatusError as exc:
+        status_code = exc.response.status_code if exc.response is not None else 503
+        if status_code == 429:
+            detail = (
+                "Zerodha rate limit was reached while refreshing the market structure table. "
+                "Please retry shortly, or use the stored daily candle history."
+            )
+            raise HTTPException(status_code=503, detail=detail) from exc
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to refresh the market structure table because Zerodha returned an upstream error.",
+        ) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Unable to refresh the market structure table: {exc}") from exc
     return {

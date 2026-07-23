@@ -7,6 +7,7 @@ import unittest
 import uuid
 from unittest.mock import patch
 
+import httpx
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -181,10 +182,15 @@ class DashboardDailyLineReviewTests(unittest.TestCase):
             trigger_lines_created=3,
             trigger_lines_updated=5,
         )
+        captured = {}
+
+        def capture_run(self, db, **kwargs):
+            captured.update(kwargs)
+            return execution
 
         with (
             patch("backend.app.routers.dashboard.get_selected_watchlist", return_value=self.selected_watchlist),
-            patch("backend.app.routers.dashboard.DailyMarketScanner.run", return_value=execution),
+            patch("backend.app.routers.dashboard.DailyMarketScanner.run", new=capture_run),
         ):
             response = client.post("/dashboard/reports/daily-line-review/refresh")
 
@@ -194,6 +200,7 @@ class DashboardDailyLineReviewTests(unittest.TestCase):
         self.assertEqual(payload["symbols_scanned"], 8)
         self.assertEqual(payload["trigger_lines_created"], 3)
         self.assertEqual(payload["trigger_lines_updated"], 5)
+        self.assertFalse(captured["refresh_market_data"])
         client.close()
 
     def test_daily_line_review_refresh_uses_database_session_token_for_manual_scan(self):
@@ -227,6 +234,26 @@ class DashboardDailyLineReviewTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(captured["access_token"], "db-session-token")
         self.assertEqual(payload["status"], "COMPLETED")
+        client.close()
+
+    def test_daily_line_review_refresh_maps_zerodha_rate_limit_to_service_unavailable(self):
+        self.app.dependency_overrides[get_db] = lambda: DummyDb([], [])
+        client = TestClient(self.app)
+        request = httpx.Request("GET", "https://api.kite.trade/instruments/historical/123/day")
+        response = httpx.Response(429, request=request)
+
+        with (
+            patch("backend.app.routers.dashboard.get_selected_watchlist", return_value=self.selected_watchlist),
+            patch(
+                "backend.app.routers.dashboard.DailyMarketScanner.run",
+                side_effect=httpx.HTTPStatusError("Too Many Requests", request=request, response=response),
+            ),
+        ):
+            refresh_response = client.post("/dashboard/reports/daily-line-review/refresh")
+
+        payload = refresh_response.json()
+        self.assertEqual(refresh_response.status_code, 503)
+        self.assertIn("rate limit", payload["detail"].lower())
         client.close()
 
 

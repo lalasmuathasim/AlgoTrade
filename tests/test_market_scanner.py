@@ -5,13 +5,20 @@ from datetime import datetime
 import unittest
 import uuid
 
+import httpx
+
 from tests.support import configure_test_env
 
 configure_test_env()
 
-from backend.app.models import PaperTradingSetting, TriggerLine, WatchlistSymbol
+from backend.app.models import MarketCandle, PaperTradingSetting, TriggerLine, WatchlistSymbol
 from backend.app.schemas import HistoricalCandlePayload
-from backend.app.services.market_scanner import DailyMarketScanner, SwingDetector, UntouchedLevelValidator
+from backend.app.services.market_scanner import (
+    DailyMarketScanner,
+    SwingDetector,
+    TriggerLineUpsertSummary,
+    UntouchedLevelValidator,
+)
 
 
 class FakeScalarRows:
@@ -220,7 +227,7 @@ class MarketScannerTests(unittest.TestCase):
             instrument_token=12345,
             is_active=True,
         )
-        db = FakeSession([build_runtime_settings()], [[symbol], []])
+        db = FakeSession([build_runtime_settings()], [[symbol], [], [], []])
 
         execution = scanner.run(db, dry_run=False)
 
@@ -229,6 +236,66 @@ class MarketScannerTests(unittest.TestCase):
         self.assertEqual(provider.request, ("RELIANCE", 12345, 100))
         self.assertTrue(db.committed)
         self.assertGreaterEqual(len(created_lines), 1)
+
+    def test_daily_scanner_falls_back_to_cached_daily_candles_when_upstream_fetch_fails(self):
+        candles = build_daily_fixture()
+
+        class Provider:
+            def __init__(self):
+                self.calls = 0
+
+            def fetch_last_n_completed_daily_candles(self, symbol, instrument_token, count):
+                self.calls += 1
+                request = httpx.Request("GET", "https://api.kite.trade/instruments/historical/123/day")
+                response = httpx.Response(429, request=request)
+                raise httpx.HTTPStatusError("Too Many Requests", request=request, response=response)
+
+        class TriggerLineManagerStub:
+            def __init__(self):
+                self.candidates = None
+
+            def upsert_candidates(self, db, candidates, watchlist_symbol, scan_execution_id, dry_run=False):
+                self.candidates = list(candidates)
+                return TriggerLineUpsertSummary(created=len(self.candidates), updated=0)
+
+        provider = Provider()
+        scanner = DailyMarketScanner(provider=provider, trigger_line_manager=TriggerLineManagerStub())
+        symbol = WatchlistSymbol(
+            id=uuid.uuid4(),
+            watchlist_id=uuid.uuid4(),
+            exchange="NSE",
+            symbol="RELIANCE",
+            instrument_token=12345,
+            is_active=True,
+        )
+        cached_rows = [
+            MarketCandle(
+                instrument_token=12345,
+                exchange="NSE",
+                symbol="RELIANCE",
+                timeframe="day",
+                candle_start=candle.timestamp,
+                candle_end=candle.timestamp,
+                open=candle.open,
+                high=candle.high,
+                low=candle.low,
+                close=candle.close,
+                volume=candle.volume,
+                is_final=True,
+                source="ZERODHA",
+            )
+            for candle in candles
+        ]
+        db = FakeSession(
+            [build_runtime_settings()],
+            [[symbol], list(reversed(cached_rows))],
+        )
+
+        execution = scanner.run(db, dry_run=False, refresh_market_data=True)
+
+        self.assertEqual(execution.status, "COMPLETED")
+        self.assertEqual(provider.calls, 1)
+        self.assertTrue(db.committed)
 
 
 if __name__ == "__main__":
