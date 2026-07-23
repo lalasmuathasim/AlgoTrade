@@ -289,6 +289,49 @@ def render_app_shell(
       cursor: not-allowed;
       transform: none;
     }}
+    button.is-busy,
+    .button.is-busy {{
+      position: relative;
+      opacity: 0.92;
+    }}
+    button.is-busy::before,
+    .button.is-busy::before {{
+      content: "";
+      width: 0.72rem;
+      height: 0.72rem;
+      border-radius: 999px;
+      border: 2px solid currentColor;
+      border-right-color: transparent;
+      opacity: 0.7;
+      animation: button-spin 0.78s linear infinite;
+    }}
+    button.is-success,
+    .button.is-success {{
+      border-color: rgba(49, 211, 139, 0.24);
+      box-shadow: 0 0 0 1px rgba(49, 211, 139, 0.1);
+    }}
+    button.is-success::before,
+    .button.is-success::before {{
+      content: "✓";
+      font-size: 0.82rem;
+      line-height: 1;
+      color: var(--ok);
+    }}
+    button.is-error,
+    .button.is-error {{
+      border-color: rgba(255, 114, 114, 0.24);
+      box-shadow: 0 0 0 1px rgba(255, 114, 114, 0.08);
+    }}
+    button.is-error::before,
+    .button.is-error::before {{
+      content: "!";
+      font-size: 0.8rem;
+      line-height: 1;
+      color: var(--danger);
+    }}
+    @keyframes button-spin {{
+      to {{ transform: rotate(360deg); }}
+    }}
     .content {{
       display: grid;
       gap: 18px;
@@ -454,11 +497,16 @@ def render_app_shell(
       background: rgba(248, 251, 255, 0.96);
       padding: 12px 14px;
       color: var(--muted);
+      font-size: 0.92rem;
       line-height: 1.55;
     }}
     .status-box.success {{ color: var(--ok); border-color: rgba(49,211,139,0.24); }}
     .status-box.warn {{ color: var(--warn); border-color: rgba(255,184,77,0.22); }}
     .status-box.error {{ color: var(--danger); border-color: rgba(255,114,114,0.24); }}
+    #readinessStatus.status-box {{
+      font-size: 0.84rem;
+      line-height: 1.45;
+    }}
     .badge {{
       display: inline-flex;
       align-items: center;
@@ -626,13 +674,13 @@ def render_app_shell(
     }}
     .table-filter {{
       width: 100%;
-      min-height: 38px;
-      padding: 9px 12px;
+      min-height: 34px;
+      padding: 7px 10px;
       border-radius: 12px;
       border: 1px solid rgba(122, 151, 185, 0.18);
       background: rgba(255, 255, 255, 0.94);
       color: var(--text);
-      font-size: 0.9rem;
+      font-size: 0.82rem;
     }}
     .table-filter-shell {{
       position: relative;
@@ -649,8 +697,8 @@ def render_app_shell(
       display: flex;
       align-items: center;
       pointer-events: none;
-      padding: 9px 12px;
-      font-size: 0.9rem;
+      padding: 7px 10px;
+      font-size: 0.82rem;
       color: rgba(18, 32, 51, 0.28);
       white-space: nowrap;
       overflow: hidden;
@@ -669,7 +717,7 @@ def render_app_shell(
       visibility: hidden;
       white-space: pre;
       inset: auto;
-      font-size: 0.9rem;
+      font-size: 0.82rem;
       font-family: inherit;
       font-weight: 400;
       padding: 0;
@@ -690,6 +738,7 @@ def render_app_shell(
       border: 1px solid rgba(122, 151, 185, 0.18);
       background: rgba(255, 255, 255, 0.98);
       box-shadow: 0 18px 34px rgba(20, 34, 56, 0.12);
+      text-align: left;
     }}
     .table-filter-suggestion {{
       display: flex;
@@ -717,7 +766,7 @@ def render_app_shell(
       top: calc(100% - 14px);
       left: 2px;
       color: var(--muted);
-      font-size: 0.78rem;
+      font-size: 0.7rem;
       line-height: 1;
       white-space: nowrap;
     }}
@@ -1198,6 +1247,49 @@ def render_app_shell(
       const element = document.getElementById(id);
       element.textContent = message;
       element.className = `status-box ${{tone}}`;
+    }}
+    function setAsyncButtonState(button, state, label) {{
+      if (!button) {{
+        return;
+      }}
+      if (!button.dataset.defaultLabel) {{
+        button.dataset.defaultLabel = button.textContent.trim();
+      }}
+      button.classList.remove("is-busy", "is-success", "is-error");
+      if (state === "idle") {{
+        button.disabled = false;
+        button.textContent = button.dataset.defaultLabel;
+        return;
+      }}
+      button.disabled = state === "busy";
+      if (label) {{
+        button.textContent = label;
+      }}
+      if (state === "busy") {{
+        button.classList.add("is-busy");
+        return;
+      }}
+      button.classList.add(state === "success" ? "is-success" : "is-error");
+      window.setTimeout(() => {{
+        button.classList.remove("is-success", "is-error");
+        button.disabled = false;
+        button.textContent = button.dataset.defaultLabel || button.textContent;
+      }}, 1400);
+    }}
+    async function runButtonAction(buttonOrId, action, options = {{}}) {{
+      const button = typeof buttonOrId === "string" ? document.getElementById(buttonOrId) : buttonOrId;
+      const pendingLabel = options.pendingLabel || "Working...";
+      const successLabel = options.successLabel || "Done";
+      const errorLabel = options.errorLabel || "Try again";
+      setAsyncButtonState(button, "busy", pendingLabel);
+      try {{
+        const result = await action();
+        setAsyncButtonState(button, "success", successLabel);
+        return result;
+      }} catch (error) {{
+        setAsyncButtonState(button, "error", errorLabel);
+        throw error;
+      }}
     }}
     function formatWorkspaceName(user) {{
       const fullName = (user?.full_name || "").trim();

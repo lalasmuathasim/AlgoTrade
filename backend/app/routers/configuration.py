@@ -1641,7 +1641,11 @@ def configuration_page() -> str:
     document.getElementById("syncInstrumentsButton").addEventListener("click", async () => {
       try {
         setBox("readinessStatus", "Syncing instruments from Zerodha...", "");
-        const result = await apiSend("/system/instruments/sync", "POST", {});
+        const result = await runButtonAction("syncInstrumentsButton", () => apiSend("/system/instruments/sync", "POST", {}), {
+          pendingLabel: "Syncing...",
+          successLabel: "Synced",
+          errorLabel: "Retry sync",
+        });
         setBox("readinessStatus", `Instrument sync complete. ${result.synced} instruments refreshed from Zerodha.`, "success");
         await refreshAll();
       } catch (error) {
@@ -1651,7 +1655,11 @@ def configuration_page() -> str:
 
     document.getElementById("refreshReadinessButton").addEventListener("click", async () => {
       try {
-        await refreshAll();
+        await runButtonAction("refreshReadinessButton", () => refreshAll(), {
+          pendingLabel: "Refreshing...",
+          successLabel: "Updated",
+          errorLabel: "Retry refresh",
+        });
       } catch (error) {
         setBox("readinessStatus", error.message, "error");
       }
@@ -1672,7 +1680,11 @@ def configuration_page() -> str:
           entry_buffer_ticks: Number(document.getElementById("entryBufferTicksInput").value),
           stop_loss_buffer_ticks: Number(document.getElementById("stopLossBufferTicksInput").value),
         };
-        const result = await apiSend("/configuration/strategy-settings", "POST", payload);
+        const result = await runButtonAction("saveStrategySettingsButton", () => apiSend("/configuration/strategy-settings", "POST", payload), {
+          pendingLabel: "Saving...",
+          successLabel: "Saved",
+          errorLabel: "Retry save",
+        });
         renderStrategySettings(result);
         setInlineMessage("strategySettingsStatus", "Strategy tuning saved. Daily scans, line review, and breakout checks will use these values.", "success");
       } catch (error) {
@@ -1682,7 +1694,11 @@ def configuration_page() -> str:
 
     document.getElementById("refreshStrategySettingsButton").addEventListener("click", async () => {
       try {
-        const result = await loadStrategySettings();
+        const result = await runButtonAction("refreshStrategySettingsButton", () => loadStrategySettings(), {
+          pendingLabel: "Loading...",
+          successLabel: "Reloaded",
+          errorLabel: "Retry load",
+        });
         renderStrategySettings(result);
       } catch (error) {
         setInlineMessage("strategySettingsStatus", error.message, "error");
@@ -1692,7 +1708,11 @@ def configuration_page() -> str:
     document.getElementById("redrawMarketStructureButton").addEventListener("click", async () => {
       try {
         setInlineMessage("strategySettingsStatus", "Running the same daily market-structure rebuild used by the scheduler.", "warn");
-        const result = await apiSend("/configuration/market-structure/redraw-now", "POST", {});
+        const result = await runButtonAction("redrawMarketStructureButton", () => apiSend("/configuration/market-structure/redraw-now", "POST", {}), {
+          pendingLabel: "Redrawing...",
+          successLabel: "Updated",
+          errorLabel: "Retry redraw",
+        });
         setInlineMessage(
           "strategySettingsStatus",
           `Redraw completed. Scan ${result.status.toLowerCase()} · ${result.symbols_scanned} symbols scanned · ${result.trigger_lines_created} new lines · ${result.trigger_lines_updated} refreshed lines.`,
@@ -1713,7 +1733,11 @@ def configuration_page() -> str:
 
       try {
         setInlineMessage("strategySettingsStatus", "Clearing stored market-structure data so the next redraw starts clean.", "warn");
-        const result = await apiSend("/configuration/market-structure/truncate", "POST", {});
+        const result = await runButtonAction("truncateMarketStructureButton", () => apiSend("/configuration/market-structure/truncate", "POST", {}), {
+          pendingLabel: "Clearing...",
+          successLabel: "Cleared",
+          errorLabel: "Retry clear",
+        });
         await refreshAll();
         setInlineMessage(
           "strategySettingsStatus",
@@ -1769,7 +1793,11 @@ def configuration_page() -> str:
           allow_low_confidence_paper_trades_only: parseBooleanSelect("allowLowConfidencePaperOnlyInput"),
           block_live_trades_below_confidence_threshold: parseBooleanSelect("blockLiveTradesBelowConfidenceThresholdInput"),
         };
-        const result = await apiSend("/configuration/execution-rules", "POST", payload);
+        const result = await runButtonAction("saveExecutionRulesButton", () => apiSend("/configuration/execution-rules", "POST", payload), {
+          pendingLabel: "Saving...",
+          successLabel: "Saved",
+          errorLabel: "Retry save",
+        });
         renderExecutionSettings(result);
         setInlineMessage("executionModeStatus", "Execution and risk rules saved. New signals and orders will use these values.", "success");
       } catch (error) {
@@ -1779,7 +1807,11 @@ def configuration_page() -> str:
 
     document.getElementById("refreshExecutionRulesButton").addEventListener("click", async () => {
       try {
-        const result = await loadExecutionSettings();
+        const result = await runButtonAction("refreshExecutionRulesButton", () => loadExecutionSettings(), {
+          pendingLabel: "Loading...",
+          successLabel: "Reloaded",
+          errorLabel: "Retry load",
+        });
         if (result) {
           renderExecutionSettings(result);
         }
@@ -1794,7 +1826,11 @@ def configuration_page() -> str:
 
     document.getElementById("testZerodhaButton").addEventListener("click", async () => {
       try {
-        const [readiness, zerodhaStatus] = await Promise.all([loadReadiness(), loadZerodhaConnectionStatus()]);
+        const [readiness, zerodhaStatus] = await runButtonAction("testZerodhaButton", () => Promise.all([loadReadiness(), loadZerodhaConnectionStatus()]), {
+          pendingLabel: "Testing...",
+          successLabel: "Checked",
+          errorLabel: "Retry test",
+        });
         renderReadiness(readiness, zerodhaStatus);
       } catch (error) {
         setBox("zerodhaConnectionStatus", error.message, "error");

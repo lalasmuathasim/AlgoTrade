@@ -1123,7 +1123,11 @@ def dashboard_home() -> str:
 
     document.getElementById("refreshDailyReviewButton").addEventListener("click", async () => {
       try {
-        await updateDailyReview();
+        await runButtonAction("refreshDailyReviewButton", () => updateDailyReview(), {
+          pendingLabel: "Updating...",
+          successLabel: "Updated",
+          errorLabel: "Retry update",
+        });
         await loadDailyLineReview();
       } catch (error) {
         renderDashboardSummary(
@@ -1140,7 +1144,11 @@ def dashboard_home() -> str:
 
     document.getElementById("refreshBreakoutReviewButton").addEventListener("click", async () => {
       try {
-        await loadBreakoutReview();
+        await runButtonAction("refreshBreakoutReviewButton", () => loadBreakoutReview(), {
+          pendingLabel: "Refreshing...",
+          successLabel: "Updated",
+          errorLabel: "Retry refresh",
+        });
       } catch (error) {
         renderBreakoutReviewSummary(null);
         document.getElementById("breakoutReviewSummary").textContent = `Unable to load breakout review: ${error.message}`;
@@ -1159,7 +1167,11 @@ def dashboard_home() -> str:
 
     document.getElementById("refreshPotentialLineHitsButton").addEventListener("click", async () => {
       try {
-        await loadPotentialLineHits();
+        await runButtonAction("refreshPotentialLineHitsButton", () => loadPotentialLineHits(), {
+          pendingLabel: "Refreshing...",
+          successLabel: "Updated",
+          errorLabel: "Retry refresh",
+        });
       } catch (error) {
         document.getElementById("potentialLineHitSummary").textContent = `Unable to load potential line-hit review: ${error.message}`;
       }
@@ -1191,7 +1203,11 @@ def dashboard_home() -> str:
 
     document.getElementById("refreshTradeHistoryButton").addEventListener("click", async () => {
       try {
-        await loadTradeHistory(currentTradeHistoryMode);
+        await runButtonAction("refreshTradeHistoryButton", () => loadTradeHistory(currentTradeHistoryMode), {
+          pendingLabel: "Refreshing...",
+          successLabel: "Updated",
+          errorLabel: "Retry refresh",
+        });
       } catch (error) {
         document.getElementById("tradeHistorySummary").textContent = `Unable to refresh trade history: ${error.message}`;
       }
