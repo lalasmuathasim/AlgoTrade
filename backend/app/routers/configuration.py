@@ -713,7 +713,7 @@ def configuration_page() -> str:
           <button id="truncateMarketStructureButton" class="ghost" type="button">Truncate Market Structure Tables</button>
         </div>
       </details>
-      <details open style="margin-top: 14px;">
+      <details style="margin-top: 14px;">
         <summary><strong>Entry Rules</strong></summary>
         <div class="compact-grid" style="margin-top: 12px;">
           <div class="field">
