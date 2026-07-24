@@ -76,6 +76,7 @@ def build_runtime_settings() -> PaperTradingSetting:
         swing_window=2,
         max_gap_percent=0.5,
         min_swing_distance=1,
+        trading_timezone="Asia/Kolkata",
     )
 
 
@@ -213,7 +214,7 @@ class MarketScannerTests(unittest.TestCase):
         candles = build_daily_fixture()
 
         class Provider:
-            def fetch_last_n_completed_daily_candles(self, symbol, instrument_token, count):
+            def fetch_last_n_completed_daily_candles(self, symbol, instrument_token, count, runtime_settings=None):
                 self.request = (symbol, instrument_token, count)
                 return candles
 
@@ -244,7 +245,7 @@ class MarketScannerTests(unittest.TestCase):
             def __init__(self):
                 self.calls = 0
 
-            def fetch_last_n_completed_daily_candles(self, symbol, instrument_token, count):
+            def fetch_last_n_completed_daily_candles(self, symbol, instrument_token, count, runtime_settings=None):
                 self.calls += 1
                 request = httpx.Request("GET", "https://api.kite.trade/instruments/historical/123/day")
                 response = httpx.Response(429, request=request)

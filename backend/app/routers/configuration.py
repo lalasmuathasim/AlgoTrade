@@ -36,6 +36,7 @@ from backend.app.services.paper_trading_service import (
 )
 from backend.app.services.market_scanner import DailyMarketScanner
 from backend.app.services.live_engine_runtime import build_live_engine_runtime_snapshot
+from backend.app.services.trading_time import current_trading_date, validate_trading_timezone_name
 from backend.app.services.watchlists import ensure_selected_watchlist, set_selected_watchlist
 from backend.app.services.zerodha_sessions import get_current_zerodha_access_token, get_current_zerodha_session
 from backend.app.services.zerodha import HistoricalCandleProvider, InstrumentMasterSyncService, SubscriptionManager, ZerodhaApiClient, ZerodhaAuthService
@@ -62,6 +63,13 @@ def _validate_time_string(value: str, *, field_name: str) -> str:
     if hour not in range(24) or minute not in range(60):
         raise HTTPException(status_code=422, detail=f"{field_name} must use a valid 24-hour time")
     return candidate
+
+
+def _validate_trading_timezone(value: str, *, field_name: str = "Trading time zone") -> str:
+    try:
+        return validate_trading_timezone_name(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"{field_name} must be a valid IANA time zone") from exc
 
 
 def _parse_symbols(symbols_text: str) -> list[str]:
@@ -671,6 +679,11 @@ def configuration_page() -> str:
             <div class="field-help">24-hour market-local time used by the automatic daily rebuild scheduler.</div>
           </div>
           <div class="field">
+            <label for="tradingTimezoneInput">Trading time zone</label>
+            <input id="tradingTimezoneInput" type="text" placeholder="Asia/Kolkata" />
+            <div class="field-help">IANA time zone used for market hours, candle alignment, daily resets, and all trading-session calculations. Default `Asia/Kolkata`.</div>
+          </div>
+          <div class="field">
             <label for="predictionProximityPercentInput">Prediction proximity percent</label>
             <input id="predictionProximityPercentInput" type="number" min="0.1" max="20" step="0.1" placeholder="2.0" />
             <div class="field-help">A symbol appears in the potential-hit table when its latest daily close stays within this percent of an active support or resistance line and recent closes are moving toward that line.</div>
@@ -1154,6 +1167,7 @@ def configuration_page() -> str:
       document.getElementById("executionModeDetails").innerHTML = [
         `Paper trading: ${paperEnabled ? "enabled" : "disabled"}`,
         `Live trading: ${liveEnabled ? "enabled" : "disabled"}`,
+        `Trading time zone: ${settingsPayload.trading_timezone}`,
         `Daily structure: ${settingsPayload.daily_candle_lookback} candles · swing window ${settingsPayload.swing_window} · gap ${settingsPayload.max_gap_percent}% · min distance ${settingsPayload.min_swing_distance}`,
         `Rebuild scheduler: ${settingsPayload.daily_structure_rebuild_enabled ? `ON at ${settingsPayload.daily_structure_rebuild_time}` : "OFF"} · potential-hit threshold ${settingsPayload.prediction_proximity_percent}%`,
         `Entry confirmation: ${settingsPayload.require_candle_close_beyond_line ? "candle close beyond line" : "intrabar line cross"}`,
@@ -1172,6 +1186,7 @@ def configuration_page() -> str:
       document.getElementById("minSwingDistanceInput").value = settingsPayload.min_swing_distance;
       document.getElementById("dailyStructureRebuildEnabledInput").value = booleanSelectValue(settingsPayload.daily_structure_rebuild_enabled);
       document.getElementById("dailyStructureRebuildTimeInput").value = settingsPayload.daily_structure_rebuild_time;
+      document.getElementById("tradingTimezoneInput").value = settingsPayload.trading_timezone;
       document.getElementById("predictionProximityPercentInput").value = settingsPayload.prediction_proximity_percent;
       document.getElementById("requireCandleCloseBeyondLineInput").value = booleanSelectValue(settingsPayload.require_candle_close_beyond_line);
       document.getElementById("enableBreakoutQualityInput").value = booleanSelectValue(settingsPayload.enable_breakout_quality);
@@ -1219,7 +1234,7 @@ def configuration_page() -> str:
       document.getElementById("blockLiveTradesBelowConfidenceThresholdInput").value = booleanSelectValue(settingsPayload.block_live_trades_below_confidence_threshold);
       setInlineMessage(
         "marketStructureStatus",
-        `Daily structure scan uses ${settingsPayload.daily_candle_lookback} candles with swing window ${settingsPayload.swing_window}. Gap filter ${settingsPayload.max_gap_percent}% · min swing distance ${settingsPayload.min_swing_distance} candles · auto rebuild ${settingsPayload.daily_structure_rebuild_enabled ? `ON at ${settingsPayload.daily_structure_rebuild_time}` : "OFF"} · potential-hit threshold ${settingsPayload.prediction_proximity_percent}%.`,
+        `Trading time zone ${settingsPayload.trading_timezone} · daily structure scan uses ${settingsPayload.daily_candle_lookback} candles with swing window ${settingsPayload.swing_window}. Gap filter ${settingsPayload.max_gap_percent}% · min swing distance ${settingsPayload.min_swing_distance} candles · auto rebuild ${settingsPayload.daily_structure_rebuild_enabled ? `ON at ${settingsPayload.daily_structure_rebuild_time}` : "OFF"} · potential-hit threshold ${settingsPayload.prediction_proximity_percent}%.`,
         "success",
       );
     }
@@ -1720,6 +1735,7 @@ def configuration_page() -> str:
           min_swing_distance: Number(document.getElementById("minSwingDistanceInput").value),
           daily_structure_rebuild_enabled: parseBooleanSelect("dailyStructureRebuildEnabledInput"),
           daily_structure_rebuild_time: document.getElementById("dailyStructureRebuildTimeInput").value,
+          trading_timezone: document.getElementById("tradingTimezoneInput").value.trim() || "Asia/Kolkata",
           prediction_proximity_percent: Number(document.getElementById("predictionProximityPercentInput").value),
           require_candle_close_beyond_line: parseBooleanSelect("requireCandleCloseBeyondLineInput"),
           enable_breakout_quality: parseBooleanSelect("enableBreakoutQualityInput"),
@@ -1982,6 +1998,7 @@ def save_configuration_strategy_settings(
     db: Session = Depends(get_db),
 ) -> StrategySettingsResponse:
     _validate_time_string(payload.daily_structure_rebuild_time, field_name="Daily structure rebuild time")
+    payload.trading_timezone = _validate_trading_timezone(payload.trading_timezone)
     current = update_strategy_settings(db, payload)
     return StrategySettingsResponse.model_validate(current, from_attributes=True)
 
@@ -2008,7 +2025,7 @@ def configuration_redraw_market_structure_now(db: Session = Depends(get_db)) -> 
         )
     )
     try:
-        execution = scanner.run(db, scan_date=datetime.now(UTC).date(), dry_run=False)
+        execution = scanner.run(db, scan_date=current_trading_date(ensure_settings(db)), dry_run=False)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
@@ -2054,6 +2071,7 @@ def configuration_execution_rules(db: Session = Depends(get_db)) -> ExecutionRul
             min_swing_distance=max(int(defaults.min_swing_distance), 1),
             daily_structure_rebuild_enabled=True,
             daily_structure_rebuild_time=defaults.daily_scan_time,
+            trading_timezone=defaults.market_timezone,
             prediction_proximity_percent=2.0,
             require_candle_close_beyond_line=True,
             enable_breakout_quality=defaults.enable_breakout_quality,
@@ -2118,6 +2136,8 @@ def save_configuration_execution_rules(
 
     if not payload.allowed_exchanges:
         raise HTTPException(status_code=422, detail="Select at least one allowed exchange")
+    if payload.trading_timezone is not None:
+        payload.trading_timezone = _validate_trading_timezone(payload.trading_timezone)
 
     if payload.minimum_price is not None and payload.maximum_price is not None and payload.minimum_price > payload.maximum_price:
         raise HTTPException(status_code=422, detail="Minimum price cannot exceed maximum price")

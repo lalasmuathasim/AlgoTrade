@@ -27,6 +27,7 @@ class StrategySettingsPayload(BaseModel):
     min_swing_distance: int = Field(ge=1, le=50)
     daily_structure_rebuild_enabled: bool
     daily_structure_rebuild_time: str = Field(min_length=4, max_length=10)
+    trading_timezone: str = Field(default="Asia/Kolkata", min_length=3, max_length=64)
     prediction_proximity_percent: float = Field(gt=0, le=20)
     entry_buffer_ticks: float = Field(gt=0, le=10)
     stop_loss_buffer_ticks: float = Field(gt=0, le=10)
@@ -60,6 +61,7 @@ class ExecutionRulesPayload(BaseModel):
     min_swing_distance: int | None = Field(default=None, ge=1, le=50)
     daily_structure_rebuild_enabled: bool | None = None
     daily_structure_rebuild_time: str | None = Field(default=None, min_length=4, max_length=10)
+    trading_timezone: str | None = Field(default=None, min_length=3, max_length=64)
     prediction_proximity_percent: float | None = Field(default=None, gt=0, le=20)
     require_candle_close_beyond_line: bool
     enable_breakout_quality: bool

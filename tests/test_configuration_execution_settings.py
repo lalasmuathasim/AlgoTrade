@@ -35,6 +35,7 @@ def build_execution_rules_payload() -> dict:
         "min_swing_distance": 1,
         "daily_structure_rebuild_enabled": True,
         "daily_structure_rebuild_time": "15:45",
+        "trading_timezone": "Asia/Kolkata",
         "prediction_proximity_percent": 2.0,
         "require_candle_close_beyond_line": True,
         "enable_breakout_quality": True,
@@ -166,6 +167,7 @@ class ConfigurationExecutionSettingsTests(unittest.TestCase):
         self.assertEqual(response.json()["allowed_exchanges"], ["NSE", "BSE"])
         self.assertEqual(response.json()["daily_candle_lookback"], 100)
         self.assertEqual(response.json()["daily_structure_rebuild_time"], "15:45")
+        self.assertEqual(response.json()["trading_timezone"], "Asia/Kolkata")
 
     def test_save_execution_rules_accepts_moved_market_structure_values(self):
         payload = build_execution_rules_payload()
@@ -190,8 +192,18 @@ class ConfigurationExecutionSettingsTests(unittest.TestCase):
         self.assertEqual(update_payload.min_swing_distance, 1)
         self.assertTrue(update_payload.daily_structure_rebuild_enabled)
         self.assertEqual(update_payload.daily_structure_rebuild_time, "15:45")
+        self.assertEqual(update_payload.trading_timezone, "Asia/Kolkata")
         self.assertEqual(update_payload.prediction_proximity_percent, 2.0)
         self.assertEqual(response.json()["daily_candle_lookback"], 100)
+
+    def test_save_execution_rules_rejects_invalid_trading_timezone(self):
+        payload = build_execution_rules_payload()
+        payload["trading_timezone"] = "Invalid/Zone"
+
+        response = self.client.post("/configuration/execution-rules", json=payload)
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["detail"], "Trading time zone must be a valid IANA time zone")
 
     def test_save_execution_rules_rejects_empty_allowed_exchanges(self):
         payload = build_execution_rules_payload()

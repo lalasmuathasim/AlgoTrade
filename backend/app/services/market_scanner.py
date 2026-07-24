@@ -12,6 +12,7 @@ from backend.app.config import get_settings
 from backend.app.models import Instrument, MarketCandle, ScanExecution, TriggerLine, WatchlistSymbol
 from backend.app.schemas import HistoricalCandlePayload, SwingPointPayload, TriggerLineCandidatePayload
 from backend.app.services.paper_trading_service import ensure_settings
+from backend.app.services.trading_time import current_trading_date
 from backend.app.services.watchlists import get_selected_watchlist
 from backend.app.services.zerodha import HistoricalCandleProvider
 
@@ -504,6 +505,7 @@ class DailyMarketScanner:
         watchlist_symbol: WatchlistSymbol,
         instrument_token: int,
         lookback: int,
+        runtime_settings,
         refresh_market_data: bool,
         dry_run: bool,
     ) -> list[HistoricalCandlePayload]:
@@ -522,6 +524,7 @@ class DailyMarketScanner:
                 watchlist_symbol.symbol,
                 instrument_token,
                 lookback,
+                runtime_settings=runtime_settings,
             )
         except (RuntimeError, httpx.HTTPError) as exc:
             if cached_candles:
@@ -564,11 +567,12 @@ class DailyMarketScanner:
         if watchlist_id is None:
             selected_watchlist = get_selected_watchlist(db)
             watchlist_id = selected_watchlist.id if selected_watchlist is not None else None
+        runtime_settings = ensure_settings(db)
 
         execution = ScanExecution(
             id=uuid.uuid4(),
             scan_name="daily_market_scan",
-            scan_date=scan_date or datetime.now(UTC).date(),
+            scan_date=scan_date or current_trading_date(runtime_settings),
             status="RUNNING",
             symbols_scanned=0,
             trigger_lines_created=0,
@@ -584,7 +588,6 @@ class DailyMarketScanner:
             query = query.where(WatchlistSymbol.watchlist_id == watchlist_id)
         symbols = db.scalars(query.order_by(WatchlistSymbol.symbol)).all()
         execution.symbols_scanned = len(symbols)
-        runtime_settings = ensure_settings(db)
         swing_detector = self.swing_detector or SwingDetector(window=runtime_settings.swing_window)
         validator = self.validator or UntouchedLevelValidator(
             swing_window=runtime_settings.swing_window,
@@ -608,6 +611,7 @@ class DailyMarketScanner:
                     watchlist_symbol=symbol,
                     instrument_token=instrument_token,
                     lookback=runtime_settings.daily_candle_lookback,
+                    runtime_settings=runtime_settings,
                     refresh_market_data=refresh_market_data,
                     dry_run=dry_run,
                 )

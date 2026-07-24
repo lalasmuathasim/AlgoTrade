@@ -5,7 +5,6 @@ from datetime import UTC, date, datetime, timedelta
 from io import StringIO
 from statistics import mean
 from uuid import UUID
-from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -21,6 +20,7 @@ from backend.app.queue import get_live_engine_runtime
 from backend.app.schemas import HistoricalCandlePayload
 from backend.app.services.market_scanner import DailyMarketScanner
 from backend.app.services.paper_trading_service import ensure_settings
+from backend.app.services.trading_time import current_trading_date, to_trading_timezone, trading_day_bounds
 from backend.app.services.watchlists import get_selected_watchlist
 from backend.app.services.zerodha import HistoricalCandleProvider, ZerodhaApiClient, ZerodhaAuthService
 from backend.app.services.zerodha_sessions import get_current_zerodha_access_token, get_current_zerodha_session
@@ -30,7 +30,6 @@ from backend.app.ui import render_app_shell
 router = APIRouter(tags=["dashboard"], dependencies=[Depends(require_approved_user)])
 settings = get_settings()
 logger = logging.getLogger(__name__)
-market_tz = ZoneInfo(settings.market_timezone)
 
 
 def _serialize_datetime(value: datetime | None) -> str | None:
@@ -41,15 +40,9 @@ def _serialize_date(value: date | None) -> str | None:
     return value.isoformat() if value else None
 
 
-def _market_day_bounds(day: date) -> tuple[datetime, datetime]:
-    start_local = datetime.combine(day, datetime.min.time(), tzinfo=market_tz)
-    end_local = start_local + timedelta(days=1)
-    return start_local.astimezone(UTC), end_local.astimezone(UTC)
-
-
-def _resolve_report_date(raw_value: str | None) -> date:
+def _resolve_report_date(raw_value: str | None, runtime_settings=None) -> date:
     if not raw_value:
-        return datetime.now(market_tz).date()
+        return current_trading_date(runtime_settings)
     try:
         return date.fromisoformat(raw_value)
     except ValueError as exc:
@@ -507,6 +500,7 @@ def _dashboard_trade_history_payload(
     date_to: date | None = None,
 ) -> dict:
     selected_watchlist, selected_watchlist_id = _selected_watchlist_filter(db)
+    runtime_settings = ensure_settings(db)
     watchlist_symbols: set[tuple[str, str]] = set()
     if selected_watchlist_id:
         watchlist_symbols = {
@@ -524,7 +518,7 @@ def _dashboard_trade_history_payload(
         for trade in paper_trades:
             if watchlist_symbols and (trade.exchange, trade.symbol) not in watchlist_symbols:
                 continue
-            trade_date = (trade.entry_time or trade.created_at).astimezone(UTC).date()
+            trade_date = to_trading_timezone(trade.entry_time or trade.created_at, runtime_settings).date()
             if date_from and trade_date < date_from:
                 continue
             if date_to and trade_date > date_to:
@@ -561,7 +555,7 @@ def _dashboard_trade_history_payload(
                 continue
             if watchlist_symbols and (order.exchange, order.symbol) not in watchlist_symbols:
                 continue
-            order_date = order.created_at.astimezone(UTC).date()
+            order_date = to_trading_timezone(order.created_at, runtime_settings).date()
             if date_from and order_date < date_from:
                 continue
             if date_to and order_date > date_to:
@@ -1357,7 +1351,8 @@ def dashboard_daily_line_review(db: Session = Depends(get_db)) -> dict:
 @router.get("/dashboard/reports/breakout-review")
 def dashboard_breakout_review(trade_date: str | None = None, db: Session = Depends(get_db)) -> dict:
     selected_watchlist, selected_watchlist_id = _selected_watchlist_filter(db)
-    report_date = _resolve_report_date(trade_date)
+    runtime_settings = ensure_settings(db)
+    report_date = _resolve_report_date(trade_date, runtime_settings)
     if selected_watchlist is None or selected_watchlist_id is None:
         return {
             "selected_watchlist": None,
@@ -1372,7 +1367,7 @@ def dashboard_breakout_review(trade_date: str | None = None, db: Session = Depen
             "rows": [],
         }
 
-    report_start, report_end = _market_day_bounds(report_date)
+    report_start, report_end = trading_day_bounds(report_date, runtime_settings)
     lines = db.scalars(
         select(TriggerLine)
         .where(TriggerLine.watchlist_id == selected_watchlist_id)
@@ -1458,7 +1453,7 @@ def refresh_dashboard_daily_line_review(db: Session = Depends(get_db)) -> dict:
         execution = scanner.run(
             db,
             watchlist_id=selected_watchlist_id,
-            scan_date=datetime.now(UTC).date(),
+            scan_date=current_trading_date(ensure_settings(db)),
             dry_run=False,
             refresh_market_data=False,
         )
@@ -1884,10 +1879,11 @@ def get_breakout_events(
     date_to: date | None = None,
     db: Session = Depends(get_db),
 ) -> list[dict]:
+    runtime_settings = ensure_settings(db)
     events = db.scalars(select(BreakoutEvent).order_by(desc(BreakoutEvent.event_time))).all()
     filtered = []
     for event in events:
-        event_date = event.event_time.astimezone(UTC).date()
+        event_date = to_trading_timezone(event.event_time, runtime_settings).date()
         if exchange and event.exchange != exchange:
             continue
         if symbol and event.symbol != symbol:
@@ -1914,6 +1910,7 @@ def get_paper_trades(
     date_to: date | None = None,
     db: Session = Depends(get_db),
 ) -> dict:
+    runtime_settings = ensure_settings(db)
     trades = db.scalars(select(PaperTrade).order_by(desc(PaperTrade.created_at))).all()
     watchlist_symbols: set[tuple[str, str]] = set()
     if watchlist_id:
@@ -1924,7 +1921,7 @@ def get_paper_trades(
 
     filtered = []
     for trade in trades:
-        trade_date = (trade.entry_time or trade.created_at).astimezone(UTC).date()
+        trade_date = to_trading_timezone(trade.entry_time or trade.created_at, runtime_settings).date()
         if watchlist_id and (trade.exchange, trade.symbol) not in watchlist_symbols:
             continue
         if exchange and trade.exchange != exchange:

@@ -3,7 +3,6 @@ import uuid
 from dataclasses import dataclass
 from collections.abc import Sequence
 from datetime import UTC, date, datetime, time, timedelta
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
@@ -14,21 +13,15 @@ from backend.app.queue import enqueue_signal_dispatch
 from backend.app.schemas import BreakoutCandidatePayload, CompletedCandlePayload, SignalDispatchJob, TickPayload
 from backend.app.services.execution_runtime import RiskEngine
 from backend.app.services.paper_trading_service import ensure_settings
+from backend.app.services.trading_time import get_trading_timezone, to_trading_timezone, trading_day_bounds
 
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
-market_tz = ZoneInfo(settings.market_timezone)
 
 
 def _coalesce(value, default):
     return default if value is None else value
-
-
-def _market_day_bounds(day: date) -> tuple[datetime, datetime]:
-    start_local = datetime.combine(day, time.min, tzinfo=market_tz)
-    end_local = start_local + timedelta(days=1)
-    return start_local.astimezone(UTC), end_local.astimezone(UTC)
 
 
 @dataclass
@@ -52,12 +45,20 @@ class TickProcessingResult:
 
 
 class CandleBuilder:
-    def __init__(self) -> None:
+    def __init__(self, trading_timezone: str | None = None) -> None:
         self._candles: dict[str, CompletedCandlePayload] = {}
         self._last_cumulative_volume: dict[str, float | None] = {}
+        self._trading_timezone = get_trading_timezone(
+            type("RuntimeSettings", (), {"trading_timezone": trading_timezone})()
+        ) if trading_timezone else get_trading_timezone()
+
+    def set_trading_timezone(self, trading_timezone: str | None) -> None:
+        self._trading_timezone = get_trading_timezone(
+            type("RuntimeSettings", (), {"trading_timezone": trading_timezone})()
+        ) if trading_timezone else get_trading_timezone()
 
     def _bucket_start(self, timestamp: datetime) -> datetime:
-        localized = timestamp.astimezone(market_tz)
+        localized = timestamp.astimezone(self._trading_timezone)
         minute = localized.minute - (localized.minute % 3)
         aligned = localized.replace(minute=minute, second=0, microsecond=0)
         return aligned.astimezone(UTC)
@@ -323,7 +324,7 @@ class SignalGenerator:
                 rejection_reason="PRICE_ABOVE_MAXIMUM",
             ), None
 
-        candle_local = candle.candle_end.astimezone(market_tz)
+        candle_local = to_trading_timezone(candle.candle_end, runtime_settings)
         if bool(getattr(runtime_settings, "market_hours_guard", True)):
             if candle_local.time() < time(9, 15) or candle_local.time() > time(15, 30):
                 return BreakoutCandidatePayload(
@@ -536,6 +537,8 @@ class MarketDataProcessor:
         self.signal_generator = SignalGenerator()
 
     def process_ticks(self, db: Session, ticks: list[TickPayload]) -> TickProcessingResult:
+        runtime_settings = ensure_settings(db)
+        self.candle_builder.set_trading_timezone(getattr(runtime_settings, "trading_timezone", None))
         signals: list[TradingSignal] = []
         finalized_candles: list[CompletedCandlePayload] = []
         breakout_events: list[BreakoutEvent] = []
@@ -543,7 +546,7 @@ class MarketDataProcessor:
             tick_finalized_candles = self.candle_builder.on_tick(tick)
             finalized_candles.extend(tick_finalized_candles)
             for candle in tick_finalized_candles:
-                candle_signals, candle_breakout_events = self._process_finalized_candle(db, candle)
+                candle_signals, candle_breakout_events = self._process_finalized_candle(db, candle, runtime_settings)
                 signals.extend(candle_signals)
                 breakout_events.extend(candle_breakout_events)
         db.commit()
@@ -591,7 +594,12 @@ class MarketDataProcessor:
         db.flush()
         return existing
 
-    def _process_finalized_candle(self, db: Session, candle: CompletedCandlePayload) -> tuple[list[TradingSignal], list[BreakoutEvent]]:
+    def _process_finalized_candle(
+        self,
+        db: Session,
+        candle: CompletedCandlePayload,
+        runtime_settings=None,
+    ) -> tuple[list[TradingSignal], list[BreakoutEvent]]:
         persisted_candle = self._persist_candle(db, candle)
         previous_candle = db.scalar(
             select(MarketCandle)
@@ -605,7 +613,7 @@ class MarketDataProcessor:
             .limit(1)
         )
         previous_volume = previous_candle.volume if previous_candle else None
-        runtime_settings = ensure_settings(db)
+        runtime_settings = runtime_settings or ensure_settings(db)
 
         active_lines = db.scalars(
             select(TriggerLine).where(
@@ -622,8 +630,8 @@ class MarketDataProcessor:
             active_lines,
             require_candle_close_beyond_line=bool(getattr(runtime_settings, "require_candle_close_beyond_line", True)),
         ):
-            trading_day = candle.candle_end.astimezone(market_tz).date()
-            trading_day_start, trading_day_end = _market_day_bounds(trading_day)
+            trading_day = to_trading_timezone(candle.candle_end, runtime_settings).date()
+            trading_day_start, trading_day_end = trading_day_bounds(trading_day, runtime_settings)
             existing_breakout = db.scalar(
                 select(BreakoutEvent)
                 .where(

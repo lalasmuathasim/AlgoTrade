@@ -7,7 +7,6 @@ from importlib import import_module
 import io
 import uuid
 from urllib.parse import urlencode
-from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy import select
@@ -16,12 +15,12 @@ from sqlalchemy.orm import Session
 from backend.app.config import get_settings
 from backend.app.models import Instrument, TriggerLine, WatchlistSymbol
 from backend.app.schemas import HistoricalCandlePayload, InstrumentPayload, TickPayload
+from backend.app.services.trading_time import current_trading_date, get_trading_timezone
 from backend.app.services.watchlists import get_selected_watchlist
 
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
-india_tz = ZoneInfo("Asia/Kolkata")
 
 
 class ZerodhaAuthService:
@@ -98,12 +97,13 @@ class ZerodhaAuthService:
         if not login_time_value:
             return None
         parsed = datetime.strptime(login_time_value, "%Y-%m-%d %H:%M:%S")
-        return parsed.replace(tzinfo=india_tz)
+        return parsed.replace(tzinfo=get_trading_timezone())
 
     def compute_access_token_expiry(self, login_time: datetime | None) -> datetime:
-        reference = login_time.astimezone(india_tz) if login_time else datetime.now(india_tz)
+        trading_tz = get_trading_timezone()
+        reference = login_time.astimezone(trading_tz) if login_time else datetime.now(trading_tz)
         next_day = reference.date() + timedelta(days=1)
-        return datetime.combine(next_day, time(hour=6, minute=0), tzinfo=india_tz)
+        return datetime.combine(next_day, time(hour=6, minute=0), tzinfo=trading_tz)
 
 
 class ZerodhaApiClient:
@@ -268,12 +268,13 @@ class HistoricalCandleProvider:
         symbol: str,
         instrument_token: int,
         count: int | None = None,
+        runtime_settings=None,
     ) -> list[HistoricalCandlePayload]:
         if self.fetcher is not None:
             return self.fetcher(symbol, instrument_token, count or settings.daily_candle_lookback)
 
         lookback = count or settings.daily_candle_lookback
-        today = datetime.now(UTC).date()
+        today = current_trading_date(runtime_settings)
         start = today - timedelta(days=max(lookback * 2, 220))
         candles = self.client.fetch_historical_candles(instrument_token, start, today)
         return candles[-lookback:]

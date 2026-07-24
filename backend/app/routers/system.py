@@ -26,6 +26,8 @@ from backend.app.schemas import (
 from backend.app.services.market_scanner import DailyMarketScanner
 from backend.app.services.live_engine_runtime import build_live_engine_runtime_snapshot
 from backend.app.services.market_stream import MarketDataProcessor
+from backend.app.services.paper_trading_service import ensure_settings
+from backend.app.services.trading_time import current_trading_date
 from backend.app.services.zerodha import InstrumentMasterSyncService, ZerodhaApiClient, ZerodhaAuthService
 from backend.app.services.zerodha_sessions import get_current_zerodha_access_token
 from backend.app.services.watchlists import get_selected_watchlist
@@ -143,7 +145,7 @@ def run_daily_scan(
     execution = scanner.run(
         db,
         watchlist_id=payload.watchlist_id,
-        scan_date=payload.scan_date or datetime.now(UTC).date(),
+        scan_date=payload.scan_date or current_trading_date(ensure_settings(db)),
         dry_run=payload.dry_run,
     )
     return ScanExecutionResponse(

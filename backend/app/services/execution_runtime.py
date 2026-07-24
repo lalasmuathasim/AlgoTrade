@@ -65,6 +65,7 @@ class RiskEngine:
                 swing_window=settings.swing_window,
                 max_gap_percent=settings.max_gap_percent,
                 min_swing_distance=max(int(settings.min_swing_distance), 1),
+                trading_timezone=settings.market_timezone,
                 max_open_positions=3,
                 max_loss_per_symbol_per_day=2500.0,
                 block_new_trades_after_max_daily_loss=True,

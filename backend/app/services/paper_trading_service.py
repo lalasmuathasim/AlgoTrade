@@ -67,6 +67,7 @@ def get_default_settings_payload() -> PaperTradingSettingsPayload:
         min_swing_distance=max(int(settings.min_swing_distance), 1),
         daily_structure_rebuild_enabled=True,
         daily_structure_rebuild_time=settings.daily_scan_time,
+        trading_timezone=settings.market_timezone,
         prediction_proximity_percent=2.0,
         max_open_positions=3,
         max_loss_per_symbol_per_day=2500.0,
@@ -131,6 +132,7 @@ def ensure_settings(db: Session) -> PaperTradingSetting:
         min_swing_distance=defaults.min_swing_distance,
         daily_structure_rebuild_enabled=defaults.daily_structure_rebuild_enabled,
         daily_structure_rebuild_time=defaults.daily_structure_rebuild_time,
+        trading_timezone=defaults.trading_timezone,
         prediction_proximity_percent=defaults.prediction_proximity_percent,
         max_open_positions=defaults.max_open_positions,
         max_loss_per_symbol_per_day=defaults.max_loss_per_symbol_per_day,
@@ -194,6 +196,7 @@ def update_settings(db: Session, payload: PaperTradingSettingsPayload) -> PaperT
     current.min_swing_distance = payload.min_swing_distance
     current.daily_structure_rebuild_enabled = payload.daily_structure_rebuild_enabled
     current.daily_structure_rebuild_time = payload.daily_structure_rebuild_time
+    current.trading_timezone = payload.trading_timezone
     current.prediction_proximity_percent = payload.prediction_proximity_percent
     current.max_open_positions = payload.max_open_positions
     current.max_loss_per_symbol_per_day = payload.max_loss_per_symbol_per_day
@@ -258,6 +261,8 @@ def update_execution_rules(db: Session, payload: ExecutionRulesPayload) -> Paper
         current.daily_structure_rebuild_enabled = payload.daily_structure_rebuild_enabled
     if payload.daily_structure_rebuild_time is not None:
         current.daily_structure_rebuild_time = payload.daily_structure_rebuild_time
+    if payload.trading_timezone is not None:
+        current.trading_timezone = payload.trading_timezone
     if payload.prediction_proximity_percent is not None:
         current.prediction_proximity_percent = payload.prediction_proximity_percent
     current.require_candle_close_beyond_line = payload.require_candle_close_beyond_line
@@ -319,6 +324,7 @@ def get_strategy_settings_payload(db: Session) -> StrategySettingsPayload:
         min_swing_distance=current.min_swing_distance,
         daily_structure_rebuild_enabled=current.daily_structure_rebuild_enabled,
         daily_structure_rebuild_time=current.daily_structure_rebuild_time,
+        trading_timezone=current.trading_timezone,
         prediction_proximity_percent=current.prediction_proximity_percent,
         entry_buffer_ticks=current.entry_buffer_ticks,
         stop_loss_buffer_ticks=current.stop_loss_buffer_ticks,
@@ -333,6 +339,7 @@ def update_strategy_settings(db: Session, payload: StrategySettingsPayload) -> P
     current.min_swing_distance = payload.min_swing_distance
     current.daily_structure_rebuild_enabled = payload.daily_structure_rebuild_enabled
     current.daily_structure_rebuild_time = payload.daily_structure_rebuild_time
+    current.trading_timezone = payload.trading_timezone
     current.prediction_proximity_percent = payload.prediction_proximity_percent
     current.entry_buffer_ticks = payload.entry_buffer_ticks
     current.stop_loss_buffer_ticks = payload.stop_loss_buffer_ticks

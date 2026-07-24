@@ -1,7 +1,6 @@
 import logging
 import time
 from datetime import UTC, date, datetime
-from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy import select
@@ -11,12 +10,12 @@ from backend.app.database import SessionLocal, initialize_runtime_state
 from backend.app.models import ScanExecution
 from backend.app.services.market_scanner import DailyMarketScanner
 from backend.app.services.paper_trading_service import ensure_settings
+from backend.app.services.trading_time import now_in_trading_timezone
 from backend.app.services.zerodha import HistoricalCandleProvider, ZerodhaApiClient, ZerodhaAuthService
 from backend.app.services.zerodha_sessions import get_current_zerodha_access_token, get_current_zerodha_session
 
 
 settings = get_settings()
-market_tz = ZoneInfo(settings.market_timezone)
 
 
 logging.basicConfig(
@@ -140,9 +139,9 @@ def run_scheduler() -> None:
     initialize_runtime_state()
 
     while True:
-        now_local = datetime.now(market_tz)
         with SessionLocal() as db:
             runtime_settings = ensure_settings(db)
+            now_local = now_in_trading_timezone(runtime_settings)
             auto_rebuild_enabled = bool(getattr(runtime_settings, "daily_structure_rebuild_enabled", True))
             scheduled_time = _scheduled_scan_time(runtime_settings)
 
