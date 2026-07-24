@@ -2,6 +2,7 @@ import logging
 import re
 import uuid
 from datetime import UTC, datetime, timedelta
+from zoneinfo import available_timezones
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
@@ -514,6 +515,14 @@ def _readiness_payload(db: Session) -> dict:
 
 @router.get("/configuration", response_class=HTMLResponse)
 def configuration_page() -> str:
+    trading_timezone_options = sorted(available_timezones())
+    if "Asia/Kolkata" in trading_timezone_options:
+        trading_timezone_options.remove("Asia/Kolkata")
+        trading_timezone_options.insert(0, "Asia/Kolkata")
+    timezone_option_markup = "".join(
+        f'<option value="{timezone}"></option>'
+        for timezone in trading_timezone_options
+    )
     body_html = """
     <section id="configSummary" class="metric-strip"></section>
     <section class="layout-main-aside">
@@ -680,8 +689,9 @@ def configuration_page() -> str:
           </div>
           <div class="field">
             <label for="tradingTimezoneInput">Trading time zone</label>
-            <input id="tradingTimezoneInput" type="text" placeholder="Asia/Kolkata" />
-            <div class="field-help">IANA time zone used for market hours, candle alignment, daily resets, and all trading-session calculations. Default `Asia/Kolkata`.</div>
+            <input id="tradingTimezoneInput" type="text" list="tradingTimezoneOptions" placeholder="Asia/Kolkata" autocomplete="off" spellcheck="false" />
+            <datalist id="tradingTimezoneOptions">__TRADING_TIMEZONE_OPTIONS__</datalist>
+            <div class="field-help">Use a standard IANA time zone such as `Asia/Kolkata`, `Europe/London`, or `America/New_York`. Default `Asia/Kolkata`.</div>
           </div>
           <div class="field">
             <label for="predictionProximityPercentInput">Prediction proximity percent</label>
@@ -977,7 +987,7 @@ def configuration_page() -> str:
         </div>
       </div>
     </section>
-    """
+    """.replace("__TRADING_TIMEZONE_OPTIONS__", timezone_option_markup)
     script = """
     let cachedValidation = null;
     let cachedWatchlists = [];

@@ -299,6 +299,21 @@ def _build_potential_trigger_row(
     }
 
 
+def _is_pending_breakout_candidate(
+    *,
+    line_type: str,
+    line_price: float,
+    current_market_price: float | None,
+) -> bool:
+    if current_market_price is None:
+        return True
+    if line_type == "BUY":
+        return current_market_price < line_price
+    if line_type == "SELL":
+        return current_market_price > line_price
+    return True
+
+
 def _load_recent_daily_candles_from_db(
     db: Session,
     *,
@@ -2019,6 +2034,12 @@ def dashboard_potential_line_hits(db: Session = Depends(get_db)) -> dict:
         row["current_realtime_source"] = live_price_payload["source"]
         row["current_realtime_label"] = live_price_payload["label"]
         row["current_realtime_timestamp"] = live_price_payload["timestamp"]
+        if not _is_pending_breakout_candidate(
+            line_type=line.line_type,
+            line_price=line.line_price,
+            current_market_price=live_price_payload["value"],
+        ):
+            continue
         latest_daily_candle_date = row["last_daily_candle_date"] if latest_daily_candle_date is None else max(latest_daily_candle_date, row["last_daily_candle_date"])
         rows.append(row)
 

@@ -18,7 +18,7 @@ from backend.app.database import get_db
 from backend.app.dependencies import require_approved_user
 from backend.app.models import TriggerLine
 from backend.app.models import Watchlist
-from backend.app.routers.dashboard import _build_potential_trigger_row, router
+from backend.app.routers.dashboard import _build_potential_trigger_row, _is_pending_breakout_candidate, router
 from backend.app.schemas import HistoricalCandlePayload
 
 
@@ -106,6 +106,40 @@ class DashboardPotentialLineHitTests(unittest.TestCase):
 
         self.assertIsNone(row)
 
+    def test_pending_breakout_candidate_rejects_buy_line_already_breached_in_current_session(self):
+        self.assertFalse(
+            _is_pending_breakout_candidate(
+                line_type="BUY",
+                line_price=1000.0,
+                current_market_price=1002.5,
+            )
+        )
+
+    def test_pending_breakout_candidate_rejects_sell_line_already_breached_in_current_session(self):
+        self.assertFalse(
+            _is_pending_breakout_candidate(
+                line_type="SELL",
+                line_price=800.0,
+                current_market_price=798.5,
+            )
+        )
+
+    def test_pending_breakout_candidate_keeps_unbroken_buy_and_sell_lines(self):
+        self.assertTrue(
+            _is_pending_breakout_candidate(
+                line_type="BUY",
+                line_price=1000.0,
+                current_market_price=997.1,
+            )
+        )
+        self.assertTrue(
+            _is_pending_breakout_candidate(
+                line_type="SELL",
+                line_price=800.0,
+                current_market_price=803.4,
+            )
+        )
+
     def test_route_returns_runtime_tick_price_with_fallback_metadata(self):
         app = FastAPI()
         app.include_router(router)
@@ -173,6 +207,73 @@ class DashboardPotentialLineHitTests(unittest.TestCase):
         self.assertEqual(payload["rows"][0]["current_realtime_source"], "tick")
         self.assertEqual(payload["rows"][0]["current_realtime_label"], "997.1 · Tick")
         self.assertNotIn("pattern", payload["rows"][0])
+        client.close()
+        app.dependency_overrides.clear()
+
+    def test_route_excludes_buy_line_when_live_price_is_already_above_breakout_level(self):
+        app = FastAPI()
+        app.include_router(router)
+        selected_watchlist = Watchlist(
+            id=uuid.uuid4(),
+            name="Selected Watchlist",
+            exchange="NSE",
+            is_selected=True,
+        )
+        trigger_line = TriggerLine(
+            id=uuid.uuid4(),
+            watchlist_id=selected_watchlist.id,
+            exchange="NSE",
+            symbol="RELIANCE",
+            line_type="BUY",
+            line_price=1000.0,
+            line_status="ACTIVE",
+            nearest_daily_swing_high_target=1045.0,
+        )
+        candles = [
+            HistoricalCandlePayload(
+                timestamp=datetime.fromisoformat(timestamp),
+                open=close - 2,
+                high=close + 3,
+                low=close - 4,
+                close=close,
+                volume=1000.0,
+            )
+            for timestamp, close in [
+                ("2026-07-14T00:00:00+00:00", 970.0),
+                ("2026-07-15T00:00:00+00:00", 978.0),
+                ("2026-07-16T00:00:00+00:00", 987.0),
+                ("2026-07-17T00:00:00+00:00", 994.0),
+            ]
+        ]
+        app.dependency_overrides[get_db] = lambda: DummyDb([[trigger_line]])
+        app.dependency_overrides[require_approved_user] = lambda: SimpleNamespace(
+            id=uuid.uuid4(),
+            role="ADMIN",
+            approval_status="APPROVED",
+            is_active=True,
+        )
+        client = TestClient(app)
+
+        with (
+            patch("backend.app.routers.dashboard.get_selected_watchlist", return_value=selected_watchlist),
+            patch(
+                "backend.app.routers.dashboard.ensure_settings",
+                return_value=SimpleNamespace(daily_candle_lookback=100, prediction_proximity_percent=2.0),
+            ),
+            patch("backend.app.routers.dashboard._load_recent_daily_candles_from_db", return_value=candles),
+            patch(
+                "backend.app.routers.dashboard._load_runtime_live_price_map",
+                return_value={"NSE:RELIANCE": {"price": 1002.5, "timestamp": "2026-07-24T09:18:00+05:30", "source": "tick"}},
+            ),
+            patch("backend.app.routers.dashboard._load_zerodha_ltp_map", return_value={}),
+            patch("backend.app.routers.dashboard._load_recent_3minute_close_map", return_value={}),
+        ):
+            response = client.get("/dashboard/reports/potential-line-hits")
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["rows"], [])
+        self.assertEqual(payload["summary"]["total_candidates"], 0)
         client.close()
         app.dependency_overrides.clear()
 
