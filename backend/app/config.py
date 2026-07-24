@@ -24,6 +24,12 @@ class Settings(BaseSettings):
 
     buy_volume_multiplier: float = 5.0
     sell_volume_multiplier: float = 3.0
+    enable_breakout_quality: bool = True
+    minimum_close_position_percent: float = 80.0
+    minimum_candle_body_percent: float = 60.0
+    maximum_rejection_wick_percent: float = 20.0
+    minimum_close_beyond_level_ticks: float = 2.0
+    require_volume_confirmation: bool = True
     entry_buffer_ticks: float = 0.05
     stop_buffer_ticks: float = 0.05
 

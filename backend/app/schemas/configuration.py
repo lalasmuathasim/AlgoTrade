@@ -28,8 +28,6 @@ class StrategySettingsPayload(BaseModel):
     daily_structure_rebuild_enabled: bool
     daily_structure_rebuild_time: str = Field(min_length=4, max_length=10)
     prediction_proximity_percent: float = Field(gt=0, le=20)
-    buy_volume_multiplier: float = Field(gt=0, le=20)
-    sell_volume_multiplier: float = Field(gt=0, le=20)
     entry_buffer_ticks: float = Field(gt=0, le=10)
     stop_loss_buffer_ticks: float = Field(gt=0, le=10)
 
@@ -57,6 +55,12 @@ class ExecutionRulesPayload(BaseModel):
     paper_trading_enabled: bool
     live_trading_enabled: bool
     require_candle_close_beyond_line: bool
+    enable_breakout_quality: bool
+    minimum_close_position_percent: float = Field(ge=0, le=100)
+    minimum_candle_body_percent: float = Field(ge=0, le=100)
+    maximum_rejection_wick_percent: float = Field(ge=0, le=100)
+    minimum_close_beyond_level_ticks: float = Field(ge=0, le=100)
+    require_volume_confirmation: bool
     entry_buffer_ticks: float = Field(gt=0, le=10)
     stop_loss_buffer_ticks: float = Field(gt=0, le=10)
     target_mode: Literal["NEAREST_DAILY_SWING", "FIXED_RISK_REWARD"]

@@ -38,6 +38,12 @@ def get_default_settings_payload() -> PaperTradingSettingsPayload:
         paper_trading_enabled=settings.paper_trading_enabled,
         live_trading_enabled=settings.zerodha_live_trading_enabled,
         require_candle_close_beyond_line=True,
+        enable_breakout_quality=settings.enable_breakout_quality,
+        minimum_close_position_percent=settings.minimum_close_position_percent,
+        minimum_candle_body_percent=settings.minimum_candle_body_percent,
+        maximum_rejection_wick_percent=settings.maximum_rejection_wick_percent,
+        minimum_close_beyond_level_ticks=settings.minimum_close_beyond_level_ticks,
+        require_volume_confirmation=settings.require_volume_confirmation,
         buy_volume_multiplier=settings.buy_volume_multiplier,
         sell_volume_multiplier=settings.sell_volume_multiplier,
         entry_buffer_ticks=settings.entry_buffer_ticks,
@@ -96,6 +102,12 @@ def ensure_settings(db: Session) -> PaperTradingSetting:
         paper_trading_enabled=defaults.paper_trading_enabled,
         live_trading_enabled=defaults.live_trading_enabled,
         require_candle_close_beyond_line=defaults.require_candle_close_beyond_line,
+        enable_breakout_quality=defaults.enable_breakout_quality,
+        minimum_close_position_percent=defaults.minimum_close_position_percent,
+        minimum_candle_body_percent=defaults.minimum_candle_body_percent,
+        maximum_rejection_wick_percent=defaults.maximum_rejection_wick_percent,
+        minimum_close_beyond_level_ticks=defaults.minimum_close_beyond_level_ticks,
+        require_volume_confirmation=defaults.require_volume_confirmation,
         buy_volume_multiplier=defaults.buy_volume_multiplier,
         sell_volume_multiplier=defaults.sell_volume_multiplier,
         entry_buffer_ticks=defaults.entry_buffer_ticks,
@@ -153,6 +165,12 @@ def update_settings(db: Session, payload: PaperTradingSettingsPayload) -> PaperT
     current.paper_trading_enabled = payload.paper_trading_enabled
     current.live_trading_enabled = payload.live_trading_enabled
     current.require_candle_close_beyond_line = payload.require_candle_close_beyond_line
+    current.enable_breakout_quality = payload.enable_breakout_quality
+    current.minimum_close_position_percent = payload.minimum_close_position_percent
+    current.minimum_candle_body_percent = payload.minimum_candle_body_percent
+    current.maximum_rejection_wick_percent = payload.maximum_rejection_wick_percent
+    current.minimum_close_beyond_level_ticks = payload.minimum_close_beyond_level_ticks
+    current.require_volume_confirmation = payload.require_volume_confirmation
     current.buy_volume_multiplier = payload.buy_volume_multiplier
     current.sell_volume_multiplier = payload.sell_volume_multiplier
     current.entry_buffer_ticks = payload.entry_buffer_ticks
@@ -229,6 +247,12 @@ def update_execution_rules(db: Session, payload: ExecutionRulesPayload) -> Paper
     current.paper_trading_enabled = payload.paper_trading_enabled
     current.live_trading_enabled = payload.live_trading_enabled
     current.require_candle_close_beyond_line = payload.require_candle_close_beyond_line
+    current.enable_breakout_quality = payload.enable_breakout_quality
+    current.minimum_close_position_percent = payload.minimum_close_position_percent
+    current.minimum_candle_body_percent = payload.minimum_candle_body_percent
+    current.maximum_rejection_wick_percent = payload.maximum_rejection_wick_percent
+    current.minimum_close_beyond_level_ticks = payload.minimum_close_beyond_level_ticks
+    current.require_volume_confirmation = payload.require_volume_confirmation
     current.entry_buffer_ticks = payload.entry_buffer_ticks
     current.stop_loss_buffer_ticks = payload.stop_loss_buffer_ticks
     current.target_mode = payload.target_mode
@@ -282,8 +306,6 @@ def get_strategy_settings_payload(db: Session) -> StrategySettingsPayload:
         daily_structure_rebuild_enabled=current.daily_structure_rebuild_enabled,
         daily_structure_rebuild_time=current.daily_structure_rebuild_time,
         prediction_proximity_percent=current.prediction_proximity_percent,
-        buy_volume_multiplier=current.buy_volume_multiplier,
-        sell_volume_multiplier=current.sell_volume_multiplier,
         entry_buffer_ticks=current.entry_buffer_ticks,
         stop_loss_buffer_ticks=current.stop_loss_buffer_ticks,
     )
@@ -298,8 +320,6 @@ def update_strategy_settings(db: Session, payload: StrategySettingsPayload) -> P
     current.daily_structure_rebuild_enabled = payload.daily_structure_rebuild_enabled
     current.daily_structure_rebuild_time = payload.daily_structure_rebuild_time
     current.prediction_proximity_percent = payload.prediction_proximity_percent
-    current.buy_volume_multiplier = payload.buy_volume_multiplier
-    current.sell_volume_multiplier = payload.sell_volume_multiplier
     current.entry_buffer_ticks = payload.entry_buffer_ticks
     current.stop_loss_buffer_ticks = payload.stop_loss_buffer_ticks
     current.updated_at = datetime.now(UTC)
@@ -323,7 +343,7 @@ def generate_paper_trade_from_signal(db: Session, signal: TradingSignal) -> Pape
     required_volume_ratio = (
         current_settings.buy_volume_multiplier if signal.action == "BUY" else current_settings.sell_volume_multiplier
     )
-    if signal.volume_ratio is not None and signal.volume_ratio < required_volume_ratio:
+    if bool(_coalesce(getattr(current_settings, "require_volume_confirmation", None), True)) and signal.volume_ratio is not None and signal.volume_ratio < required_volume_ratio:
         return PaperTrade(
             id=uuid.uuid4(),
             signal_id=signal.id,

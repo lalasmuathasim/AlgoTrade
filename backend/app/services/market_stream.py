@@ -9,7 +9,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from backend.app.config import get_settings
-from backend.app.models import BreakoutEvent, MarketCandle, TradingSignal, TriggerLine
+from backend.app.models import BreakoutEvent, Instrument, MarketCandle, TradingSignal, TriggerLine
 from backend.app.queue import enqueue_signal_dispatch
 from backend.app.schemas import BreakoutCandidatePayload, CompletedCandlePayload, SignalDispatchJob, TickPayload
 from backend.app.services.execution_runtime import RiskEngine
@@ -124,6 +124,7 @@ class VolumeValidator:
         previous_volume: float | None,
         buy_volume_multiplier: float | None = None,
         sell_volume_multiplier: float | None = None,
+        require_confirmation: bool = True,
         skip_zero_previous_volume: bool = True,
     ) -> tuple[bool, float | None, float]:
         required = (
@@ -135,6 +136,12 @@ class VolumeValidator:
             if action == "BUY"
             else settings.sell_volume_multiplier
         )
+        if not require_confirmation:
+            if not previous_volume or previous_volume <= 0:
+                return True, None, required
+            ratio = current_volume / previous_volume
+            return True, round(ratio, 4), required
+
         if not previous_volume or previous_volume <= 0:
             return (not skip_zero_previous_volume), None, required
 
@@ -170,6 +177,69 @@ class SignalGenerator:
     def __init__(self, risk_engine: RiskEngine | None = None) -> None:
         self.volume_validator = VolumeValidator()
         self.risk_engine = risk_engine or RiskEngine()
+
+    def _resolve_tick_size(self, db: Session, line: TriggerLine, runtime_settings) -> float:
+        instrument = db.scalar(
+            select(Instrument)
+            .where(
+                Instrument.exchange == line.exchange,
+                Instrument.tradingsymbol == line.symbol,
+            )
+            .limit(1)
+        )
+        instrument_tick_size = getattr(instrument, "tick_size", None) if instrument is not None else None
+        fallback_tick_size = _coalesce(getattr(runtime_settings, "entry_buffer_ticks", None), settings.entry_buffer_ticks)
+        try:
+            return float(_coalesce(instrument_tick_size, fallback_tick_size))
+        except (TypeError, ValueError):
+            return 0.05
+
+    def _evaluate_breakout_quality(
+        self,
+        db: Session,
+        line: TriggerLine,
+        candle: CompletedCandlePayload,
+        runtime_settings,
+    ) -> str | None:
+        quality_enabled = bool(_coalesce(getattr(runtime_settings, "enable_breakout_quality", None), True))
+        if not quality_enabled:
+            return None
+
+        candle_range = candle.high - candle.low
+        if candle_range <= 0:
+            return "INVALID_CANDLE_RANGE"
+
+        action = "BUY" if line.line_type == "BUY" else "SELL"
+        close_position_percent = (
+            ((candle.close - candle.low) / candle_range) * 100
+            if action == "BUY"
+            else ((candle.high - candle.close) / candle_range) * 100
+        )
+        body_percent = (abs(candle.close - candle.open) / candle_range) * 100
+        rejection_wick_percent = (
+            ((candle.high - max(candle.open, candle.close)) / candle_range) * 100
+            if action == "BUY"
+            else ((min(candle.open, candle.close) - candle.low) / candle_range) * 100
+        )
+        tick_size = self._resolve_tick_size(db, line, runtime_settings)
+        required_close_beyond_level = float(
+            _coalesce(getattr(runtime_settings, "minimum_close_beyond_level_ticks", None), 2.0)
+        ) * tick_size
+        close_beyond_level = (
+            candle.close - line.line_price
+            if action == "BUY"
+            else line.line_price - candle.close
+        )
+
+        if close_position_percent < float(_coalesce(getattr(runtime_settings, "minimum_close_position_percent", None), 80.0)):
+            return "CLOSE_POSITION_FAILED"
+        if body_percent < float(_coalesce(getattr(runtime_settings, "minimum_candle_body_percent", None), 60.0)):
+            return "CANDLE_BODY_FAILED"
+        if rejection_wick_percent > float(_coalesce(getattr(runtime_settings, "maximum_rejection_wick_percent", None), 20.0)):
+            return "REJECTION_WICK_FAILED"
+        if close_beyond_level < required_close_beyond_level:
+            return "CLOSE_BEYOND_LEVEL_FAILED"
+        return None
 
     def build(
         self,
@@ -307,12 +377,21 @@ class SignalGenerator:
             except ValueError:
                 logger.warning("Invalid no_trade_after_time value in runtime settings: %s", no_trade_after_time)
 
+        quality_failure = self._evaluate_breakout_quality(
+            db,
+            line,
+            candle,
+            runtime_settings,
+        )
+
         volume_passed, volume_ratio, required_volume_multiplier = self.volume_validator.validate(
             action,
             candle.volume,
             previous_candle_volume,
             buy_volume_multiplier=runtime_settings.buy_volume_multiplier,
             sell_volume_multiplier=runtime_settings.sell_volume_multiplier,
+            require_confirmation=bool(_coalesce(getattr(runtime_settings, "require_volume_confirmation", None), True))
+            and bool(_coalesce(getattr(runtime_settings, "enable_breakout_quality", None), True)),
             skip_zero_previous_volume=bool(_coalesce(getattr(runtime_settings, "skip_zero_previous_volume", None), True)),
         )
         entry_price = (
@@ -365,6 +444,10 @@ class SignalGenerator:
             market_candle_id=market_candle_id,
             rejection_reason=None,
         )
+
+        if quality_failure is not None:
+            breakout_payload.rejection_reason = quality_failure
+            return breakout_payload, None
 
         if not volume_passed:
             breakout_payload.rejection_reason = (

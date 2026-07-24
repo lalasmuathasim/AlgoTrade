@@ -18,6 +18,12 @@ class PaperTradingSettingsPayload(BaseModel):
     paper_trading_enabled: bool = True
     live_trading_enabled: bool = False
     require_candle_close_beyond_line: bool = True
+    enable_breakout_quality: bool = True
+    minimum_close_position_percent: float = 80.0
+    minimum_candle_body_percent: float = 60.0
+    maximum_rejection_wick_percent: float = 20.0
+    minimum_close_beyond_level_ticks: float = 2.0
+    require_volume_confirmation: bool = True
     buy_volume_multiplier: float
     sell_volume_multiplier: float
     entry_buffer_ticks: float

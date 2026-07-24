@@ -104,6 +104,20 @@ class MarketStreamTests(unittest.TestCase):
         self.assertAlmostEqual(sell_ratio, 3.1, places=1)
         self.assertEqual(sell_required, 3.0)
 
+    def test_volume_validator_can_skip_volume_confirmation(self):
+        validator = VolumeValidator()
+
+        passed, ratio, required = validator.validate(
+            "BUY",
+            current_volume=1200,
+            previous_volume=1000,
+            require_confirmation=False,
+        )
+
+        self.assertTrue(passed)
+        self.assertEqual(required, 5.0)
+        self.assertAlmostEqual(ratio, 1.2, places=1)
+
     def test_signal_generator_uses_breakout_candle_for_entry_and_trigger_line_for_stop(self):
         line = TriggerLine(
             id=uuid.uuid4(),
@@ -120,8 +134,10 @@ class MarketStreamTests(unittest.TestCase):
             {
                 "candle_start": datetime.fromisoformat("2026-07-18T03:45:00+00:00"),
                 "candle_end": datetime.fromisoformat("2026-07-18T03:48:00+00:00"),
+                "open": 99.6,
                 "high": 101.0,
                 "low": 99.0,
+                "close": 100.95,
                 "volume": 6000.0,
             },
         )()
@@ -136,6 +152,12 @@ class MarketStreamTests(unittest.TestCase):
             max_trades_per_day=3,
             max_daily_loss=5000.0,
             default_quantity_mode="RISK_BASED",
+            enable_breakout_quality=True,
+            minimum_close_position_percent=80.0,
+            minimum_candle_body_percent=60.0,
+            maximum_rejection_wick_percent=20.0,
+            minimum_close_beyond_level_ticks=2.0,
+            require_volume_confirmation=True,
             buy_volume_multiplier=5.0,
             sell_volume_multiplier=3.0,
             entry_buffer_ticks=0.05,
@@ -147,7 +169,7 @@ class MarketStreamTests(unittest.TestCase):
         )
         generator = SignalGenerator()
 
-        first_db = ScalarQueueSession([settings, None, settings])
+        first_db = ScalarQueueSession([settings, SimpleNamespace(tick_size=0.05), None, settings])
         breakout, signal = generator.build(first_db, line, candle, previous_candle_volume=1000.0, market_candle_id=None)
         self.assertTrue(breakout.volume_condition_passed)
         self.assertEqual(breakout.required_volume_multiplier, 5.0)
@@ -175,8 +197,10 @@ class MarketStreamTests(unittest.TestCase):
             {
                 "candle_start": datetime.fromisoformat("2026-07-18T03:45:00+00:00"),
                 "candle_end": datetime.fromisoformat("2026-07-18T03:48:00+00:00"),
+                "open": 99.6,
                 "high": 101.0,
                 "low": 99.0,
+                "close": 100.95,
                 "volume": 6000.0,
             },
         )()
@@ -191,6 +215,12 @@ class MarketStreamTests(unittest.TestCase):
             max_trades_per_day=3,
             max_daily_loss=5000.0,
             default_quantity_mode="RISK_BASED",
+            enable_breakout_quality=True,
+            minimum_close_position_percent=80.0,
+            minimum_candle_body_percent=60.0,
+            maximum_rejection_wick_percent=20.0,
+            minimum_close_beyond_level_ticks=2.0,
+            require_volume_confirmation=True,
             buy_volume_multiplier=5.0,
             sell_volume_multiplier=3.0,
             entry_buffer_ticks=0.05,
@@ -203,6 +233,7 @@ class MarketStreamTests(unittest.TestCase):
         generator = SignalGenerator()
         duplicate_db = ScalarQueueSession([
             settings,
+            SimpleNamespace(tick_size=0.05),
             TradingSignal(id=uuid.uuid4(), exchange="NSE", symbol="RELIANCE", action="BUY"),
         ])
         breakout, duplicate_signal = generator.build(
@@ -231,8 +262,10 @@ class MarketStreamTests(unittest.TestCase):
             {
                 "candle_start": datetime.fromisoformat("2026-07-18T03:45:00+00:00"),
                 "candle_end": datetime.fromisoformat("2026-07-18T03:48:00+00:00"),
+                "open": 601.5,
                 "high": 602.0,
                 "low": 595.0,
+                "close": 595.2,
                 "volume": 2500.0,
             },
         )()
@@ -247,6 +280,12 @@ class MarketStreamTests(unittest.TestCase):
             max_trades_per_day=3,
             max_daily_loss=5000.0,
             default_quantity_mode="RISK_BASED",
+            enable_breakout_quality=True,
+            minimum_close_position_percent=80.0,
+            minimum_candle_body_percent=60.0,
+            maximum_rejection_wick_percent=20.0,
+            minimum_close_beyond_level_ticks=2.0,
+            require_volume_confirmation=True,
             buy_volume_multiplier=5.0,
             sell_volume_multiplier=3.0,
             entry_buffer_ticks=0.05,
@@ -258,7 +297,7 @@ class MarketStreamTests(unittest.TestCase):
         )
         generator = SignalGenerator()
 
-        db = ScalarQueueSession([settings])
+        db = ScalarQueueSession([settings, SimpleNamespace(tick_size=0.05)])
         breakout, signal = generator.build(db, line, candle, previous_candle_volume=1000.0, market_candle_id=None)
 
         self.assertIsNone(signal)
@@ -267,6 +306,63 @@ class MarketStreamTests(unittest.TestCase):
         self.assertEqual(breakout.entry_price, 594.95)
         self.assertEqual(breakout.stop_loss, 600.05)
         self.assertEqual(breakout.rejection_reason, "VOLUME_FAILED")
+
+    def test_signal_generator_rejects_buy_order_when_breakout_quality_fails(self):
+        line = TriggerLine(
+            id=uuid.uuid4(),
+            watchlist_id=uuid.uuid4(),
+            exchange="NSE",
+            symbol="INFY",
+            line_type="BUY",
+            line_price=1500.0,
+            nearest_daily_swing_high_target=1540.0,
+        )
+        candle = type(
+            "Candle",
+            (),
+            {
+                "candle_start": datetime.fromisoformat("2026-07-18T03:45:00+00:00"),
+                "candle_end": datetime.fromisoformat("2026-07-18T03:48:00+00:00"),
+                "open": 1499.8,
+                "high": 1502.0,
+                "low": 1499.0,
+                "close": 1500.9,
+                "volume": 8000.0,
+            },
+        )()
+        settings = PaperTradingSetting(
+            id=uuid.uuid4(),
+            starting_capital=200000.0,
+            capital_per_trade=25000.0,
+            fixed_quantity=None,
+            risk_per_trade=2500.0,
+            brokerage_estimate=20.0,
+            slippage_estimate=0.2,
+            max_trades_per_day=3,
+            max_daily_loss=5000.0,
+            default_quantity_mode="RISK_BASED",
+            enable_breakout_quality=True,
+            minimum_close_position_percent=80.0,
+            minimum_candle_body_percent=60.0,
+            maximum_rejection_wick_percent=20.0,
+            minimum_close_beyond_level_ticks=2.0,
+            require_volume_confirmation=True,
+            buy_volume_multiplier=5.0,
+            sell_volume_multiplier=3.0,
+            entry_buffer_ticks=0.05,
+            stop_loss_buffer_ticks=0.05,
+            daily_candle_lookback=100,
+            swing_window=2,
+            max_gap_percent=0.5,
+            min_swing_distance=1,
+        )
+        generator = SignalGenerator()
+
+        db = ScalarQueueSession([settings, SimpleNamespace(tick_size=0.05)])
+        breakout, signal = generator.build(db, line, candle, previous_candle_volume=1000.0, market_candle_id=None)
+
+        self.assertIsNone(signal)
+        self.assertEqual(breakout.rejection_reason, "CLOSE_POSITION_FAILED")
 
     def test_market_data_processor_skips_repeat_breakout_for_same_line_on_same_day(self):
         line = TriggerLine(
@@ -303,9 +399,10 @@ class MarketStreamTests(unittest.TestCase):
              patch("backend.app.services.market_stream.ensure_settings", return_value=SimpleNamespace(require_candle_close_beyond_line=True)), \
              patch.object(processor.breakout_detector, "detect", return_value=[(line, "BREAKOUT")]), \
              patch.object(processor.signal_generator, "build") as mock_build:
-            signals = processor._process_finalized_candle(db, candle)
+            signals, breakout_events = processor._process_finalized_candle(db, candle)
 
         self.assertEqual(signals, [])
+        self.assertEqual(breakout_events, [])
         mock_build.assert_not_called()
         self.assertEqual(db.added, [])
 

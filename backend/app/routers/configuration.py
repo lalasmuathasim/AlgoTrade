@@ -631,7 +631,7 @@ def configuration_page() -> str:
       <div class="panel-header">
         <div>
           <h2>Strategy Tuning</h2>
-          <p class="panel-copy">Adjust the daily structure scan and 3-minute breakout thresholds here. These values directly change which lines appear and which breakouts become valid signals.</p>
+          <p class="panel-copy">Adjust the daily structure scan and market-structure rebuild thresholds here. These values directly change which support and resistance lines appear for monitoring.</p>
         </div>
         <div class="badge">Runtime</div>
       </div>
@@ -673,16 +673,6 @@ def configuration_page() -> str:
           <div class="field-help">A symbol appears in the potential-hit table when its latest daily close stays within this percent of an active support or resistance line and recent closes are moving toward that line.</div>
         </div>
         <div class="field">
-          <label for="buyVolumeMultiplierInput">Buy volume multiplier</label>
-          <input id="buyVolumeMultiplierInput" type="number" min="0.1" max="20" step="0.1" />
-          <div class="field-help">BUY breakout volume required versus the prior 3-minute candle.</div>
-        </div>
-        <div class="field">
-          <label for="sellVolumeMultiplierInput">Sell volume multiplier</label>
-          <input id="sellVolumeMultiplierInput" type="number" min="0.1" max="20" step="0.1" />
-          <div class="field-help">SELL breakdown volume required versus the prior 3-minute candle.</div>
-        </div>
-        <div class="field">
           <label for="entryBufferTicksInput">Entry buffer ticks</label>
           <input id="entryBufferTicksInput" type="number" min="0.01" max="10" step="0.01" />
           <div class="field-help">Extra ticks added before generating the entry trigger.</div>
@@ -697,7 +687,7 @@ def configuration_page() -> str:
         <li>Smaller swing window creates more swing points and more candidate lines.</li>
         <li>Larger max gap percent allows looser swing matching at the same level.</li>
         <li>Larger minimum swing distance filters out crowded nearby swing pairs.</li>
-        <li>Higher volume multipliers produce fewer but stronger breakout confirmations.</li>
+        <li>Prediction proximity controls how early symbols appear in the potential-hit shortlist.</li>
         <li>Entry and stop buffers reduce exact-line fills when price is noisy.</li>
       </ul>
       <p class="inline-note" style="margin-top: 14px;">
@@ -748,6 +738,51 @@ def configuration_page() -> str:
           <div class="field">
             <label for="allowRepeatEntrySameLineInput">Allow repeat entry on same trigger line</label>
             <select id="allowRepeatEntrySameLineInput"><option value="false">No</option><option value="true">Yes</option></select>
+          </div>
+        </div>
+      </details>
+      <details style="margin-top: 14px;">
+        <summary><strong>Breakout Quality</strong></summary>
+        <div class="compact-grid" style="margin-top: 12px;">
+          <div class="field">
+            <label for="enableBreakoutQualityInput">Enable breakout quality</label>
+            <select id="enableBreakoutQualityInput"><option value="true">Yes</option><option value="false">No</option></select>
+            <div class="field-help">When enabled, Buy Order and Sell Order breakouts must satisfy all configured quality checks before they can pass into execution.</div>
+          </div>
+          <div class="field">
+            <label for="minimumClosePositionPercentInput">Minimum close position %</label>
+            <input id="minimumClosePositionPercentInput" type="number" min="0" max="100" step="1" />
+            <div class="field-help">Buy Order candles must close near the high. Sell Order candles must close near the low. Default 80%.</div>
+          </div>
+          <div class="field">
+            <label for="minimumCandleBodyPercentInput">Minimum candle body %</label>
+            <input id="minimumCandleBodyPercentInput" type="number" min="0" max="100" step="1" />
+            <div class="field-help">Rejects weak breakout candles when the real body is too small relative to the full candle range. Default 60%.</div>
+          </div>
+          <div class="field">
+            <label for="maximumRejectionWickPercentInput">Maximum rejection wick %</label>
+            <input id="maximumRejectionWickPercentInput" type="number" min="0" max="100" step="1" />
+            <div class="field-help">Buy Order checks the upper wick. Sell Order checks the lower wick. Default 20%.</div>
+          </div>
+          <div class="field">
+            <label for="minimumCloseBeyondLevelTicksInput">Minimum close beyond level</label>
+            <input id="minimumCloseBeyondLevelTicksInput" type="number" min="0" max="100" step="0.1" />
+            <div class="field-help">Measured in ticks beyond the breakout level. Default 2 ticks.</div>
+          </div>
+          <div class="field">
+            <label for="requireVolumeConfirmationInput">Require volume confirmation</label>
+            <select id="requireVolumeConfirmationInput"><option value="true">Yes</option><option value="false">No</option></select>
+            <div class="field-help">When enabled, the breakout candle volume must meet the configured multiplier versus the previous 3-minute candle.</div>
+          </div>
+          <div class="field">
+            <label for="buyVolumeMultiplierExecutionInput">Buy Order volume multiplier</label>
+            <input id="buyVolumeMultiplierExecutionInput" type="number" min="0.1" max="20" step="0.1" />
+            <div class="field-help">Buy Order breakout volume required versus the previous 3-minute candle.</div>
+          </div>
+          <div class="field">
+            <label for="sellVolumeMultiplierExecutionInput">Sell Order volume multiplier</label>
+            <input id="sellVolumeMultiplierExecutionInput" type="number" min="0.1" max="20" step="0.1" />
+            <div class="field-help">Sell Order breakout volume required versus the previous 3-minute candle.</div>
           </div>
         </div>
       </details>
@@ -804,14 +839,6 @@ def configuration_page() -> str:
       <details style="margin-top: 14px;">
         <summary><strong>Trade Filters</strong></summary>
         <div class="compact-grid" style="margin-top: 12px;">
-          <div class="field">
-            <label for="buyVolumeMultiplierExecutionInput">BUY volume multiplier</label>
-            <input id="buyVolumeMultiplierExecutionInput" type="number" min="0.1" max="20" step="0.1" />
-          </div>
-          <div class="field">
-            <label for="sellVolumeMultiplierExecutionInput">SELL volume multiplier</label>
-            <input id="sellVolumeMultiplierExecutionInput" type="number" min="0.1" max="20" step="0.1" />
-          </div>
           <div class="field">
             <label for="skipZeroPreviousVolumeInput">Skip if previous candle volume is zero</label>
             <select id="skipZeroPreviousVolumeInput"><option value="true">Yes</option><option value="false">No</option></select>
@@ -1108,13 +1135,11 @@ def configuration_page() -> str:
       document.getElementById("dailyStructureRebuildEnabledInput").value = booleanSelectValue(settingsPayload.daily_structure_rebuild_enabled);
       document.getElementById("dailyStructureRebuildTimeInput").value = settingsPayload.daily_structure_rebuild_time;
       document.getElementById("predictionProximityPercentInput").value = settingsPayload.prediction_proximity_percent;
-      document.getElementById("buyVolumeMultiplierInput").value = settingsPayload.buy_volume_multiplier;
-      document.getElementById("sellVolumeMultiplierInput").value = settingsPayload.sell_volume_multiplier;
       document.getElementById("entryBufferTicksInput").value = settingsPayload.entry_buffer_ticks;
       document.getElementById("stopLossBufferTicksInput").value = settingsPayload.stop_loss_buffer_ticks;
       setInlineMessage(
         "strategySettingsStatus",
-        `Daily scan uses ${settingsPayload.daily_candle_lookback} candles with swing window ${settingsPayload.swing_window}. Gap filter ${settingsPayload.max_gap_percent}% · min swing distance ${settingsPayload.min_swing_distance} candles · auto rebuild ${settingsPayload.daily_structure_rebuild_enabled ? `ON at ${settingsPayload.daily_structure_rebuild_time}` : "OFF"} · potential-hit threshold ${settingsPayload.prediction_proximity_percent}% · BUY volume ${settingsPayload.buy_volume_multiplier}x · SELL volume ${settingsPayload.sell_volume_multiplier}x.`,
+        `Daily scan uses ${settingsPayload.daily_candle_lookback} candles with swing window ${settingsPayload.swing_window}. Gap filter ${settingsPayload.max_gap_percent}% · min swing distance ${settingsPayload.min_swing_distance} candles · auto rebuild ${settingsPayload.daily_structure_rebuild_enabled ? `ON at ${settingsPayload.daily_structure_rebuild_time}` : "OFF"} · potential-hit threshold ${settingsPayload.prediction_proximity_percent}%.`,
         "success",
       );
     }
@@ -1169,6 +1194,8 @@ def configuration_page() -> str:
         `Paper trading: ${paperEnabled ? "enabled" : "disabled"}`,
         `Live trading: ${liveEnabled ? "enabled" : "disabled"}`,
         `Entry confirmation: ${settingsPayload.require_candle_close_beyond_line ? "candle close beyond line" : "intrabar line cross"}`,
+        `Breakout quality: ${settingsPayload.enable_breakout_quality ? "enabled" : "disabled"}${settingsPayload.enable_breakout_quality ? ` · close ${settingsPayload.minimum_close_position_percent}% · body ${settingsPayload.minimum_candle_body_percent}% · wick ${settingsPayload.maximum_rejection_wick_percent}% · beyond level ${settingsPayload.minimum_close_beyond_level_ticks} ticks` : ""}`,
+        `Volume confirmation: ${settingsPayload.require_volume_confirmation ? `enabled · Buy Order ${settingsPayload.buy_volume_multiplier}x · Sell Order ${settingsPayload.sell_volume_multiplier}x` : "disabled"}`,
         `Target mode: ${settingsPayload.target_mode === "NEAREST_DAILY_SWING" ? "nearest daily swing" : "fixed risk reward fallback"}`,
         `Confidence filter: ${settingsPayload.enable_confidence_filter ? "enabled" : "disabled"}`,
         `Order path: ${settingsPayload.order_type} ${settingsPayload.product_type} entry orders with saved stop, target, and cost assumptions.`,
@@ -1177,6 +1204,12 @@ def configuration_page() -> str:
       document.getElementById("paperTradingEnabledInput").value = booleanSelectValue(settingsPayload.paper_trading_enabled);
       document.getElementById("liveTradingEnabledInput").value = booleanSelectValue(settingsPayload.live_trading_enabled);
       document.getElementById("requireCandleCloseBeyondLineInput").value = booleanSelectValue(settingsPayload.require_candle_close_beyond_line);
+      document.getElementById("enableBreakoutQualityInput").value = booleanSelectValue(settingsPayload.enable_breakout_quality);
+      document.getElementById("minimumClosePositionPercentInput").value = settingsPayload.minimum_close_position_percent;
+      document.getElementById("minimumCandleBodyPercentInput").value = settingsPayload.minimum_candle_body_percent;
+      document.getElementById("maximumRejectionWickPercentInput").value = settingsPayload.maximum_rejection_wick_percent;
+      document.getElementById("minimumCloseBeyondLevelTicksInput").value = settingsPayload.minimum_close_beyond_level_ticks;
+      document.getElementById("requireVolumeConfirmationInput").value = booleanSelectValue(settingsPayload.require_volume_confirmation);
       document.getElementById("entryBufferTicksExecutionInput").value = settingsPayload.entry_buffer_ticks;
       document.getElementById("stopLossBufferTicksExecutionInput").value = settingsPayload.stop_loss_buffer_ticks;
       document.getElementById("targetModeInput").value = settingsPayload.target_mode;
@@ -1675,8 +1708,6 @@ def configuration_page() -> str:
           daily_structure_rebuild_enabled: parseBooleanSelect("dailyStructureRebuildEnabledInput"),
           daily_structure_rebuild_time: document.getElementById("dailyStructureRebuildTimeInput").value,
           prediction_proximity_percent: Number(document.getElementById("predictionProximityPercentInput").value),
-          buy_volume_multiplier: Number(document.getElementById("buyVolumeMultiplierInput").value),
-          sell_volume_multiplier: Number(document.getElementById("sellVolumeMultiplierInput").value),
           entry_buffer_ticks: Number(document.getElementById("entryBufferTicksInput").value),
           stop_loss_buffer_ticks: Number(document.getElementById("stopLossBufferTicksInput").value),
         };
@@ -1755,6 +1786,12 @@ def configuration_page() -> str:
           paper_trading_enabled: parseBooleanSelect("paperTradingEnabledInput"),
           live_trading_enabled: parseBooleanSelect("liveTradingEnabledInput"),
           require_candle_close_beyond_line: parseBooleanSelect("requireCandleCloseBeyondLineInput"),
+          enable_breakout_quality: parseBooleanSelect("enableBreakoutQualityInput"),
+          minimum_close_position_percent: Number(document.getElementById("minimumClosePositionPercentInput").value),
+          minimum_candle_body_percent: Number(document.getElementById("minimumCandleBodyPercentInput").value),
+          maximum_rejection_wick_percent: Number(document.getElementById("maximumRejectionWickPercentInput").value),
+          minimum_close_beyond_level_ticks: Number(document.getElementById("minimumCloseBeyondLevelTicksInput").value),
+          require_volume_confirmation: parseBooleanSelect("requireVolumeConfirmationInput"),
           entry_buffer_ticks: Number(document.getElementById("entryBufferTicksExecutionInput").value),
           stop_loss_buffer_ticks: Number(document.getElementById("stopLossBufferTicksExecutionInput").value),
           target_mode: document.getElementById("targetModeInput").value,
@@ -2076,6 +2113,12 @@ def configuration_execution_rules(db: Session = Depends(get_db)) -> ExecutionRul
             paper_trading_enabled=defaults.paper_trading_enabled,
             live_trading_enabled=defaults.zerodha_live_trading_enabled,
             require_candle_close_beyond_line=True,
+            enable_breakout_quality=defaults.enable_breakout_quality,
+            minimum_close_position_percent=defaults.minimum_close_position_percent,
+            minimum_candle_body_percent=defaults.minimum_candle_body_percent,
+            maximum_rejection_wick_percent=defaults.maximum_rejection_wick_percent,
+            minimum_close_beyond_level_ticks=defaults.minimum_close_beyond_level_ticks,
+            require_volume_confirmation=defaults.require_volume_confirmation,
             entry_buffer_ticks=defaults.entry_buffer_ticks,
             stop_loss_buffer_ticks=defaults.stop_buffer_ticks,
             target_mode="NEAREST_DAILY_SWING",
