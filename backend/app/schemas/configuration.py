@@ -54,6 +54,13 @@ class ExecutionModeResponse(BaseModel):
 class ExecutionRulesPayload(BaseModel):
     paper_trading_enabled: bool
     live_trading_enabled: bool
+    daily_candle_lookback: int | None = Field(default=None, ge=20, le=300)
+    swing_window: int | None = Field(default=None, ge=1, le=10)
+    max_gap_percent: float | None = Field(default=None, gt=0, le=10)
+    min_swing_distance: int | None = Field(default=None, ge=1, le=50)
+    daily_structure_rebuild_enabled: bool | None = None
+    daily_structure_rebuild_time: str | None = Field(default=None, min_length=4, max_length=10)
+    prediction_proximity_percent: float | None = Field(default=None, gt=0, le=20)
     require_candle_close_beyond_line: bool
     enable_breakout_quality: bool
     minimum_close_position_percent: float = Field(ge=0, le=100)

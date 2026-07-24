@@ -246,6 +246,20 @@ def update_execution_rules(db: Session, payload: ExecutionRulesPayload) -> Paper
     current = ensure_settings(db)
     current.paper_trading_enabled = payload.paper_trading_enabled
     current.live_trading_enabled = payload.live_trading_enabled
+    if payload.daily_candle_lookback is not None:
+        current.daily_candle_lookback = payload.daily_candle_lookback
+    if payload.swing_window is not None:
+        current.swing_window = payload.swing_window
+    if payload.max_gap_percent is not None:
+        current.max_gap_percent = payload.max_gap_percent
+    if payload.min_swing_distance is not None:
+        current.min_swing_distance = payload.min_swing_distance
+    if payload.daily_structure_rebuild_enabled is not None:
+        current.daily_structure_rebuild_enabled = payload.daily_structure_rebuild_enabled
+    if payload.daily_structure_rebuild_time is not None:
+        current.daily_structure_rebuild_time = payload.daily_structure_rebuild_time
+    if payload.prediction_proximity_percent is not None:
+        current.prediction_proximity_percent = payload.prediction_proximity_percent
     current.require_candle_close_beyond_line = payload.require_candle_close_beyond_line
     current.enable_breakout_quality = payload.enable_breakout_quality
     current.minimum_close_position_percent = payload.minimum_close_position_percent

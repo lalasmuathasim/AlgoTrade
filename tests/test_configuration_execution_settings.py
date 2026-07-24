@@ -29,6 +29,13 @@ def build_execution_rules_payload() -> dict:
     return {
         "paper_trading_enabled": True,
         "live_trading_enabled": False,
+        "daily_candle_lookback": 100,
+        "swing_window": 2,
+        "max_gap_percent": 0.5,
+        "min_swing_distance": 1,
+        "daily_structure_rebuild_enabled": True,
+        "daily_structure_rebuild_time": "15:45",
+        "prediction_proximity_percent": 2.0,
         "require_candle_close_beyond_line": True,
         "enable_breakout_quality": True,
         "minimum_close_position_percent": 80.0,
@@ -157,6 +164,34 @@ class ConfigurationExecutionSettingsTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["target_mode"], "NEAREST_DAILY_SWING")
         self.assertEqual(response.json()["allowed_exchanges"], ["NSE", "BSE"])
+        self.assertEqual(response.json()["daily_candle_lookback"], 100)
+        self.assertEqual(response.json()["daily_structure_rebuild_time"], "15:45")
+
+    def test_save_execution_rules_accepts_moved_market_structure_values(self):
+        payload = build_execution_rules_payload()
+        response_payload = ExecutionRulesResponse(
+            id=uuid.uuid4(),
+            created_at="2026-07-24T10:00:00Z",
+            updated_at="2026-07-24T10:05:00Z",
+            **payload,
+        )
+
+        with patch(
+            "backend.app.routers.configuration.update_execution_rules",
+            return_value=response_payload,
+        ) as update_mock:
+            response = self.client.post("/configuration/execution-rules", json=payload)
+
+        self.assertEqual(response.status_code, 200)
+        update_payload = update_mock.call_args.args[1]
+        self.assertEqual(update_payload.daily_candle_lookback, 100)
+        self.assertEqual(update_payload.swing_window, 2)
+        self.assertEqual(update_payload.max_gap_percent, 0.5)
+        self.assertEqual(update_payload.min_swing_distance, 1)
+        self.assertTrue(update_payload.daily_structure_rebuild_enabled)
+        self.assertEqual(update_payload.daily_structure_rebuild_time, "15:45")
+        self.assertEqual(update_payload.prediction_proximity_percent, 2.0)
+        self.assertEqual(response.json()["daily_candle_lookback"], 100)
 
     def test_save_execution_rules_rejects_empty_allowed_exchanges(self):
         payload = build_execution_rules_payload()

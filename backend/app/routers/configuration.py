@@ -630,86 +630,66 @@ def configuration_page() -> str:
     <section class="panel">
       <div class="panel-header">
         <div>
-          <h2>Strategy Tuning</h2>
-          <p class="panel-copy">Adjust the daily structure scan and market-structure rebuild thresholds here. These values directly change which support and resistance lines appear for monitoring.</p>
-        </div>
-        <div class="badge">Runtime</div>
-      </div>
-      <div id="strategySettingsStatus" class="inline-note">Loading strategy tuning values from the runtime settings store...</div>
-      <div class="compact-grid">
-        <div class="field">
-          <label for="dailyCandleLookbackInput">Daily candle lookback</label>
-          <input id="dailyCandleLookbackInput" type="number" min="20" max="300" step="1" />
-          <div class="field-help">Completed daily candles reviewed for swing highs and lows.</div>
-        </div>
-        <div class="field">
-          <label for="swingWindowInput">Swing window</label>
-          <input id="swingWindowInput" type="number" min="1" max="10" step="1" />
-          <div class="field-help">Candles on each side required to confirm a swing point.</div>
-        </div>
-        <div class="field">
-          <label for="maxGapPercentInput">Max gap percent</label>
-          <input id="maxGapPercentInput" type="number" min="0.1" max="10" step="0.1" />
-          <div class="field-help">Rejects swing pairs when the level gap becomes too wide.</div>
-        </div>
-        <div class="field">
-          <label for="minSwingDistanceInput">Min swing distance</label>
-          <input id="minSwingDistanceInput" type="number" min="1" max="50" step="1" />
-          <div class="field-help">Minimum candle spacing between the two chosen swings.</div>
-        </div>
-        <div class="field">
-          <label for="dailyStructureRebuildEnabledInput">Enable daily market structure rebuild</label>
-          <select id="dailyStructureRebuildEnabledInput"><option value="true">ON</option><option value="false">OFF</option></select>
-          <div class="field-help">When ON, the scheduler rebuilds active support and resistance once each trading day after market close.</div>
-        </div>
-        <div class="field">
-          <label for="dailyStructureRebuildTimeInput">Daily rebuild time</label>
-          <input id="dailyStructureRebuildTimeInput" type="time" step="60" />
-          <div class="field-help">24-hour market-local time used by the automatic daily rebuild scheduler.</div>
-        </div>
-        <div class="field">
-          <label for="predictionProximityPercentInput">Prediction proximity percent</label>
-          <input id="predictionProximityPercentInput" type="number" min="0.1" max="20" step="0.1" />
-          <div class="field-help">A symbol appears in the potential-hit table when its latest daily close stays within this percent of an active support or resistance line and recent closes are moving toward that line.</div>
-        </div>
-        <div class="field">
-          <label for="entryBufferTicksInput">Entry buffer ticks</label>
-          <input id="entryBufferTicksInput" type="number" min="0.01" max="10" step="0.01" />
-          <div class="field-help">Extra ticks added before generating the entry trigger.</div>
-        </div>
-        <div class="field">
-          <label for="stopLossBufferTicksInput">Stop-loss buffer ticks</label>
-          <input id="stopLossBufferTicksInput" type="number" min="0.01" max="10" step="0.01" />
-          <div class="field-help">Extra ticks added beyond the trigger line for protection.</div>
-        </div>
-      </div>
-      <ul class="guide-list">
-        <li>Smaller swing window creates more swing points and more candidate lines.</li>
-        <li>Larger max gap percent allows looser swing matching at the same level.</li>
-        <li>Larger minimum swing distance filters out crowded nearby swing pairs.</li>
-        <li>Prediction proximity controls how early symbols appear in the potential-hit shortlist.</li>
-        <li>Entry and stop buffers reduce exact-line fills when price is noisy.</li>
-      </ul>
-      <p class="inline-note" style="margin-top: 14px;">
-        Use the truncate action only when cached candles or derived market-structure records are clearly wrong. It clears stored daily and 3-minute market-structure data so the next redraw can rebuild from a clean state without touching watchlists, instruments, users, or Zerodha login state.
-      </p>
-      <div class="inline" style="margin-top: 14px;">
-        <button id="saveStrategySettingsButton" class="primary" type="button">Save Strategy Tuning</button>
-        <button id="refreshStrategySettingsButton" class="secondary" type="button">Reload Values</button>
-        <button id="redrawMarketStructureButton" class="secondary" type="button">Redraw Market Structure Now</button>
-        <button id="truncateMarketStructureButton" class="ghost" type="button">Truncate Market Structure Tables</button>
-      </div>
-    </section>
-    <section class="panel">
-      <div class="panel-header">
-        <div>
           <h2>Execution &amp; Risk Rules</h2>
-          <p class="panel-copy">Define how valid breakouts become orders, how targets and quantity are chosen, what risk caps apply, and how future confidence gating should behave.</p>
+          <p class="panel-copy">Define the full runtime used for market-structure rebuilds, breakout validation, entry rules, position sizing, risk controls, and future confidence gating.</p>
         </div>
         <div id="executionModeBadge" class="badge warn">Paper Only</div>
       </div>
       <p id="executionModeStatus" class="inline-note">Loading execution and risk rules...</p>
       <ul id="executionModeDetails" class="guide-list"></ul>
+      <details open style="margin-top: 14px;">
+        <summary><strong>Market Structure &amp; Rebuild</strong></summary>
+        <div class="compact-grid" style="margin-top: 12px;">
+          <div class="field">
+            <label for="dailyCandleLookbackInput">Daily candle lookback</label>
+            <input id="dailyCandleLookbackInput" type="number" min="20" max="300" step="1" placeholder="100" />
+            <div class="field-help">Completed daily candles reviewed for swing highs and lows when building support and resistance.</div>
+          </div>
+          <div class="field">
+            <label for="swingWindowInput">Swing window</label>
+            <input id="swingWindowInput" type="number" min="1" max="10" step="1" placeholder="2" />
+            <div class="field-help">Candles on each side required to confirm a swing point.</div>
+          </div>
+          <div class="field">
+            <label for="maxGapPercentInput">Max gap percent</label>
+            <input id="maxGapPercentInput" type="number" min="0.1" max="10" step="0.1" placeholder="0.5" />
+            <div class="field-help">Rejects swing pairs when the level gap becomes too wide.</div>
+          </div>
+          <div class="field">
+            <label for="minSwingDistanceInput">Min swing distance</label>
+            <input id="minSwingDistanceInput" type="number" min="1" max="50" step="1" placeholder="1" />
+            <div class="field-help">Minimum candle spacing between the two selected swings.</div>
+          </div>
+          <div class="field">
+            <label for="dailyStructureRebuildEnabledInput">Enable daily market structure rebuild</label>
+            <select id="dailyStructureRebuildEnabledInput"><option value="true">ON</option><option value="false">OFF</option></select>
+            <div class="field-help">When ON, the scheduler rebuilds active support and resistance once each trading day after market close.</div>
+          </div>
+          <div class="field">
+            <label for="dailyStructureRebuildTimeInput">Daily rebuild time</label>
+            <input id="dailyStructureRebuildTimeInput" type="time" step="60" placeholder="15:45" />
+            <div class="field-help">24-hour market-local time used by the automatic daily rebuild scheduler.</div>
+          </div>
+          <div class="field">
+            <label for="predictionProximityPercentInput">Prediction proximity percent</label>
+            <input id="predictionProximityPercentInput" type="number" min="0.1" max="20" step="0.1" placeholder="2.0" />
+            <div class="field-help">A symbol appears in the potential-hit table when its latest daily close stays within this percent of an active support or resistance line and recent closes are moving toward that line.</div>
+          </div>
+        </div>
+        <ul class="guide-list" style="margin-top: 14px;">
+          <li>Smaller swing window creates more swing points and more candidate lines.</li>
+          <li>Larger max gap percent allows looser swing matching at the same level.</li>
+          <li>Larger minimum swing distance filters out crowded nearby swing pairs.</li>
+          <li>Prediction proximity controls how early symbols appear in the potential-hit shortlist.</li>
+        </ul>
+        <p id="marketStructureStatus" class="inline-note" style="margin-top: 14px;">
+          Use the redraw or truncate actions only when cached candles or derived market-structure records need to be refreshed from a clean base.
+        </p>
+        <div class="inline" style="margin-top: 14px;">
+          <button id="redrawMarketStructureButton" class="secondary" type="button">Redraw Market Structure Now</button>
+          <button id="truncateMarketStructureButton" class="ghost" type="button">Truncate Market Structure Tables</button>
+        </div>
+      </details>
       <details open style="margin-top: 14px;">
         <summary><strong>Entry Rules</strong></summary>
         <div class="compact-grid" style="margin-top: 12px;">
@@ -720,7 +700,7 @@ def configuration_page() -> str:
           </div>
           <div class="field">
             <label for="entryBufferTicksExecutionInput">Entry buffer ticks</label>
-            <input id="entryBufferTicksExecutionInput" type="number" min="0.01" max="10" step="0.01" />
+            <input id="entryBufferTicksExecutionInput" type="number" min="0.01" max="10" step="0.01" placeholder="0.05" />
             <div class="field-help">Extra ticks above breakout high or below breakdown low before entry.</div>
           </div>
           <div class="field">
@@ -791,7 +771,7 @@ def configuration_page() -> str:
         <div class="compact-grid" style="margin-top: 12px;">
           <div class="field">
             <label for="stopLossBufferTicksExecutionInput">Stop loss buffer ticks</label>
-            <input id="stopLossBufferTicksExecutionInput" type="number" min="0.01" max="10" step="0.01" />
+            <input id="stopLossBufferTicksExecutionInput" type="number" min="0.01" max="10" step="0.01" placeholder="0.05" />
           </div>
           <div class="field">
             <label for="targetModeInput">Target mode</label>
@@ -992,7 +972,6 @@ def configuration_page() -> str:
     let activeBuilderWatchlistId = null;
     let latestReadiness = null;
     let latestZerodhaStatus = null;
-    let latestStrategySettings = null;
     let latestExecutionSettings = null;
     const syncWatchlistDetailPreview = bindCollapsibleTable({
       buttonId: "watchlistDetailToggle",
@@ -1126,24 +1105,6 @@ def configuration_page() -> str:
       ]);
     }
 
-    function renderStrategySettings(settingsPayload) {
-      latestStrategySettings = settingsPayload;
-      document.getElementById("dailyCandleLookbackInput").value = settingsPayload.daily_candle_lookback;
-      document.getElementById("swingWindowInput").value = settingsPayload.swing_window;
-      document.getElementById("maxGapPercentInput").value = settingsPayload.max_gap_percent;
-      document.getElementById("minSwingDistanceInput").value = settingsPayload.min_swing_distance;
-      document.getElementById("dailyStructureRebuildEnabledInput").value = booleanSelectValue(settingsPayload.daily_structure_rebuild_enabled);
-      document.getElementById("dailyStructureRebuildTimeInput").value = settingsPayload.daily_structure_rebuild_time;
-      document.getElementById("predictionProximityPercentInput").value = settingsPayload.prediction_proximity_percent;
-      document.getElementById("entryBufferTicksInput").value = settingsPayload.entry_buffer_ticks;
-      document.getElementById("stopLossBufferTicksInput").value = settingsPayload.stop_loss_buffer_ticks;
-      setInlineMessage(
-        "strategySettingsStatus",
-        `Daily scan uses ${settingsPayload.daily_candle_lookback} candles with swing window ${settingsPayload.swing_window}. Gap filter ${settingsPayload.max_gap_percent}% · min swing distance ${settingsPayload.min_swing_distance} candles · auto rebuild ${settingsPayload.daily_structure_rebuild_enabled ? `ON at ${settingsPayload.daily_structure_rebuild_time}` : "OFF"} · potential-hit threshold ${settingsPayload.prediction_proximity_percent}%.`,
-        "success",
-      );
-    }
-
     function booleanSelectValue(value) {
       return value ? "true" : "false";
     }
@@ -1193,6 +1154,8 @@ def configuration_page() -> str:
       document.getElementById("executionModeDetails").innerHTML = [
         `Paper trading: ${paperEnabled ? "enabled" : "disabled"}`,
         `Live trading: ${liveEnabled ? "enabled" : "disabled"}`,
+        `Daily structure: ${settingsPayload.daily_candle_lookback} candles · swing window ${settingsPayload.swing_window} · gap ${settingsPayload.max_gap_percent}% · min distance ${settingsPayload.min_swing_distance}`,
+        `Rebuild scheduler: ${settingsPayload.daily_structure_rebuild_enabled ? `ON at ${settingsPayload.daily_structure_rebuild_time}` : "OFF"} · potential-hit threshold ${settingsPayload.prediction_proximity_percent}%`,
         `Entry confirmation: ${settingsPayload.require_candle_close_beyond_line ? "candle close beyond line" : "intrabar line cross"}`,
         `Breakout quality: ${settingsPayload.enable_breakout_quality ? "enabled" : "disabled"}${settingsPayload.enable_breakout_quality ? ` · close ${settingsPayload.minimum_close_position_percent}% · body ${settingsPayload.minimum_candle_body_percent}% · wick ${settingsPayload.maximum_rejection_wick_percent}% · beyond level ${settingsPayload.minimum_close_beyond_level_ticks} ticks` : ""}`,
         `Volume confirmation: ${settingsPayload.require_volume_confirmation ? `enabled · Buy Order ${settingsPayload.buy_volume_multiplier}x · Sell Order ${settingsPayload.sell_volume_multiplier}x` : "disabled"}`,
@@ -1203,6 +1166,13 @@ def configuration_page() -> str:
 
       document.getElementById("paperTradingEnabledInput").value = booleanSelectValue(settingsPayload.paper_trading_enabled);
       document.getElementById("liveTradingEnabledInput").value = booleanSelectValue(settingsPayload.live_trading_enabled);
+      document.getElementById("dailyCandleLookbackInput").value = settingsPayload.daily_candle_lookback;
+      document.getElementById("swingWindowInput").value = settingsPayload.swing_window;
+      document.getElementById("maxGapPercentInput").value = settingsPayload.max_gap_percent;
+      document.getElementById("minSwingDistanceInput").value = settingsPayload.min_swing_distance;
+      document.getElementById("dailyStructureRebuildEnabledInput").value = booleanSelectValue(settingsPayload.daily_structure_rebuild_enabled);
+      document.getElementById("dailyStructureRebuildTimeInput").value = settingsPayload.daily_structure_rebuild_time;
+      document.getElementById("predictionProximityPercentInput").value = settingsPayload.prediction_proximity_percent;
       document.getElementById("requireCandleCloseBeyondLineInput").value = booleanSelectValue(settingsPayload.require_candle_close_beyond_line);
       document.getElementById("enableBreakoutQualityInput").value = booleanSelectValue(settingsPayload.enable_breakout_quality);
       document.getElementById("minimumClosePositionPercentInput").value = settingsPayload.minimum_close_position_percent;
@@ -1247,6 +1217,11 @@ def configuration_page() -> str:
       document.getElementById("confidenceSourceInput").value = settingsPayload.confidence_source;
       document.getElementById("allowLowConfidencePaperOnlyInput").value = booleanSelectValue(settingsPayload.allow_low_confidence_paper_trades_only);
       document.getElementById("blockLiveTradesBelowConfidenceThresholdInput").value = booleanSelectValue(settingsPayload.block_live_trades_below_confidence_threshold);
+      setInlineMessage(
+        "marketStructureStatus",
+        `Daily structure scan uses ${settingsPayload.daily_candle_lookback} candles with swing window ${settingsPayload.swing_window}. Gap filter ${settingsPayload.max_gap_percent}% · min swing distance ${settingsPayload.min_swing_distance} candles · auto rebuild ${settingsPayload.daily_structure_rebuild_enabled ? `ON at ${settingsPayload.daily_structure_rebuild_time}` : "OFF"} · potential-hit threshold ${settingsPayload.prediction_proximity_percent}%.`,
+        "success",
+      );
     }
 
     function renderExecutionSettingsUnavailable(message) {
@@ -1546,12 +1521,6 @@ def configuration_page() -> str:
       return readiness;
     }
 
-    async function loadStrategySettings() {
-      const strategySettings = await apiGet("/configuration/strategy-settings");
-      renderStrategySettings(strategySettings);
-      return strategySettings;
-    }
-
     async function loadExecutionSettings() {
       try {
         const executionSettings = await apiGet("/configuration/execution-rules");
@@ -1572,16 +1541,14 @@ def configuration_page() -> str:
 
     async function refreshAll(preferredWatchlistId = null) {
       activeBuilderWatchlistId = preferredWatchlistId || activeBuilderWatchlistId;
-      const [readiness, watchlists, zerodhaStatus, strategySettings] = await Promise.all([
+      const [readiness, watchlists, zerodhaStatus] = await Promise.all([
         loadReadiness(),
         loadWatchlists(),
         loadZerodhaConnectionStatus(),
-        loadStrategySettings(),
       ]);
       await loadExecutionSettings();
       renderReadiness(readiness, zerodhaStatus);
       renderConfigCards(readiness, watchlists);
-      renderStrategySettings(strategySettings);
       const detailWatchlist = watchlists.find((item) => item.id === preferredWatchlistId)
         || watchlists.find((item) => item.id === currentWatchlistDetailId)
         || watchlists.find((item) => item.is_selected)
@@ -1698,59 +1665,21 @@ def configuration_page() -> str:
       }
     });
 
-    document.getElementById("saveStrategySettingsButton").addEventListener("click", async () => {
-      try {
-        const payload = {
-          daily_candle_lookback: Number(document.getElementById("dailyCandleLookbackInput").value),
-          swing_window: Number(document.getElementById("swingWindowInput").value),
-          max_gap_percent: Number(document.getElementById("maxGapPercentInput").value),
-          min_swing_distance: Number(document.getElementById("minSwingDistanceInput").value),
-          daily_structure_rebuild_enabled: parseBooleanSelect("dailyStructureRebuildEnabledInput"),
-          daily_structure_rebuild_time: document.getElementById("dailyStructureRebuildTimeInput").value,
-          prediction_proximity_percent: Number(document.getElementById("predictionProximityPercentInput").value),
-          entry_buffer_ticks: Number(document.getElementById("entryBufferTicksInput").value),
-          stop_loss_buffer_ticks: Number(document.getElementById("stopLossBufferTicksInput").value),
-        };
-        const result = await runButtonAction("saveStrategySettingsButton", () => apiSend("/configuration/strategy-settings", "POST", payload), {
-          pendingLabel: "Saving...",
-          successLabel: "Saved",
-          errorLabel: "Retry save",
-        });
-        renderStrategySettings(result);
-        setInlineMessage("strategySettingsStatus", "Strategy tuning saved. Daily scans, line review, and breakout checks will use these values.", "success");
-      } catch (error) {
-        setInlineMessage("strategySettingsStatus", error.message, "error");
-      }
-    });
-
-    document.getElementById("refreshStrategySettingsButton").addEventListener("click", async () => {
-      try {
-        const result = await runButtonAction("refreshStrategySettingsButton", () => loadStrategySettings(), {
-          pendingLabel: "Loading...",
-          successLabel: "Reloaded",
-          errorLabel: "Retry load",
-        });
-        renderStrategySettings(result);
-      } catch (error) {
-        setInlineMessage("strategySettingsStatus", error.message, "error");
-      }
-    });
-
     document.getElementById("redrawMarketStructureButton").addEventListener("click", async () => {
       try {
-        setInlineMessage("strategySettingsStatus", "Running the same daily market-structure rebuild used by the scheduler.", "warn");
+        setInlineMessage("marketStructureStatus", "Running the same daily market-structure rebuild used by the scheduler.", "warn");
         const result = await runButtonAction("redrawMarketStructureButton", () => apiSend("/configuration/market-structure/redraw-now", "POST", {}), {
           pendingLabel: "Redrawing...",
           successLabel: "Updated",
           errorLabel: "Retry redraw",
         });
         setInlineMessage(
-          "strategySettingsStatus",
+          "marketStructureStatus",
           `Redraw completed. Scan ${result.status.toLowerCase()} · ${result.symbols_scanned} symbols scanned · ${result.trigger_lines_created} new lines · ${result.trigger_lines_updated} refreshed lines.`,
           "success",
         );
       } catch (error) {
-        setInlineMessage("strategySettingsStatus", error.message, "error");
+        setInlineMessage("marketStructureStatus", error.message, "error");
       }
     });
 
@@ -1763,7 +1692,7 @@ def configuration_page() -> str:
       }
 
       try {
-        setInlineMessage("strategySettingsStatus", "Clearing stored market-structure data so the next redraw starts clean.", "warn");
+        setInlineMessage("marketStructureStatus", "Clearing stored market-structure data so the next redraw starts clean.", "warn");
         const result = await runButtonAction("truncateMarketStructureButton", () => apiSend("/configuration/market-structure/truncate", "POST", {}), {
           pendingLabel: "Clearing...",
           successLabel: "Cleared",
@@ -1771,12 +1700,12 @@ def configuration_page() -> str:
         });
         await refreshAll();
         setInlineMessage(
-          "strategySettingsStatus",
+          "marketStructureStatus",
           `Market structure data cleared. ${result.market_candles} candles, ${result.trigger_lines} trigger lines, ${result.breakout_events} breakout events, ${result.trading_signals} signals, ${result.paper_trades} paper trades, and ${result.scan_executions} scan runs removed.`,
           "success",
         );
       } catch (error) {
-        setInlineMessage("strategySettingsStatus", error.message, "error");
+        setInlineMessage("marketStructureStatus", error.message, "error");
       }
     });
 
@@ -1785,6 +1714,13 @@ def configuration_page() -> str:
         const payload = {
           paper_trading_enabled: parseBooleanSelect("paperTradingEnabledInput"),
           live_trading_enabled: parseBooleanSelect("liveTradingEnabledInput"),
+          daily_candle_lookback: Number(document.getElementById("dailyCandleLookbackInput").value),
+          swing_window: Number(document.getElementById("swingWindowInput").value),
+          max_gap_percent: Number(document.getElementById("maxGapPercentInput").value),
+          min_swing_distance: Number(document.getElementById("minSwingDistanceInput").value),
+          daily_structure_rebuild_enabled: parseBooleanSelect("dailyStructureRebuildEnabledInput"),
+          daily_structure_rebuild_time: document.getElementById("dailyStructureRebuildTimeInput").value,
+          prediction_proximity_percent: Number(document.getElementById("predictionProximityPercentInput").value),
           require_candle_close_beyond_line: parseBooleanSelect("requireCandleCloseBeyondLineInput"),
           enable_breakout_quality: parseBooleanSelect("enableBreakoutQualityInput"),
           minimum_close_position_percent: Number(document.getElementById("minimumClosePositionPercentInput").value),
@@ -1881,7 +1817,7 @@ def configuration_page() -> str:
       setInlineMessage("watchlistStatus", error.message, "error");
       setBox("readinessStatus", "Unable to initialize configuration workspace.", "error");
       setInlineMessage("validationStatus", "Configuration workspace failed to initialize.", "error");
-      setInlineMessage("strategySettingsStatus", "Unable to load strategy tuning values.", "error");
+      setInlineMessage("marketStructureStatus", "Unable to load market structure settings.", "error");
     });
     """
     return render_app_shell(
@@ -2112,6 +2048,13 @@ def configuration_execution_rules(db: Session = Depends(get_db)) -> ExecutionRul
             updated_at=datetime.now(UTC),
             paper_trading_enabled=defaults.paper_trading_enabled,
             live_trading_enabled=defaults.zerodha_live_trading_enabled,
+            daily_candle_lookback=defaults.daily_candle_lookback,
+            swing_window=defaults.swing_window,
+            max_gap_percent=defaults.max_gap_percent,
+            min_swing_distance=max(int(defaults.min_swing_distance), 1),
+            daily_structure_rebuild_enabled=True,
+            daily_structure_rebuild_time=defaults.daily_scan_time,
+            prediction_proximity_percent=2.0,
             require_candle_close_beyond_line=True,
             enable_breakout_quality=defaults.enable_breakout_quality,
             minimum_close_position_percent=defaults.minimum_close_position_percent,
@@ -2164,6 +2107,8 @@ def save_configuration_execution_rules(
     payload: ExecutionRulesPayload,
     db: Session = Depends(get_db),
 ) -> ExecutionRulesResponse:
+    if payload.daily_structure_rebuild_time is not None:
+        _validate_time_string(payload.daily_structure_rebuild_time, field_name="Daily structure rebuild time")
     if payload.live_trading_enabled:
         zerodha_auth = ZerodhaAuthService()
         if not zerodha_auth.has_credentials():
