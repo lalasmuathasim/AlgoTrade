@@ -1015,7 +1015,14 @@ def render_app_shell(
   </div>
   <script>
     async function apiGet(url) {{
-      const res = await fetch(url);
+      const res = await fetch(url, {{
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: {{
+          "Cache-Control": "no-cache",
+          "Pragma": "no-cache",
+        }},
+      }});
       const contentType = res.headers.get("content-type") || "";
       const data = contentType.includes("application/json") ? await res.json() : await res.text();
       if (!res.ok) {{

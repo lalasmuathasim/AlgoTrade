@@ -8,7 +8,7 @@ from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
@@ -1107,7 +1107,7 @@ def dashboard_home() -> str:
       }
       dashboardRuntimePollInFlight = true;
       try {
-        const snapshot = await apiGet("/dashboard/runtime");
+        const snapshot = await apiGet(`/dashboard/runtime?ts=${Date.now()}`);
         if (snapshot && typeof snapshot === "object") {
           handleRuntimeStreamMessage(snapshot);
         }
@@ -1534,11 +1534,16 @@ def dashboard_report_overview(db: Session = Depends(get_db)) -> dict:
 
 @router.get("/dashboard/runtime")
 def dashboard_runtime_snapshot() -> dict:
+    headers = {
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
     try:
         snapshot = get_live_engine_runtime()
     except Exception as exc:  # noqa: BLE001
         logger.warning("Dashboard runtime snapshot read failed: %s", exc)
-        return {
+        return JSONResponse({
             "status": "UNAVAILABLE",
             "message": "Live runtime is temporarily unavailable. The dashboard will keep retrying automatically.",
             "latest_prices": {},
@@ -1549,10 +1554,10 @@ def dashboard_runtime_snapshot() -> dict:
             "last_signal_id": None,
             "published_at": None,
             "error": "runtime_unavailable",
-        }
+        }, headers=headers)
 
     if snapshot is None:
-        return {
+        return JSONResponse({
             "status": "NOT_PUBLISHED",
             "message": "Live engine has not published runtime state yet.",
             "latest_prices": {},
@@ -1562,8 +1567,8 @@ def dashboard_runtime_snapshot() -> dict:
             "last_breakout_event_symbol": None,
             "last_signal_id": None,
             "published_at": None,
-        }
-    return snapshot
+        }, headers=headers)
+    return JSONResponse(snapshot, headers=headers)
 
 
 @router.get("/dashboard/reports/watched-symbols")
