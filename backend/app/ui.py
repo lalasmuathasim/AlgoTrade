@@ -1335,6 +1335,30 @@ def render_app_shell(
         greeting.textContent = "";
       }}
     }}
+    function registerPageCleanup(callback) {{
+      if (typeof callback !== "function") {{
+        return;
+      }}
+      if (!Array.isArray(window.__qubitxPageCleanupHandlers)) {{
+        window.__qubitxPageCleanupHandlers = [];
+      }}
+      window.__qubitxPageCleanupHandlers.push(callback);
+    }}
+    function runPageCleanup() {{
+      const handlers = Array.isArray(window.__qubitxPageCleanupHandlers)
+        ? window.__qubitxPageCleanupHandlers.slice()
+        : [];
+      window.__qubitxPageCleanupHandlers = [];
+      handlers.forEach((handler) => {{
+        try {{
+          handler();
+        }} catch (_error) {{
+          // Ignore page cleanup failures during route swaps.
+        }}
+      }});
+    }}
+    window.__qubitxRegisterPageCleanup = registerPageCleanup;
+    window.__qubitxRunPageCleanup = runPageCleanup;
     function isWorkspaceNavClick(event, link) {{
       if (!link || !link.classList.contains("workspace-link")) {{
         return false;
@@ -1372,6 +1396,7 @@ def render_app_shell(
         }} else {{
           window.history.pushState({{ qubitx: true }}, "", nextUrl.toString());
         }}
+        runPageCleanup();
         document.open();
         document.write(html);
         document.close();
@@ -1399,7 +1424,10 @@ def render_app_shell(
     }});
     bindWorkspaceNavLinks();
     syncWorkspaceUser();
-    {script}
+    (() => {{
+      const registerPageCleanup = window.__qubitxRegisterPageCleanup || (() => {{}});
+      {script}
+    }})();
   </script>
 </body>
 </html>

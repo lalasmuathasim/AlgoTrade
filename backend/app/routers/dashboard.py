@@ -1130,6 +1130,15 @@ def dashboard_home() -> str:
       dashboardRuntimePollTimer = window.setInterval(pollDashboardRuntime, 1000);
     }
 
+    registerPageCleanup(() => {
+      if (dashboardRuntimePollTimer) {
+        clearInterval(dashboardRuntimePollTimer);
+        dashboardRuntimePollTimer = null;
+      }
+      dashboardRuntimePollInFlight = false;
+      liveRefreshInFlight = false;
+    });
+
     document.getElementById("refreshDailyReviewButton").addEventListener("click", async () => {
       try {
         await runButtonAction("refreshDailyReviewButton", () => updateDailyReview(), {

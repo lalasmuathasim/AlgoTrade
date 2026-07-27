@@ -1698,6 +1698,7 @@ def configuration_page() -> str:
           successLabel: "Updated",
           errorLabel: "Retry redraw",
         });
+        window.sessionStorage.setItem("qubitx:market-structure-redrawn-at", new Date().toISOString());
         setInlineMessage(
           "marketStructureStatus",
           `Redraw completed. Scan ${result.status.toLowerCase()} · ${result.symbols_scanned} symbols scanned · ${result.trigger_lines_created} new lines · ${result.trigger_lines_updated} refreshed lines.`,
