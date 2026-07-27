@@ -1392,6 +1392,16 @@ def dashboard_breakout_review(trade_date: str | None = None, db: Session = Depen
         }
 
     report_start, report_end = trading_day_bounds(report_date, runtime_settings)
+    selected_watchlist_symbols = db.scalars(
+        select(WatchlistSymbol).where(
+            WatchlistSymbol.watchlist_id == selected_watchlist_id,
+            WatchlistSymbol.is_active.is_(True),
+        )
+    ).all()
+    selected_symbol_keys = {
+        (symbol.exchange, symbol.symbol)
+        for symbol in selected_watchlist_symbols
+    }
     lines = db.scalars(
         select(TriggerLine)
         .where(TriggerLine.watchlist_id == selected_watchlist_id)
@@ -1410,15 +1420,25 @@ def dashboard_breakout_review(trade_date: str | None = None, db: Session = Depen
     rows: list[dict] = []
     for event in events:
         line = line_map.get(event.trigger_line_id) if event.trigger_line_id else None
-        if line is None:
+        if line is None and (event.exchange, event.symbol) not in selected_symbol_keys:
             continue
+        resolved_line_type = (
+            line.line_type
+            if line is not None
+            else "BUY"
+            if event.event_type == "BREAKOUT"
+            else "SELL"
+            if event.event_type == "BREAKDOWN"
+            else "UNKNOWN"
+        )
+        resolved_line_price = line.line_price if line is not None else event.breakout_or_breakdown_price
         rows.append(
             {
                 "id": str(event.id),
                 "symbol": event.symbol,
                 "exchange": event.exchange,
-                "line_type": line.line_type,
-                "line_price": line.line_price,
+                "line_type": resolved_line_type,
+                "line_price": resolved_line_price,
                 "event_type": event.event_type,
                 "event_time": _serialize_datetime(event.event_time),
                 "breakout_candle_volume": event.breakout_candle_volume,

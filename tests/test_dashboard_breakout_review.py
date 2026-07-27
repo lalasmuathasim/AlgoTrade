@@ -129,6 +129,46 @@ class DashboardBreakoutReviewTests(unittest.TestCase):
         self.assertTrue(payload["rows"][0]["signal_generated"])
         client.close()
 
+    def test_breakout_review_falls_back_to_event_snapshot_for_selected_watchlist_symbol(self):
+        selected_symbol = SimpleNamespace(
+            watchlist_id=self.selected_watchlist.id,
+            exchange="NSE",
+            symbol="COLPAL",
+            is_active=True,
+        )
+        breakout_event = BreakoutEvent(
+            id=uuid.uuid4(),
+            trigger_line_id=uuid.uuid4(),
+            exchange="NSE",
+            symbol="COLPAL",
+            event_type="BREAKOUT",
+            event_time=datetime.fromisoformat("2026-07-27T10:09:00+05:30"),
+            breakout_or_breakdown_price=2840.0,
+            breakout_candle_volume=12000.0,
+            previous_candle_volume=1800.0,
+            required_volume_multiplier=5.0,
+            volume_ratio=6.67,
+            volume_condition_passed=True,
+            entry_price=2842.05,
+            stop_loss=2839.95,
+            target=2895.0,
+            signal_generated=True,
+            status="PASSED",
+        )
+        self.app.dependency_overrides[get_db] = lambda: DummyDb([[selected_symbol], [], [breakout_event]])
+        client = TestClient(self.app)
+
+        with patch("backend.app.routers.dashboard.get_selected_watchlist", return_value=self.selected_watchlist):
+            response = client.get("/dashboard/reports/breakout-review?trade_date=2026-07-27")
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["summary"]["total_events"], 1)
+        self.assertEqual(payload["rows"][0]["symbol"], "COLPAL")
+        self.assertEqual(payload["rows"][0]["line_type"], "BUY")
+        self.assertEqual(payload["rows"][0]["line_price"], 2840.0)
+        client.close()
+
 
 if __name__ == "__main__":
     unittest.main()
