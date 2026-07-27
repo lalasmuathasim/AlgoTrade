@@ -440,29 +440,33 @@ class ZerodhaWebSocketClient:
         if timestamp is None:
             return datetime.now(UTC)
         if timestamp.tzinfo is None:
-            return timestamp.replace(tzinfo=india_tz).astimezone(UTC)
+            return timestamp.replace(tzinfo=get_trading_timezone()).astimezone(UTC)
         return timestamp.astimezone(UTC)
 
     def _build_tick_payloads(self, ticks: list[dict]) -> list[TickPayload]:
         payloads: list[TickPayload] = []
         for tick in ticks:
-            instrument_token = tick.get("instrument_token")
-            last_price = tick.get("last_price")
-            if instrument_token is None or last_price is None:
-                continue
-            mapping = self._subscription_map.get(int(instrument_token))
-            if mapping is None:
-                continue
-            payloads.append(
-                TickPayload(
-                    instrument_token=int(instrument_token),
-                    symbol=mapping["symbol"],
-                    exchange=mapping["exchange"],
-                    timestamp=self._normalize_tick_timestamp(tick),
-                    last_price=float(last_price),
-                    volume_traded=float(tick["volume_traded"]) if tick.get("volume_traded") is not None else None,
+            try:
+                instrument_token = tick.get("instrument_token")
+                last_price = tick.get("last_price")
+                if instrument_token is None or last_price is None:
+                    continue
+                mapping = self._subscription_map.get(int(instrument_token))
+                if mapping is None:
+                    continue
+                payloads.append(
+                    TickPayload(
+                        instrument_token=int(instrument_token),
+                        symbol=mapping["symbol"],
+                        exchange=mapping["exchange"],
+                        timestamp=self._normalize_tick_timestamp(tick),
+                        last_price=float(last_price),
+                        volume_traded=float(tick["volume_traded"]) if tick.get("volume_traded") is not None else None,
+                    )
                 )
-            )
+            except Exception:  # noqa: BLE001
+                self._logger.exception("Failed to normalize Zerodha tick payload")
+                continue
         return payloads
 
     def connect_forever(
@@ -552,9 +556,21 @@ class ZerodhaWebSocketClient:
             )
 
         def on_ticks_callback(_ws, ticks):
-            payloads = self._build_tick_payloads(ticks)
-            if payloads:
-                on_ticks(payloads)
+            try:
+                payloads = self._build_tick_payloads(ticks)
+                if payloads:
+                    on_ticks(payloads)
+            except Exception as exc:  # noqa: BLE001
+                self._logger.exception("Unhandled exception while processing Zerodha ticks")
+                runtime_state.update(
+                    self._emit_state(
+                        on_state_change,
+                        status="TICK_PROCESSING_ERROR",
+                        message="Tick processing failed, continuing to listen for the next tick batch.",
+                        transport="kite_ticker",
+                        error=exc.__class__.__name__,
+                    )
+                )
 
         def on_error(_ws, code, reason):
             self._logger.warning("KiteTicker error: code=%s reason=%s", code, reason)

@@ -1,7 +1,7 @@
 # ruff: noqa: E402
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 import unittest
 from unittest.mock import patch
 
@@ -55,6 +55,30 @@ class _FakeKiteTicker:
 
 class _FakeKiteModule:
     KiteTicker = _FakeKiteTicker
+
+
+class _FakeNaiveTickKiteTicker(_FakeKiteTicker):
+    def connect(self, threaded=False):
+        if self.on_connect:
+            self.on_connect(self, {"status": "connected"})
+        if self.on_ticks:
+            self.on_ticks(
+                self,
+                [
+                    {
+                        "instrument_token": 111,
+                        "last_price": 1525.5,
+                        "volume_traded": 6200,
+                        "exchange_timestamp": datetime(2026, 7, 20, 10, 3, 0),
+                    }
+                ],
+            )
+        if self.on_close:
+            self.on_close(self, 1000, "closed")
+
+
+class _FakeNaiveTickKiteModule:
+    KiteTicker = _FakeNaiveTickKiteTicker
 
 
 class ZerodhaWebSocketClientTests(unittest.TestCase):
@@ -130,6 +154,47 @@ class ZerodhaWebSocketClientTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "CLOSED")
         self.assertEqual(len(captured_ticks), 1)
+
+    def test_connect_forever_normalizes_naive_tick_timestamp_using_trading_timezone(self):
+        client = ZerodhaWebSocketClient()
+        captured_ticks: list[list[TickPayload]] = []
+
+        with (
+            patch("backend.app.services.zerodha.ZerodhaAuthService.has_credentials", return_value=True),
+            patch("backend.app.services.zerodha.ZerodhaAuthService.has_access_token", return_value=True),
+            patch("backend.app.services.zerodha.ZerodhaAuthService.resolve_access_token", return_value="token"),
+            patch("backend.app.services.zerodha.settings.zerodha_api_key", "api-key"),
+            patch("backend.app.services.zerodha.import_module", return_value=_FakeNaiveTickKiteModule()),
+        ):
+            result = client.connect_forever(
+                [{"instrument_token": 111, "exchange": "NSE", "symbol": "RELIANCE", "source": "WATCHLIST"}],
+                lambda ticks: captured_ticks.append(ticks),
+            )
+
+        self.assertEqual(result["status"], "CLOSED")
+        self.assertEqual(len(captured_ticks), 1)
+        self.assertEqual(captured_ticks[0][0].timestamp.tzinfo, UTC)
+        self.assertEqual(captured_ticks[0][0].timestamp.isoformat(), "2026-07-20T04:33:00+00:00")
+
+    def test_connect_forever_continues_when_tick_handler_raises(self):
+        client = ZerodhaWebSocketClient()
+        state_updates: list[dict] = []
+
+        with (
+            patch("backend.app.services.zerodha.ZerodhaAuthService.has_credentials", return_value=True),
+            patch("backend.app.services.zerodha.ZerodhaAuthService.has_access_token", return_value=True),
+            patch("backend.app.services.zerodha.ZerodhaAuthService.resolve_access_token", return_value="token"),
+            patch("backend.app.services.zerodha.settings.zerodha_api_key", "api-key"),
+            patch("backend.app.services.zerodha.import_module", return_value=_FakeKiteModule()),
+        ):
+            result = client.connect_forever(
+                [{"instrument_token": 111, "exchange": "NSE", "symbol": "RELIANCE", "source": "WATCHLIST"}],
+                lambda _ticks: (_ for _ in ()).throw(RuntimeError("boom")),
+                on_state_change=lambda state: state_updates.append(state),
+            )
+
+        self.assertTrue(any(state["status"] == "TICK_PROCESSING_ERROR" for state in state_updates))
+        self.assertEqual(result["status"], "CLOSED")
 
 
 if __name__ == "__main__":
