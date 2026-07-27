@@ -4,6 +4,7 @@ from backend.app.models.broker_records import BrokerOrder, PositionSnapshot
 from backend.app.models.instruments import Instrument
 from backend.app.models.market_candles import MarketCandle
 from backend.app.models.paper_trading import PaperTrade, PaperTradingSetting
+from backend.app.models.runtime_state import ServiceRuntimeState
 from backend.app.models.scan_tracking import ScanExecution
 from backend.app.models.trading_signals import TradingSignal
 from backend.app.models.trigger_lines import TriggerLine
@@ -19,6 +20,7 @@ __all__ = [
     "PaperTradingSetting",
     "PositionSnapshot",
     "ScanExecution",
+    "ServiceRuntimeState",
     "TradingSignal",
     "TriggerLine",
     "User",

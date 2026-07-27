@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 from redis import Redis
+from sqlalchemy.exc import SQLAlchemyError
 
 from backend.app.config import get_settings
 from backend.app.schemas import SignalDispatchJob
@@ -12,6 +13,7 @@ from backend.app.schemas import SignalDispatchJob
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+LIVE_ENGINE_RUNTIME_SERVICE_NAME = "live_engine"
 
 
 def describe_redis_url(redis_url: str | None = None) -> dict[str, str | int | None]:
@@ -111,6 +113,31 @@ def dequeue_signal_dispatch() -> SignalDispatchJob | None:
     return SignalDispatchJob.model_validate(json.loads(payload))
 
 
+def _store_live_engine_runtime_db(payload: dict) -> None:
+    from backend.app.database import SessionLocal
+    from backend.app.models import ServiceRuntimeState
+
+    with SessionLocal() as db:
+        row = db.get(ServiceRuntimeState, LIVE_ENGINE_RUNTIME_SERVICE_NAME)
+        if row is None:
+            row = ServiceRuntimeState(service_name=LIVE_ENGINE_RUNTIME_SERVICE_NAME)
+            db.add(row)
+        row.payload = payload
+        row.updated_at = datetime.now(UTC)
+        db.commit()
+
+
+def _load_live_engine_runtime_db() -> dict | None:
+    from backend.app.database import SessionLocal
+    from backend.app.models import ServiceRuntimeState
+
+    with SessionLocal() as db:
+        row = db.get(ServiceRuntimeState, LIVE_ENGINE_RUNTIME_SERVICE_NAME)
+        if row is None or not isinstance(row.payload, dict):
+            return None
+        return row.payload
+
+
 def publish_live_engine_runtime(snapshot: dict) -> dict:
     payload = {
         **snapshot,
@@ -131,6 +158,13 @@ def publish_live_engine_runtime(snapshot: dict) -> dict:
             diagnostics["db"],
             exc.__class__.__name__,
         )
+    try:
+        _store_live_engine_runtime_db(payload)
+    except SQLAlchemyError as exc:
+        logger.warning(
+            "Unable to persist live engine runtime to PostgreSQL error=%s",
+            exc.__class__.__name__,
+        )
     return payload
 
 
@@ -146,7 +180,21 @@ def get_live_engine_runtime() -> dict | None:
             diagnostics["db"],
             exc.__class__.__name__,
         )
-        return None
+        try:
+            return _load_live_engine_runtime_db()
+        except SQLAlchemyError as db_exc:
+            logger.warning(
+                "Unable to read live engine runtime fallback from PostgreSQL error=%s",
+                db_exc.__class__.__name__,
+            )
+            return None
     if not payload:
-        return None
+        try:
+            return _load_live_engine_runtime_db()
+        except SQLAlchemyError as exc:
+            logger.warning(
+                "Unable to read live engine runtime fallback from PostgreSQL error=%s",
+                exc.__class__.__name__,
+            )
+            return None
     return json.loads(payload)

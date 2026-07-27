@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import unittest
 import uuid
+from datetime import UTC
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -130,6 +131,40 @@ class ConfigurationReadinessTests(unittest.TestCase):
         self.assertEqual(payload["live_engine_runtime"]["status"], "READINESS_UNAVAILABLE")
         self.assertFalse(payload["database_connected"])
         self.assertFalse(payload["redis_connected"])
+
+    def test_readiness_marks_three_minute_volume_ready_when_live_ticks_are_fresh(self):
+        session = _FakeSession()
+        selected_watchlist = SimpleNamespace(id=uuid.uuid4(), name="Runtime Watchlist", exchange="NSE")
+
+        with (
+            patch("backend.app.routers.configuration.verify_database_connectivity"),
+            patch("backend.app.routers.configuration.check_redis_connectivity", return_value=False),
+            patch("backend.app.routers.configuration.get_current_zerodha_session", return_value=None),
+            patch("backend.app.routers.configuration.ensure_selected_watchlist", return_value=selected_watchlist),
+            patch("backend.app.routers.configuration.SubscriptionManager.get_active_subscriptions", return_value=[]),
+            patch("backend.app.routers.configuration.get_live_engine_runtime", return_value={
+                "status": "STREAMING",
+                "message": "Ticks are flowing.",
+                "transport": "kite_ticker",
+                "selected_watchlist": {"id": str(selected_watchlist.id), "name": selected_watchlist.name, "exchange": "NSE"},
+                "subscription_count": 2,
+                "subscriptions": [],
+                "credentials_configured": True,
+                "access_token_configured": True,
+                "last_tick_at": "2026-07-27T09:55:00+00:00",
+                "published_at": "2026-07-27T09:55:02+00:00",
+                "latest_prices": {"NSE:RELIANCE": {"price": 1500.0}},
+            }),
+            patch("backend.app.routers.configuration.datetime") as fake_datetime,
+        ):
+            from datetime import datetime as real_datetime
+
+            fake_datetime.now.return_value = real_datetime(2026, 7, 27, 10, 0, 0, tzinfo=UTC)
+            fake_datetime.fromisoformat.side_effect = real_datetime.fromisoformat
+            payload = _readiness_payload(session)
+
+        self.assertTrue(payload["three_minute_volume_ready"])
+        self.assertEqual(payload["symbols_with_recent_3minute_data"], 0)
 
 
 if __name__ == "__main__":

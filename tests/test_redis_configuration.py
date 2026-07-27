@@ -42,6 +42,7 @@ class RedisConfigurationTests(unittest.TestCase):
         with (
             patch("backend.app.queue.settings.redis_url", "redis://:super-secret@host.docker.internal:6379/12"),
             patch("backend.app.queue.get_redis_client", return_value=fake_client),
+            patch("backend.app.queue._store_live_engine_runtime_db"),
         ):
             payload = publish_live_engine_runtime({"status": "STREAMING"})
 
@@ -54,10 +55,35 @@ class RedisConfigurationTests(unittest.TestCase):
         with (
             patch("backend.app.queue.settings.redis_url", "redis://:super-secret@host.docker.internal:6379/12"),
             patch("backend.app.queue.get_redis_client", return_value=fake_client),
+            patch("backend.app.queue._load_live_engine_runtime_db", return_value=None),
         ):
             payload = get_live_engine_runtime()
 
         self.assertIsNone(payload)
+
+    def test_get_live_engine_runtime_falls_back_to_database_when_redis_is_unavailable(self):
+        fake_client = type("FakeClient", (), {"get": lambda self, *args, **kwargs: (_ for _ in ()).throw(ConnectionError("down"))})()
+
+        with (
+            patch("backend.app.queue.settings.redis_url", "redis://:super-secret@host.docker.internal:6379/12"),
+            patch("backend.app.queue.get_redis_client", return_value=fake_client),
+            patch("backend.app.queue._load_live_engine_runtime_db", return_value={"status": "STREAMING", "published_at": "2026-07-27T04:15:00+00:00"}),
+        ):
+            payload = get_live_engine_runtime()
+
+        self.assertEqual(payload["status"], "STREAMING")
+
+    def test_publish_live_engine_runtime_persists_database_fallback_when_redis_is_available(self):
+        fake_client = type("FakeClient", (), {"set": lambda self, *args, **kwargs: True})()
+
+        with (
+            patch("backend.app.queue.get_redis_client", return_value=fake_client),
+            patch("backend.app.queue._store_live_engine_runtime_db") as store_db,
+        ):
+            payload = publish_live_engine_runtime({"status": "STREAMING"})
+
+        store_db.assert_called_once()
+        self.assertEqual(payload["status"], "STREAMING")
 
 
 if __name__ == "__main__":

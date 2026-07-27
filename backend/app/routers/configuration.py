@@ -49,6 +49,21 @@ settings = get_settings()
 logger = logging.getLogger(__name__)
 
 
+def _has_fresh_runtime_tick(snapshot: dict | None, *, freshness_minutes: int = 15) -> bool:
+    if not isinstance(snapshot, dict):
+        return False
+    last_tick_at = snapshot.get("last_tick_at")
+    if not isinstance(last_tick_at, str) or not last_tick_at:
+        return False
+    try:
+        parsed = datetime.fromisoformat(last_tick_at.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC) >= datetime.now(UTC) - timedelta(minutes=freshness_minutes)
+
+
 def _normalize_exchange(exchange: str) -> str:
     value = exchange.strip().upper()
     if value not in {"NSE", "BSE"}:
@@ -471,6 +486,7 @@ def _readiness_payload(db: Session) -> dict:
         zerodha_auth=zerodha_auth,
         zerodha_token_present=zerodha_token_present,
     )
+    live_tick_stream_ready = _has_fresh_runtime_tick(live_engine_runtime)
 
     return {
         "database_connected": database_ok,
@@ -505,7 +521,7 @@ def _readiness_payload(db: Session) -> dict:
         "unmapped_symbols": unmapped_symbols[:20],
         "active_subscription_count": len(subscriptions),
         "live_engine_ready": zerodha_token_present and mapped_symbol_count > 0,
-        "three_minute_volume_ready": symbols_with_recent_candles > 0,
+        "three_minute_volume_ready": symbols_with_recent_candles > 0 or live_tick_stream_ready,
         "symbols_with_recent_3minute_data": symbols_with_recent_candles,
         "latest_3minute_candle_at": latest_three_minute_candle.isoformat() if latest_three_minute_candle else None,
         "live_engine_runtime": live_engine_runtime,
