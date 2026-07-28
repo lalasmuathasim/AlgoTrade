@@ -2,6 +2,7 @@ import logging
 import uuid
 from dataclasses import dataclass
 from collections.abc import Sequence
+from contextlib import nullcontext
 from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import desc, select
@@ -546,10 +547,22 @@ class MarketDataProcessor:
             tick_finalized_candles = self.candle_builder.on_tick(tick)
             finalized_candles.extend(tick_finalized_candles)
             for candle in tick_finalized_candles:
-                candle_signals, candle_breakout_events = self._process_finalized_candle(db, candle, runtime_settings)
-                signals.extend(candle_signals)
-                breakout_events.extend(candle_breakout_events)
-        db.commit()
+                try:
+                    candle_signals, candle_breakout_events = self._process_finalized_candle(db, candle, runtime_settings)
+                    signals.extend(candle_signals)
+                    breakout_events.extend(candle_breakout_events)
+                    if hasattr(db, "commit"):
+                        db.commit()
+                except Exception:  # noqa: BLE001
+                    logger.exception(
+                        "Failed to process finalized 3-minute candle for %s:%s ending %s",
+                        candle.exchange,
+                        candle.symbol,
+                        candle.candle_end.isoformat(),
+                    )
+                    if hasattr(db, "rollback"):
+                        db.rollback()
+                    continue
         return TickProcessingResult(
             ticks_processed=len(ticks),
             finalized_candles=finalized_candles,
@@ -630,73 +643,85 @@ class MarketDataProcessor:
             active_lines,
             require_candle_close_beyond_line=bool(getattr(runtime_settings, "require_candle_close_beyond_line", True)),
         ):
-            trading_day = to_trading_timezone(candle.candle_end, runtime_settings).date()
-            trading_day_start, trading_day_end = trading_day_bounds(trading_day, runtime_settings)
-            existing_breakout = db.scalar(
-                select(BreakoutEvent)
-                .where(
-                    BreakoutEvent.trigger_line_id == line.id,
-                    BreakoutEvent.event_time >= trading_day_start,
-                    BreakoutEvent.event_time < trading_day_end,
+            try:
+                nested = db.begin_nested() if hasattr(db, "begin_nested") else nullcontext()
+                with nested:
+                    trading_day = to_trading_timezone(candle.candle_end, runtime_settings).date()
+                    trading_day_start, trading_day_end = trading_day_bounds(trading_day, runtime_settings)
+                    existing_breakout = db.scalar(
+                        select(BreakoutEvent)
+                        .where(
+                            BreakoutEvent.trigger_line_id == line.id,
+                            BreakoutEvent.event_time >= trading_day_start,
+                            BreakoutEvent.event_time < trading_day_end,
+                        )
+                        .order_by(desc(BreakoutEvent.event_time))
+                        .limit(1)
+                    )
+                    if existing_breakout is not None:
+                        continue
+
+                    breakout_payload, signal = self.signal_generator.build(
+                        db,
+                        line,
+                        candle,
+                        previous_volume,
+                        persisted_candle.id,
+                    )
+
+                    breakout_event = BreakoutEvent(
+                        trigger_line_id=line.id,
+                        market_candle_id=persisted_candle.id,
+                        exchange=line.exchange,
+                        symbol=line.symbol,
+                        event_type=event_type,
+                        event_time=candle.candle_end,
+                        breakout_or_breakdown_price=breakout_payload.breakout_or_breakdown_price,
+                        breakout_candle_high=breakout_payload.breakout_candle_high,
+                        breakout_candle_low=breakout_payload.breakout_candle_low,
+                        breakout_candle_volume=breakout_payload.breakout_candle_volume,
+                        previous_candle_volume=breakout_payload.previous_candle_volume,
+                        required_volume_multiplier=breakout_payload.required_volume_multiplier,
+                        volume_ratio=breakout_payload.volume_ratio,
+                        volume_condition_passed=breakout_payload.volume_condition_passed,
+                        entry_price=breakout_payload.entry_price,
+                        stop_loss=breakout_payload.stop_loss,
+                        target=breakout_payload.target,
+                        signal_generated=signal is not None,
+                        status="PASSED" if signal is not None else (breakout_payload.rejection_reason or "IGNORED"),
+                        rejection_reason=breakout_payload.rejection_reason,
+                    )
+                    db.add(breakout_event)
+                    db.flush()
+                    created_breakout_events.append(breakout_event)
+
+                    line.is_untouched = False
+                    line.triggered_at = breakout_event.event_time
+                    line.line_status = "ARCHIVED"
+                    line.archived_at = datetime.now(UTC)
+                    line.archive_reason = (
+                        "BUY_BREAKOUT_RECORDED"
+                        if line.line_type == "BUY"
+                        else "SELL_BREAKDOWN_RECORDED"
+                    )
+                    db.flush()
+
+                    if signal is None:
+                        continue
+
+                    signal.breakout_event_id = breakout_event.id
+                    db.add(signal)
+                    db.flush()
+                    enqueue_signal_dispatch(SignalDispatchJob(signal_id=signal.id))
+                    created_signals.append(signal)
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "Failed to persist breakout event for %s:%s line=%s candle_end=%s",
+                    line.exchange,
+                    line.symbol,
+                    getattr(line, "id", None),
+                    candle.candle_end.isoformat(),
                 )
-                .order_by(desc(BreakoutEvent.event_time))
-                .limit(1)
-            )
-            if existing_breakout is not None:
                 continue
-
-            breakout_payload, signal = self.signal_generator.build(
-                db,
-                line,
-                candle,
-                previous_volume,
-                persisted_candle.id,
-            )
-
-            breakout_event = BreakoutEvent(
-                trigger_line_id=line.id,
-                market_candle_id=persisted_candle.id,
-                exchange=line.exchange,
-                symbol=line.symbol,
-                event_type=event_type,
-                event_time=candle.candle_end,
-                breakout_or_breakdown_price=breakout_payload.breakout_or_breakdown_price,
-                breakout_candle_high=breakout_payload.breakout_candle_high,
-                breakout_candle_low=breakout_payload.breakout_candle_low,
-                breakout_candle_volume=breakout_payload.breakout_candle_volume,
-                previous_candle_volume=breakout_payload.previous_candle_volume,
-                required_volume_multiplier=breakout_payload.required_volume_multiplier,
-                volume_ratio=breakout_payload.volume_ratio,
-                volume_condition_passed=breakout_payload.volume_condition_passed,
-                entry_price=breakout_payload.entry_price,
-                stop_loss=breakout_payload.stop_loss,
-                target=breakout_payload.target,
-                signal_generated=signal is not None,
-                status="PASSED" if signal is not None else (breakout_payload.rejection_reason or "IGNORED"),
-                rejection_reason=breakout_payload.rejection_reason,
-            )
-            db.add(breakout_event)
-            db.flush()
-            created_breakout_events.append(breakout_event)
-
-            line.is_untouched = False
-            line.triggered_at = breakout_event.event_time
-            line.line_status = "ARCHIVED"
-            line.archived_at = datetime.now(UTC)
-            line.archive_reason = (
-                "BUY_BREAKOUT_RECORDED"
-                if line.line_type == "BUY"
-                else "SELL_BREAKDOWN_RECORDED"
-            )
-            db.flush()
-
-            if signal is None:
-                continue
-
-            signal.breakout_event_id = breakout_event.id
-            db.add(signal)
-            db.flush()
-            enqueue_signal_dispatch(SignalDispatchJob(signal_id=signal.id))
-            created_signals.append(signal)
 
         return created_signals, created_breakout_events

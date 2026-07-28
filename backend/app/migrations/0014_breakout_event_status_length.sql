@@ -1,0 +1,2 @@
+ALTER TABLE breakout_events
+ALTER COLUMN status TYPE VARCHAR(50);

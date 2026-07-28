@@ -35,6 +35,8 @@ class BreakoutAwareSession:
         self.scalar_values = list(scalar_values)
         self.active_lines = list(active_lines)
         self.added = []
+        self.commits = 0
+        self.rollbacks = 0
 
     def scalar(self, _query):
         return self.scalar_values.pop(0) if self.scalar_values else None
@@ -47,6 +49,12 @@ class BreakoutAwareSession:
 
     def flush(self):
         return None
+
+    def commit(self):
+        self.commits += 1
+
+    def rollback(self):
+        self.rollbacks += 1
 
 
 class MarketStreamTests(unittest.TestCase):
@@ -464,6 +472,43 @@ class MarketStreamTests(unittest.TestCase):
         self.assertFalse(line.is_untouched)
         self.assertEqual(line.archive_reason, "BUY_BREAKOUT_RECORDED")
         self.assertIsNotNone(line.archived_at)
+
+    def test_market_data_processor_continues_after_finalized_candle_failure(self):
+        tick = TickPayload(
+            instrument_token=111,
+            symbol="RELIANCE",
+            exchange="NSE",
+            timestamp=datetime.fromisoformat("2026-07-22T03:45:10+00:00"),
+            last_price=100.0,
+            volume_traded=1000.0,
+        )
+        candle = SimpleNamespace(
+            instrument_token=111,
+            symbol="RELIANCE",
+            exchange="NSE",
+            timeframe="3minute",
+            candle_start=datetime.fromisoformat("2026-07-22T03:45:00+00:00"),
+            candle_end=datetime.fromisoformat("2026-07-22T03:48:00+00:00"),
+            open=99.5,
+            high=101.0,
+            low=99.4,
+            close=100.8,
+            volume=4200.0,
+        )
+        db = BreakoutAwareSession([], [])
+        processor = MarketDataProcessor()
+
+        with patch("backend.app.services.market_stream.ensure_settings", return_value=SimpleNamespace(trading_timezone="Asia/Kolkata")), \
+             patch.object(processor.candle_builder, "on_tick", return_value=[candle]), \
+             patch.object(processor, "_process_finalized_candle", side_effect=ValueError("db failure")):
+            result = processor.process_ticks(db, [tick])
+
+        self.assertEqual(result.ticks_processed, 1)
+        self.assertEqual(result.finalized_candles_count, 1)
+        self.assertEqual(result.breakout_events_count, 0)
+        self.assertEqual(result.signals_created_count, 0)
+        self.assertEqual(db.rollbacks, 1)
+        self.assertEqual(db.commits, 0)
 
 
 if __name__ == "__main__":

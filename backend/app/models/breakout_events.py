@@ -49,6 +49,6 @@ class BreakoutEvent(Base):
     stop_loss: Mapped[float | None] = mapped_column(Float, nullable=True)
     target: Mapped[float | None] = mapped_column(Float, nullable=True)
     signal_generated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING", server_default="PENDING")
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="PENDING", server_default="PENDING")
     rejection_reason: Mapped[str | None] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
