@@ -39,7 +39,7 @@ from backend.app.services.market_scanner import DailyMarketScanner
 from backend.app.services.live_engine_runtime import build_live_engine_runtime_snapshot
 from backend.app.services.trading_time import current_trading_date, validate_trading_timezone_name
 from backend.app.services.watchlists import ensure_selected_watchlist, set_selected_watchlist
-from backend.app.services.zerodha_sessions import get_current_zerodha_access_token, get_current_zerodha_session
+from backend.app.services.zerodha_sessions import get_current_zerodha_session, get_usable_zerodha_access_token, is_zerodha_session_expired
 from backend.app.services.zerodha import HistoricalCandleProvider, InstrumentMasterSyncService, SubscriptionManager, ZerodhaApiClient, ZerodhaAuthService
 from backend.app.ui import render_app_shell
 
@@ -118,7 +118,12 @@ def _symbol_validation_result(db: Session, exchange: str, parsed_symbols: list[s
     try:
         remote_instruments = ZerodhaApiClient(
             auth_service=auth,
-            access_token=get_current_zerodha_access_token(db) if db is not None else None,
+            access_token=get_usable_zerodha_access_token(
+                db,
+                fallback_token=settings.zerodha_access_token,
+            )
+            if db is not None
+            else settings.zerodha_access_token,
         ).fetch_exchange_instruments(exchange)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail="Unable to validate symbols via Zerodha") from exc
@@ -252,7 +257,10 @@ def _watchlist_detail_payload(db: Session, watchlist_id: uuid.UUID) -> dict:
                     latest_candle_map[key] = candle
 
     ltp_map: dict[str, float] = {}
-    access_token = get_current_zerodha_access_token(db)
+    access_token = get_usable_zerodha_access_token(
+        db,
+        fallback_token=settings.zerodha_access_token,
+    )
     if symbols and access_token:
         quote_keys = [f"{symbol.exchange}:{symbol.symbol}" for symbol in symbols]
         try:
@@ -413,7 +421,10 @@ def _readiness_payload(db: Session) -> dict:
 
     zerodha_auth = ZerodhaAuthService()
     zerodha_session = get_current_zerodha_session(db)
-    zerodha_token_present = bool(zerodha_session or zerodha_auth.has_access_token())
+    zerodha_token_present = bool(
+        (zerodha_session.access_token if zerodha_session and not is_zerodha_session_expired(zerodha_session) else None)
+        or settings.zerodha_access_token
+    )
     zerodha_connection_state = (
         zerodha_session.status
         if zerodha_session is not None
@@ -2039,10 +2050,13 @@ def configuration_redraw_market_structure_now(db: Session = Depends(get_db)) -> 
     zerodha_session = get_current_zerodha_session(db)
     if zerodha_session is None:
         raise HTTPException(status_code=503, detail="Connect Zerodha before redrawing market structure")
-    if zerodha_session.access_token_expires_at and zerodha_session.access_token_expires_at <= datetime.now(UTC):
+    if is_zerodha_session_expired(zerodha_session) and not settings.zerodha_access_token:
         raise HTTPException(status_code=503, detail="Zerodha session has expired. Reconnect Zerodha before redrawing market structure")
 
-    current_access_token = get_current_zerodha_access_token(db)
+    current_access_token = get_usable_zerodha_access_token(
+        db,
+        fallback_token=settings.zerodha_access_token,
+    )
     scanner = DailyMarketScanner(
         provider=HistoricalCandleProvider(
             client=ZerodhaApiClient(

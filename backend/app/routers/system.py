@@ -29,7 +29,7 @@ from backend.app.services.market_stream import MarketDataProcessor
 from backend.app.services.paper_trading_service import ensure_settings
 from backend.app.services.trading_time import current_trading_date
 from backend.app.services.zerodha import InstrumentMasterSyncService, ZerodhaApiClient, ZerodhaAuthService
-from backend.app.services.zerodha_sessions import get_current_zerodha_access_token
+from backend.app.services.zerodha_sessions import get_usable_zerodha_access_token
 from backend.app.services.watchlists import get_selected_watchlist
 from backend.app.services.zerodha import SubscriptionManager
 
@@ -68,7 +68,10 @@ def dependency_status(db: Session = Depends(get_db)) -> DependencyStatusResponse
     except Exception:  # noqa: BLE001
         database_ok = False
 
-    access_token = get_current_zerodha_access_token(db) or settings.zerodha_access_token
+    access_token = get_usable_zerodha_access_token(
+        db,
+        fallback_token=settings.zerodha_access_token,
+    )
     return DependencyStatusResponse(
         database=database_ok,
         redis=check_redis_connectivity(),
@@ -88,7 +91,12 @@ def live_engine_runtime(db: Session = Depends(get_db)) -> LiveEngineRuntimeRespo
             selected_watchlist=selected_watchlist,
             subscriptions=subscriptions,
             credentials_configured=bool(settings.zerodha_api_key and settings.zerodha_api_secret and settings.zerodha_redirect_url),
-            access_token_configured=bool(get_current_zerodha_access_token(db) or settings.zerodha_access_token),
+            access_token_configured=bool(
+                get_usable_zerodha_access_token(
+                    db,
+                    fallback_token=settings.zerodha_access_token,
+                )
+            ),
         )
     return LiveEngineRuntimeResponse.model_validate(snapshot)
 
@@ -98,7 +106,10 @@ def sync_instruments(
     payload: InstrumentSyncRequest,
     db: Session = Depends(get_db),
 ) -> InstrumentSyncResponse:
-    access_token = get_current_zerodha_access_token(db)
+    access_token = get_usable_zerodha_access_token(
+        db,
+        fallback_token=settings.zerodha_access_token,
+    )
     service = InstrumentMasterSyncService(
         client=ZerodhaApiClient(
             auth_service=ZerodhaAuthService(),

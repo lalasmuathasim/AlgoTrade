@@ -6,14 +6,47 @@ from sqlalchemy.orm import Session
 
 from backend.app.models import ZerodhaSession
 
+UNUSABLE_ZERODHA_SESSION_STATUSES = {"EXPIRED", "INVALID_TOKEN", "AUTH_FAILED"}
+
 
 def get_current_zerodha_session(db: Session) -> ZerodhaSession | None:
     return db.scalar(select(ZerodhaSession).order_by(desc(ZerodhaSession.updated_at), desc(ZerodhaSession.created_at)).limit(1))
 
 
+def is_zerodha_session_expired(
+    session: ZerodhaSession | None,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    expires_at = getattr(session, "access_token_expires_at", None)
+    if session is None or expires_at is None:
+        return False
+    reference = now or datetime.now(UTC)
+    return expires_at <= reference
+
+
 def get_current_zerodha_access_token(db: Session) -> str | None:
     session = get_current_zerodha_session(db)
     return session.access_token if session is not None else None
+
+
+def get_usable_zerodha_access_token(
+    db: Session,
+    *,
+    fallback_token: str | None = None,
+    now: datetime | None = None,
+) -> str | None:
+    session = get_current_zerodha_session(db)
+    if session is None:
+        return fallback_token
+
+    session_access_token = getattr(session, "access_token", None)
+    session_status = (getattr(session, "status", None) or "").strip().upper()
+    if session_status in UNUSABLE_ZERODHA_SESSION_STATUSES:
+        return None
+    if session_access_token and not is_zerodha_session_expired(session, now=now):
+        return session_access_token
+    return None
 
 
 def upsert_zerodha_session(

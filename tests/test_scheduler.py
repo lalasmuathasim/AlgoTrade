@@ -47,7 +47,7 @@ class SchedulerTests(unittest.TestCase):
         with (
             patch("backend.app.scheduler.settings.zerodha_api_key", None),
             patch("backend.app.scheduler.get_current_zerodha_session", return_value=None),
-            patch("backend.app.scheduler.get_current_zerodha_access_token", return_value=None),
+            patch("backend.app.scheduler.get_usable_zerodha_access_token", return_value=None),
         ):
             result = _run_due_scan(db, now_local, scanner)
 
@@ -71,8 +71,9 @@ class SchedulerTests(unittest.TestCase):
 
         with (
             patch("backend.app.scheduler.settings.zerodha_api_key", "kite-key"),
+            patch("backend.app.scheduler.settings.zerodha_access_token", None),
             patch("backend.app.scheduler.get_current_zerodha_session", return_value=expired_session),
-            patch("backend.app.scheduler.get_current_zerodha_access_token", return_value="expired-token"),
+            patch("backend.app.scheduler.get_usable_zerodha_access_token", return_value="expired-token"),
         ):
             result = _run_due_scan(db, now_local, scanner)
 

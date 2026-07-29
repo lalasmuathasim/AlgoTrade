@@ -29,11 +29,15 @@ class FakeScalarRows:
 
 
 class DummyDb:
-    def __init__(self, scalars_values):
+    def __init__(self, scalars_values, scalar_values=None):
         self.scalars_values = list(scalars_values)
+        self.scalar_values = list(scalar_values or [SimpleNamespace(trading_timezone="Asia/Kolkata")])
 
     def scalars(self, _query):
         return FakeScalarRows(self.scalars_values.pop(0))
+
+    def scalar(self, _query):
+        return self.scalar_values.pop(0) if self.scalar_values else None
 
 
 class DashboardBreakoutReviewTests(unittest.TestCase):
@@ -57,6 +61,12 @@ class DashboardBreakoutReviewTests(unittest.TestCase):
         self.app.dependency_overrides.clear()
 
     def test_breakout_review_returns_selected_watchlist_events_with_volume_context(self):
+        selected_symbol = SimpleNamespace(
+            watchlist_id=self.selected_watchlist.id,
+            exchange="NSE",
+            symbol="RELIANCE",
+            is_active=True,
+        )
         trigger_line = TriggerLine(
             id=uuid.uuid4(),
             watchlist_id=self.selected_watchlist.id,
@@ -110,7 +120,7 @@ class DashboardBreakoutReviewTests(unittest.TestCase):
             status="VOLUME_FAILED",
             rejection_reason="VOLUME_FAILED",
         )
-        self.app.dependency_overrides[get_db] = lambda: DummyDb([[trigger_line], [ignored_event, breakout_event]])
+        self.app.dependency_overrides[get_db] = lambda: DummyDb([[selected_symbol], [trigger_line], [ignored_event, breakout_event]])
         client = TestClient(self.app)
 
         with patch("backend.app.routers.dashboard.get_selected_watchlist", return_value=self.selected_watchlist):

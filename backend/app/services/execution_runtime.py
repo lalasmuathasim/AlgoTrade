@@ -11,7 +11,7 @@ from backend.app.config import get_settings
 from backend.app.models import BrokerOrder, PaperTradingSetting, PositionSnapshot, TradingSignal
 from backend.app.services.paper_trading_service import ensure_settings
 from backend.app.services.zerodha import ZerodhaApiClient, ZerodhaAuthService
-from backend.app.services.zerodha_sessions import get_current_zerodha_access_token
+from backend.app.services.zerodha_sessions import get_usable_zerodha_access_token
 
 
 logger = logging.getLogger(__name__)
@@ -168,7 +168,10 @@ class LiveExecutionService:
             db.flush()
             return order
 
-        access_token = get_current_zerodha_access_token(db)
+        access_token = get_usable_zerodha_access_token(
+            db,
+            fallback_token=settings.zerodha_access_token,
+        )
         if not access_token:
             order = BrokerOrder(
                 signal_id=signal.id,

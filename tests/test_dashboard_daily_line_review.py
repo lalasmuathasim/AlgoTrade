@@ -43,6 +43,15 @@ class DummyDb:
     def get(self, _model, _identifier):
         return None
 
+    def add(self, _instance):
+        return None
+
+    def commit(self):
+        return None
+
+    def refresh(self, _instance):
+        return None
+
 
 def build_runtime_settings() -> PaperTradingSetting:
     return PaperTradingSetting(
@@ -171,7 +180,7 @@ class DashboardDailyLineReviewTests(unittest.TestCase):
         client.close()
 
     def test_daily_line_review_refresh_runs_scanner_explicitly(self):
-        self.app.dependency_overrides[get_db] = lambda: DummyDb([], [])
+        self.app.dependency_overrides[get_db] = lambda: DummyDb([None, build_runtime_settings()], [])
         client = TestClient(self.app)
         execution = ScanExecution(
             id=uuid.uuid4(),
@@ -204,7 +213,7 @@ class DashboardDailyLineReviewTests(unittest.TestCase):
         client.close()
 
     def test_daily_line_review_refresh_uses_database_session_token_for_manual_scan(self):
-        self.app.dependency_overrides[get_db] = lambda: DummyDb([], [])
+        self.app.dependency_overrides[get_db] = lambda: DummyDb([None, build_runtime_settings()], [])
         client = TestClient(self.app)
         execution = ScanExecution(
             id=uuid.uuid4(),
@@ -223,7 +232,7 @@ class DashboardDailyLineReviewTests(unittest.TestCase):
 
         with (
             patch("backend.app.routers.dashboard.get_selected_watchlist", return_value=self.selected_watchlist),
-            patch("backend.app.routers.dashboard.get_current_zerodha_access_token", return_value="db-session-token"),
+            patch("backend.app.routers.dashboard.get_usable_zerodha_access_token", return_value="db-session-token"),
             patch("backend.app.routers.dashboard.get_current_zerodha_session", return_value=None),
             patch("backend.app.routers.dashboard.ZerodhaApiClient", side_effect=capture_client),
             patch("backend.app.routers.dashboard.DailyMarketScanner.run", return_value=execution),
@@ -237,7 +246,7 @@ class DashboardDailyLineReviewTests(unittest.TestCase):
         client.close()
 
     def test_daily_line_review_refresh_maps_zerodha_rate_limit_to_service_unavailable(self):
-        self.app.dependency_overrides[get_db] = lambda: DummyDb([], [])
+        self.app.dependency_overrides[get_db] = lambda: DummyDb([None, build_runtime_settings()], [])
         client = TestClient(self.app)
         request = httpx.Request("GET", "https://api.kite.trade/instruments/historical/123/day")
         response = httpx.Response(429, request=request)

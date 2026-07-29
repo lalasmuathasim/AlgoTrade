@@ -9,7 +9,12 @@ from backend.app.services.market_stream import MarketDataProcessor
 from backend.app.services.live_engine_runtime import build_live_engine_runtime_snapshot
 from backend.app.services.watchlists import get_selected_watchlist
 from backend.app.services.zerodha import SubscriptionManager, ZerodhaAuthService, ZerodhaWebSocketClient
-from backend.app.services.zerodha_sessions import get_current_zerodha_access_token, get_current_zerodha_session
+from backend.app.services.zerodha_sessions import (
+    get_current_zerodha_session,
+    get_usable_zerodha_access_token,
+    is_zerodha_session_expired,
+    mark_zerodha_session_status,
+)
 
 
 settings = get_settings()
@@ -148,13 +153,11 @@ def run_live_engine() -> None:
             selected_watchlist = get_selected_watchlist(db)
             subscriptions = subscription_manager.describe_active_subscriptions(db)
             zerodha_session = get_current_zerodha_session(db)
-            access_token = get_current_zerodha_access_token(db) or settings.zerodha_access_token
-            if (
-                zerodha_session is not None
-                and zerodha_session.access_token_expires_at is not None
-                and zerodha_session.access_token_expires_at <= datetime.now(UTC)
-                and not settings.zerodha_access_token
-            ):
+            access_token = get_usable_zerodha_access_token(
+                db,
+                fallback_token=settings.zerodha_access_token,
+            )
+            if is_zerodha_session_expired(zerodha_session) and not settings.zerodha_access_token:
                 access_token = None
             current_access_token_configured = bool(access_token)
         result = client.connect_forever(
@@ -169,6 +172,11 @@ def run_live_engine() -> None:
             ),
             access_token=access_token,
         )
+        if result.get("status") == "AUTH_FAILED":
+            with SessionLocal() as db:
+                current_session = get_current_zerodha_session(db)
+                if current_session is not None and current_session.status != "AUTH_FAILED":
+                    mark_zerodha_session_status(db, current_session, status="AUTH_FAILED")
         publish_runtime_state(
             status=result["status"],
             message=result["message"],
@@ -176,7 +184,12 @@ def run_live_engine() -> None:
             subscriptions=subscriptions,
             transport=result.get("transport", "kite_ticker"),
         )
-        time.sleep(settings.scheduler_poll_interval_seconds)
+        sleep_seconds = (
+            min(settings.scheduler_poll_interval_seconds, 5)
+            if result.get("status") == "AUTH_FAILED"
+            else settings.scheduler_poll_interval_seconds
+        )
+        time.sleep(max(sleep_seconds, 1))
 
 
 if __name__ == "__main__":

@@ -409,6 +409,31 @@ class ZerodhaWebSocketClient:
         self._logger = logging.getLogger(f"{__name__}.websocket")
         self._subscription_map: dict[int, dict] = {}
 
+    def _is_auth_failure(self, code, reason) -> bool:
+        code_text = str(code).strip().lower() if code is not None else ""
+        reason_text = str(reason).strip().lower() if reason is not None else ""
+        combined = f"{code_text} {reason_text}"
+        return any(
+            marker in combined
+            for marker in [
+                "401",
+                "403",
+                "forbidden",
+                "invalid token",
+                "access token",
+                "unauthorized",
+                "permission denied",
+            ]
+        )
+
+    def _stop_kite_reconnect(self, ws) -> None:
+        stop_retry = getattr(ws, "stop_retry", None)
+        if callable(stop_retry):
+            stop_retry()
+        stop = getattr(ws, "stop", None)
+        if callable(stop):
+            stop()
+
     def _emit_state(
         self,
         callback: Callable[[dict], None] | None,
@@ -541,6 +566,8 @@ class ZerodhaWebSocketClient:
             transport="kite_ticker",
         )
         kws = kite_ticker_cls(settings.zerodha_api_key, resolved_access_token)
+        auth_failed = False
+        auth_failed_message = "Zerodha WebSocket authentication failed. Refresh the session to reconnect."
 
         def on_connect(ws, response):
             ws.subscribe(instrument_tokens)
@@ -573,6 +600,22 @@ class ZerodhaWebSocketClient:
                 )
 
         def on_error(_ws, code, reason):
+            nonlocal auth_failed
+            if self._is_auth_failure(code, reason):
+                auth_failed = True
+                self._logger.warning("KiteTicker authentication failed: code=%s reason=%s", code, reason)
+                runtime_state.update(
+                    self._emit_state(
+                        on_state_change,
+                        status="AUTH_FAILED",
+                        message=auth_failed_message,
+                        transport="kite_ticker",
+                        error_code=code,
+                        error_reason=reason,
+                    )
+                )
+                self._stop_kite_reconnect(_ws)
+                return
             self._logger.warning("KiteTicker error: code=%s reason=%s", code, reason)
             runtime_state.update(
                 self._emit_state(
@@ -584,6 +627,22 @@ class ZerodhaWebSocketClient:
             )
 
         def on_close(_ws, code, reason):
+            nonlocal auth_failed
+            if self._is_auth_failure(code, reason):
+                auth_failed = True
+                self._logger.warning("KiteTicker authentication close: code=%s reason=%s", code, reason)
+                runtime_state.update(
+                    self._emit_state(
+                        on_state_change,
+                        status="AUTH_FAILED",
+                        message=auth_failed_message,
+                        transport="kite_ticker",
+                        error_code=code,
+                        error_reason=reason,
+                    )
+                )
+                self._stop_kite_reconnect(_ws)
+                return
             self._logger.warning("KiteTicker closed: code=%s reason=%s", code, reason)
             runtime_state.update(
                 self._emit_state(
@@ -595,6 +654,8 @@ class ZerodhaWebSocketClient:
             )
 
         def on_reconnect(_ws, attempts_count):
+            if auth_failed:
+                return
             self._logger.info("KiteTicker reconnect attempt %s", attempts_count)
             runtime_state.update(
                 self._emit_state(
@@ -606,6 +667,16 @@ class ZerodhaWebSocketClient:
             )
 
         def on_noreconnect(_ws):
+            if auth_failed:
+                runtime_state.update(
+                    self._emit_state(
+                        on_state_change,
+                        status="AUTH_FAILED",
+                        message=auth_failed_message,
+                        transport="kite_ticker",
+                    )
+                )
+                return
             self._logger.warning("KiteTicker exhausted reconnect attempts")
             runtime_state.update(
                 self._emit_state(

@@ -1,7 +1,7 @@
 import json
 import logging
 from functools import lru_cache
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
 from redis import Redis
@@ -14,6 +14,34 @@ from backend.app.schemas import SignalDispatchJob
 logger = logging.getLogger(__name__)
 settings = get_settings()
 LIVE_ENGINE_RUNTIME_SERVICE_NAME = "live_engine"
+
+
+def _parse_runtime_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
+    except ValueError:
+        return None
+
+
+def _is_runtime_snapshot_stale(
+    payload: dict | None,
+    *,
+    fallback_updated_at: datetime | None = None,
+    now: datetime | None = None,
+) -> bool:
+    if not isinstance(payload, dict):
+        return True
+    reference = now or datetime.now(UTC)
+    ttl = max(int(settings.live_engine_runtime_ttl_seconds), 1)
+    stale_after = timedelta(seconds=ttl)
+    published_at = _parse_runtime_timestamp(payload.get("published_at"))
+    if published_at is not None:
+        return published_at < reference - stale_after
+    if fallback_updated_at is not None:
+        return fallback_updated_at.astimezone(UTC) < reference - stale_after
+    return False
 
 
 def describe_redis_url(redis_url: str | None = None) -> dict[str, str | int | None]:
@@ -135,6 +163,8 @@ def _load_live_engine_runtime_db() -> dict | None:
         row = db.get(ServiceRuntimeState, LIVE_ENGINE_RUNTIME_SERVICE_NAME)
         if row is None or not isinstance(row.payload, dict):
             return None
+        if _is_runtime_snapshot_stale(row.payload, fallback_updated_at=row.updated_at):
+            return None
         return row.payload
 
 
@@ -197,4 +227,7 @@ def get_live_engine_runtime() -> dict | None:
                 exc.__class__.__name__,
             )
             return None
-    return json.loads(payload)
+    decoded = json.loads(payload)
+    if _is_runtime_snapshot_stale(decoded):
+        return None
+    return decoded

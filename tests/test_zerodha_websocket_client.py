@@ -81,6 +81,31 @@ class _FakeNaiveTickKiteModule:
     KiteTicker = _FakeNaiveTickKiteTicker
 
 
+class _FakeAuthFailureKiteTicker(_FakeKiteTicker):
+    def __init__(self, api_key, access_token):
+        super().__init__(api_key, access_token)
+        self.stop_called = False
+        self.stop_retry_called = False
+
+    def stop(self):
+        self.stop_called = True
+
+    def stop_retry(self):
+        self.stop_retry_called = True
+
+    def connect(self, threaded=False):
+        if self.on_error:
+            self.on_error(self, 1006, "connection was closed uncleanly (WebSocket connection upgrade failed (403 - Forbidden))")
+        if self.on_close:
+            self.on_close(self, 1006, "connection was closed uncleanly (WebSocket connection upgrade failed (403 - Forbidden))")
+        if self.on_noreconnect:
+            self.on_noreconnect(self)
+
+
+class _FakeAuthFailureKiteModule:
+    KiteTicker = _FakeAuthFailureKiteTicker
+
+
 class ZerodhaWebSocketClientTests(unittest.TestCase):
     def test_connect_forever_returns_idle_when_no_subscriptions(self):
         client = ZerodhaWebSocketClient()
@@ -195,6 +220,26 @@ class ZerodhaWebSocketClientTests(unittest.TestCase):
 
         self.assertTrue(any(state["status"] == "TICK_PROCESSING_ERROR" for state in state_updates))
         self.assertEqual(result["status"], "CLOSED")
+
+    def test_connect_forever_marks_auth_failed_and_stops_retries_on_403(self):
+        client = ZerodhaWebSocketClient()
+        state_updates: list[dict] = []
+
+        with (
+            patch("backend.app.services.zerodha.ZerodhaAuthService.has_credentials", return_value=True),
+            patch("backend.app.services.zerodha.ZerodhaAuthService.has_access_token", return_value=True),
+            patch("backend.app.services.zerodha.ZerodhaAuthService.resolve_access_token", return_value="token"),
+            patch("backend.app.services.zerodha.settings.zerodha_api_key", "api-key"),
+            patch("backend.app.services.zerodha.import_module", return_value=_FakeAuthFailureKiteModule()),
+        ):
+            result = client.connect_forever(
+                [{"instrument_token": 111, "exchange": "NSE", "symbol": "RELIANCE", "source": "WATCHLIST"}],
+                lambda _ticks: None,
+                on_state_change=lambda state: state_updates.append(state),
+            )
+
+        self.assertEqual(result["status"], "AUTH_FAILED")
+        self.assertTrue(any(state["status"] == "AUTH_FAILED" for state in state_updates))
 
 
 if __name__ == "__main__":

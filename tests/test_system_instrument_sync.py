@@ -51,7 +51,7 @@ class SystemInstrumentSyncTests(unittest.TestCase):
         watchlist_id = uuid.uuid4()
 
         with (
-            patch("backend.app.routers.system.get_current_zerodha_access_token", return_value="token"),
+            patch("backend.app.routers.system.get_usable_zerodha_access_token", return_value="token"),
             patch("backend.app.routers.system._resolve_instrument_sync_scope", return_value={"NSE": {"RELIANCE"}}) as scope_mock,
             patch("backend.app.routers.system.InstrumentMasterSyncService.sync_watchlist_scope", return_value=1) as sync_scope_mock,
         ):
@@ -65,7 +65,7 @@ class SystemInstrumentSyncTests(unittest.TestCase):
         db = _DummyDb([])
 
         with (
-            patch("backend.app.routers.system.get_current_zerodha_access_token", return_value="token"),
+            patch("backend.app.routers.system.get_usable_zerodha_access_token", return_value="token"),
             patch("backend.app.routers.system._resolve_instrument_sync_scope", return_value={"NSE": {"RELIANCE"}}),
             patch(
                 "backend.app.routers.system.InstrumentMasterSyncService.sync_watchlist_scope",

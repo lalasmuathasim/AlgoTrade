@@ -24,7 +24,7 @@ class _FakeScalarRows:
 
 class _FakeSession:
     def __init__(self):
-        self.scalar_values = iter([0, 0, None])
+        self.scalar_values = iter([None, 0, 0, None])
         self.scalar_row_values = iter([[], []])
 
     def scalar(self, _query):

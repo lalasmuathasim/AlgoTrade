@@ -12,7 +12,7 @@ from backend.app.services.market_scanner import DailyMarketScanner
 from backend.app.services.paper_trading_service import ensure_settings
 from backend.app.services.trading_time import now_in_trading_timezone
 from backend.app.services.zerodha import HistoricalCandleProvider, ZerodhaApiClient, ZerodhaAuthService
-from backend.app.services.zerodha_sessions import get_current_zerodha_access_token, get_current_zerodha_session
+from backend.app.services.zerodha_sessions import get_current_zerodha_session, get_usable_zerodha_access_token, is_zerodha_session_expired
 
 
 settings = get_settings()
@@ -71,11 +71,15 @@ def _zerodha_skip_reason(db, now_utc: datetime) -> str | None:
         return "Skipped daily scan: ZERODHA_API_KEY is not configured."
 
     session = get_current_zerodha_session(db)
-    access_token = get_current_zerodha_access_token(db) or settings.zerodha_access_token
+    access_token = get_usable_zerodha_access_token(
+        db,
+        fallback_token=settings.zerodha_access_token,
+        now=now_utc,
+    )
     if not access_token:
         return "Skipped daily scan: Zerodha access token is not configured."
 
-    if session is not None and session.access_token_expires_at and session.access_token_expires_at <= now_utc:
+    if is_zerodha_session_expired(session, now=now_utc) and not settings.zerodha_access_token:
         return "Skipped daily scan: Zerodha access token is expired."
 
     return None
@@ -92,7 +96,10 @@ def _skip_reason_from_exception(exc: Exception) -> str | None:
 
 
 def _build_scheduler_scanner(db) -> DailyMarketScanner:
-    access_token = get_current_zerodha_access_token(db) or settings.zerodha_access_token
+    access_token = get_usable_zerodha_access_token(
+        db,
+        fallback_token=settings.zerodha_access_token,
+    )
     return DailyMarketScanner(
         provider=HistoricalCandleProvider(
             client=ZerodhaApiClient(

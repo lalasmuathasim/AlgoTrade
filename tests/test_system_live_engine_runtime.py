@@ -87,7 +87,7 @@ class SystemLiveEngineRuntimeTests(unittest.TestCase):
                 "backend.app.routers.system.SubscriptionManager.describe_active_subscriptions",
                 return_value=[{"instrument_token": 111, "exchange": "NSE", "symbol": "RELIANCE", "source": "WATCHLIST"}],
             ),
-            patch("backend.app.routers.system.get_current_zerodha_access_token", return_value="token"),
+            patch("backend.app.routers.system.get_usable_zerodha_access_token", return_value="token"),
         ):
             response = client.get("/system/live-engine/runtime")
 

@@ -99,7 +99,7 @@ class ExecutionRuntimeTests(unittest.TestCase):
                 "backend.app.services.execution_runtime.ensure_settings",
                 return_value=build_runtime_settings(live_trading_enabled=True),
             ),
-            patch("backend.app.services.execution_runtime.get_current_zerodha_access_token", return_value="access-token"),
+            patch("backend.app.services.execution_runtime.get_usable_zerodha_access_token", return_value="access-token"),
             patch(
                 "backend.app.services.execution_runtime.ZerodhaApiClient.place_regular_order",
                 return_value={"order_id": "order-123"},
