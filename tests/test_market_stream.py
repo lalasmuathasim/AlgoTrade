@@ -99,6 +99,49 @@ class MarketStreamTests(unittest.TestCase):
         self.assertEqual(candle.close, 103.0)
         self.assertEqual(candle.volume, 300.0)
 
+    def test_candle_builder_finalizes_due_candle_when_another_symbol_advances_clock(self):
+        builder = CandleBuilder()
+        initial_ticks = [
+            TickPayload(
+                instrument_token=111,
+                symbol="ICICIBANK",
+                exchange="NSE",
+                timestamp=datetime.fromisoformat("2026-07-18T09:15:10+05:30"),
+                last_price=100.0,
+                volume_traded=1000,
+            ),
+            TickPayload(
+                instrument_token=111,
+                symbol="ICICIBANK",
+                exchange="NSE",
+                timestamp=datetime.fromisoformat("2026-07-18T09:17:40+05:30"),
+                last_price=103.0,
+                volume_traded=1300,
+            ),
+        ]
+
+        for tick in initial_ticks:
+            self.assertEqual(builder.on_tick(tick), [])
+
+        finalized = builder.on_tick(
+            TickPayload(
+                instrument_token=222,
+                symbol="SBIN",
+                exchange="NSE",
+                timestamp=datetime.fromisoformat("2026-07-18T09:18:05+05:30"),
+                last_price=800.0,
+                volume_traded=500,
+            )
+        )
+
+        self.assertEqual(len(finalized), 1)
+        candle = finalized[0]
+        self.assertEqual(candle.symbol, "ICICIBANK")
+        self.assertEqual(candle.candle_start.isoformat(), "2026-07-18T03:45:00+00:00")
+        self.assertEqual(candle.candle_end.isoformat(), "2026-07-18T03:48:00+00:00")
+        self.assertEqual(candle.close, 103.0)
+        self.assertEqual(candle.volume, 300.0)
+
     def test_volume_validator_checks_buy_and_sell_thresholds(self):
         validator = VolumeValidator()
 

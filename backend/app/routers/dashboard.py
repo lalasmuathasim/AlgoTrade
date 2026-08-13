@@ -1422,20 +1422,9 @@ def dashboard_breakout_review(trade_date: str | None = None, db: Session = Depen
         )
         .order_by(desc(BreakoutEvent.event_time), desc(BreakoutEvent.created_at))
     ).all()
-    market_candle_ids = {event.market_candle_id for event in events if event.market_candle_id is not None}
-    market_candle_map = (
-        {
-            candle.id: candle
-            for candle in db.scalars(select(MarketCandle).where(MarketCandle.id.in_(market_candle_ids))).all()
-        }
-        if market_candle_ids
-        else {}
-    )
-
     rows: list[dict] = []
     for event in events:
         line = line_map.get(event.trigger_line_id) if event.trigger_line_id else None
-        market_candle = market_candle_map.get(event.market_candle_id) if event.market_candle_id else None
         if line is None and (event.exchange, event.symbol) not in selected_symbol_keys:
             continue
         resolved_line_type = (
@@ -1456,9 +1445,7 @@ def dashboard_breakout_review(trade_date: str | None = None, db: Session = Depen
                 "line_type": resolved_line_type,
                 "line_price": resolved_line_price,
                 "event_type": event.event_type,
-                "event_time": _serialize_datetime(
-                    market_candle.candle_start if market_candle is not None else event.event_time
-                ),
+                "event_time": _serialize_datetime(event.event_time),
                 "breakout_candle_volume": event.breakout_candle_volume,
                 "previous_candle_volume": event.previous_candle_volume,
                 "required_volume_multiplier": event.required_volume_multiplier,

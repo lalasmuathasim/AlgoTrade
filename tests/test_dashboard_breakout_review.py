@@ -16,7 +16,7 @@ configure_test_env()
 
 from backend.app.database import get_db
 from backend.app.dependencies import require_approved_user
-from backend.app.models import BreakoutEvent, MarketCandle, TriggerLine, Watchlist
+from backend.app.models import BreakoutEvent, TriggerLine, Watchlist
 from backend.app.routers.dashboard import router
 
 
@@ -179,7 +179,7 @@ class DashboardBreakoutReviewTests(unittest.TestCase):
         self.assertEqual(payload["rows"][0]["line_price"], 2840.0)
         client.close()
 
-    def test_breakout_review_uses_market_candle_start_for_breakout_event_display_time(self):
+    def test_breakout_review_uses_actual_breakout_event_time(self):
         selected_symbol = SimpleNamespace(
             watchlist_id=self.selected_watchlist.id,
             exchange="NSE",
@@ -194,23 +194,10 @@ class DashboardBreakoutReviewTests(unittest.TestCase):
             line_type="BUY",
             line_price=1520.0,
         )
-        market_candle = MarketCandle(
-            id=uuid.uuid4(),
-            exchange="NSE",
-            symbol="INFY",
-            timeframe="3minute",
-            candle_start=datetime.fromisoformat("2026-07-28T10:27:00+05:30"),
-            candle_end=datetime.fromisoformat("2026-07-28T10:30:00+05:30"),
-            open=1519.0,
-            high=1524.0,
-            low=1518.8,
-            close=1523.5,
-            volume=7200.0,
-        )
         breakout_event = BreakoutEvent(
             id=uuid.uuid4(),
             trigger_line_id=trigger_line.id,
-            market_candle_id=market_candle.id,
+            market_candle_id=uuid.uuid4(),
             exchange="NSE",
             symbol="INFY",
             event_type="BREAKOUT",
@@ -227,7 +214,7 @@ class DashboardBreakoutReviewTests(unittest.TestCase):
             status="PASSED",
         )
         self.app.dependency_overrides[get_db] = lambda: DummyDb(
-            [[selected_symbol], [trigger_line], [breakout_event], [market_candle]]
+            [[selected_symbol], [trigger_line], [breakout_event]]
         )
         client = TestClient(self.app)
 
@@ -236,8 +223,8 @@ class DashboardBreakoutReviewTests(unittest.TestCase):
 
         payload = response.json()
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(payload["rows"][0]["event_time"], "2026-07-28T10:27:00+05:30")
-        self.assertEqual(payload["summary"]["latest_event_time"], "2026-07-28T10:27:00+05:30")
+        self.assertEqual(payload["rows"][0]["event_time"], "2026-07-28T10:30:00+05:30")
+        self.assertEqual(payload["summary"]["latest_event_time"], "2026-07-28T10:30:00+05:30")
         client.close()
 
 

@@ -64,11 +64,24 @@ class CandleBuilder:
         aligned = localized.replace(minute=minute, second=0, microsecond=0)
         return aligned.astimezone(UTC)
 
+    def _finalize_due_candles(self, current_bucket_start: datetime) -> list[CompletedCandlePayload]:
+        finalized: list[CompletedCandlePayload] = []
+        completed_keys = [
+            key
+            for key, candle in self._candles.items()
+            if candle.candle_end <= current_bucket_start
+        ]
+        for key in completed_keys:
+            candle = self._candles.pop(key, None)
+            if candle is not None:
+                finalized.append(candle)
+        return finalized
+
     def on_tick(self, tick: TickPayload) -> list[CompletedCandlePayload]:
         key = f"{tick.exchange}:{tick.symbol}"
         bucket_start = self._bucket_start(tick.timestamp)
         bucket_end = bucket_start + timedelta(minutes=3)
-        finalized: list[CompletedCandlePayload] = []
+        finalized = self._finalize_due_candles(bucket_start)
 
         previous_cumulative = self._last_cumulative_volume.get(key)
         volume_delta = 0.0
@@ -81,8 +94,6 @@ class CandleBuilder:
 
         current = self._candles.get(key)
         if current is None or current.candle_start != bucket_start:
-            if current is not None:
-                finalized.append(current)
             current = CompletedCandlePayload(
                 instrument_token=tick.instrument_token,
                 symbol=tick.symbol,
