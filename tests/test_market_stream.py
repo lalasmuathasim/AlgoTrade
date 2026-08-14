@@ -169,6 +169,207 @@ class MarketStreamTests(unittest.TestCase):
         self.assertEqual(required, 5.0)
         self.assertAlmostEqual(ratio, 1.2, places=1)
 
+    def test_market_data_processor_tracks_pending_breakout_attempt_from_live_tick(self):
+        line = TriggerLine(
+            id=uuid.uuid4(),
+            watchlist_id=uuid.uuid4(),
+            exchange="NSE",
+            symbol="ICICIBANK",
+            line_type="BUY",
+            line_price=100.0,
+            line_status="ACTIVE",
+            nearest_daily_swing_high_target=110.0,
+        )
+        settings = PaperTradingSetting(
+            id=uuid.uuid4(),
+            starting_capital=200000.0,
+            capital_per_trade=25000.0,
+            fixed_quantity=None,
+            risk_per_trade=2500.0,
+            brokerage_estimate=20.0,
+            slippage_estimate=0.2,
+            max_trades_per_day=3,
+            max_daily_loss=5000.0,
+            default_quantity_mode="RISK_BASED",
+            enable_breakout_quality=True,
+            minimum_close_position_percent=80.0,
+            minimum_candle_body_percent=60.0,
+            maximum_rejection_wick_percent=20.0,
+            minimum_close_beyond_level_ticks=2.0,
+            require_volume_confirmation=True,
+            buy_volume_multiplier=5.0,
+            sell_volume_multiplier=3.0,
+            entry_buffer_ticks=0.05,
+            stop_loss_buffer_ticks=0.05,
+            daily_candle_lookback=100,
+            swing_window=2,
+            max_gap_percent=0.5,
+            min_swing_distance=1,
+        )
+        db = BreakoutAwareSession([None], [line])
+        processor = MarketDataProcessor()
+        tick = TickPayload(
+            instrument_token=111,
+            symbol="ICICIBANK",
+            exchange="NSE",
+            timestamp=datetime.fromisoformat("2026-07-18T09:15:10+05:30"),
+            last_price=100.4,
+            volume_traded=1000.0,
+        )
+
+        with patch("backend.app.services.market_stream.ensure_settings", return_value=settings):
+            result = processor.process_ticks(db, [tick])
+
+        pending = processor.snapshot_pending_breakout_attempts()
+        self.assertEqual(result.finalized_candles_count, 0)
+        self.assertEqual(result.breakout_events_count, 0)
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0]["symbol"], "ICICIBANK")
+        self.assertEqual(pending[0]["status"], "PENDING_CANDLE_CLOSE")
+        self.assertEqual(pending[0]["event_time"], "2026-07-18T03:45:10+00:00")
+
+    def test_signal_generator_rejects_breakout_attempt_without_close_confirmation(self):
+        line = TriggerLine(
+            id=uuid.uuid4(),
+            watchlist_id=uuid.uuid4(),
+            exchange="NSE",
+            symbol="ICICIBANK",
+            line_type="BUY",
+            line_price=100.0,
+            nearest_daily_swing_high_target=110.0,
+        )
+        candle = type(
+            "Candle",
+            (),
+            {
+                "candle_start": datetime.fromisoformat("2026-07-18T03:45:00+00:00"),
+                "candle_end": datetime.fromisoformat("2026-07-18T03:48:00+00:00"),
+                "open": 99.8,
+                "high": 100.6,
+                "low": 99.4,
+                "close": 99.9,
+                "volume": 6000.0,
+            },
+        )()
+        settings = PaperTradingSetting(
+            id=uuid.uuid4(),
+            starting_capital=200000.0,
+            capital_per_trade=25000.0,
+            fixed_quantity=None,
+            risk_per_trade=2500.0,
+            brokerage_estimate=20.0,
+            slippage_estimate=0.2,
+            max_trades_per_day=3,
+            max_daily_loss=5000.0,
+            default_quantity_mode="RISK_BASED",
+            enable_breakout_quality=True,
+            minimum_close_position_percent=80.0,
+            minimum_candle_body_percent=60.0,
+            maximum_rejection_wick_percent=20.0,
+            minimum_close_beyond_level_ticks=2.0,
+            require_volume_confirmation=True,
+            buy_volume_multiplier=5.0,
+            sell_volume_multiplier=3.0,
+            entry_buffer_ticks=0.05,
+            stop_loss_buffer_ticks=0.05,
+            daily_candle_lookback=100,
+            swing_window=2,
+            max_gap_percent=0.5,
+            min_swing_distance=1,
+            require_candle_close_beyond_line=True,
+        )
+        generator = SignalGenerator()
+        db = ScalarQueueSession([settings, SimpleNamespace(tick_size=0.05)])
+
+        breakout, signal = generator.build(db, line, candle, previous_candle_volume=1000.0, market_candle_id=None)
+
+        self.assertIsNone(signal)
+        self.assertEqual(breakout.rejection_reason, "CLOSE_CONFIRMATION_FAILED")
+
+    def test_market_data_processor_uses_first_live_breach_timestamp_for_persisted_breakout_event(self):
+        line = TriggerLine(
+            id=uuid.uuid4(),
+            watchlist_id=uuid.uuid4(),
+            exchange="NSE",
+            symbol="ICICIBANK",
+            line_type="BUY",
+            line_price=100.0,
+            line_status="ACTIVE",
+            nearest_daily_swing_high_target=110.0,
+            is_untouched=True,
+        )
+        settings = PaperTradingSetting(
+            id=uuid.uuid4(),
+            starting_capital=200000.0,
+            capital_per_trade=25000.0,
+            fixed_quantity=None,
+            risk_per_trade=2500.0,
+            brokerage_estimate=20.0,
+            slippage_estimate=0.2,
+            max_trades_per_day=3,
+            max_daily_loss=5000.0,
+            default_quantity_mode="RISK_BASED",
+            enable_breakout_quality=True,
+            minimum_close_position_percent=80.0,
+            minimum_candle_body_percent=60.0,
+            maximum_rejection_wick_percent=20.0,
+            minimum_close_beyond_level_ticks=2.0,
+            require_volume_confirmation=True,
+            buy_volume_multiplier=5.0,
+            sell_volume_multiplier=3.0,
+            entry_buffer_ticks=0.05,
+            stop_loss_buffer_ticks=0.05,
+            daily_candle_lookback=100,
+            swing_window=2,
+            max_gap_percent=0.5,
+            min_swing_distance=1,
+        )
+        breakout_payload = SimpleNamespace(
+            breakout_or_breakdown_price=100.0,
+            breakout_candle_high=100.6,
+            breakout_candle_low=99.8,
+            breakout_candle_volume=0.0,
+            previous_candle_volume=None,
+            required_volume_multiplier=5.0,
+            volume_ratio=None,
+            volume_condition_passed=False,
+            entry_price=100.65,
+            stop_loss=99.95,
+            target=110.0,
+            rejection_reason="NO_PREVIOUS_VOLUME",
+        )
+        db = BreakoutAwareSession([None, None, None, None], [line])
+        processor = MarketDataProcessor()
+        first_tick = TickPayload(
+            instrument_token=111,
+            symbol="ICICIBANK",
+            exchange="NSE",
+            timestamp=datetime.fromisoformat("2026-07-18T09:15:10+05:30"),
+            last_price=100.4,
+            volume_traded=1000.0,
+        )
+        second_tick = TickPayload(
+            instrument_token=111,
+            symbol="ICICIBANK",
+            exchange="NSE",
+            timestamp=datetime.fromisoformat("2026-07-18T09:18:05+05:30"),
+            last_price=99.6,
+            volume_traded=1100.0,
+        )
+
+        with (
+            patch("backend.app.services.market_stream.ensure_settings", return_value=settings),
+            patch.object(processor, "_persist_candle", return_value=SimpleNamespace(id=uuid.uuid4())),
+            patch.object(processor.signal_generator, "build", return_value=(breakout_payload, None)),
+        ):
+            first_result = processor.process_ticks(db, [first_tick])
+            second_result = processor.process_ticks(db, [second_tick])
+
+        self.assertEqual(first_result.breakout_events_count, 0)
+        self.assertEqual(len(processor.snapshot_pending_breakout_attempts()), 0)
+        self.assertEqual(second_result.breakout_events_count, 1)
+        self.assertEqual(second_result.breakout_events[0].event_time.isoformat(), "2026-07-18T03:45:10+00:00")
+
     def test_signal_generator_uses_breakout_candle_for_entry_and_trigger_line_for_stop(self):
         line = TriggerLine(
             id=uuid.uuid4(),

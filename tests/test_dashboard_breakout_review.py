@@ -1,7 +1,7 @@
 # ruff: noqa: E402
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from types import SimpleNamespace
 import unittest
 import uuid
@@ -225,6 +225,68 @@ class DashboardBreakoutReviewTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload["rows"][0]["event_time"], "2026-07-28T10:30:00+05:30")
         self.assertEqual(payload["summary"]["latest_event_time"], "2026-07-28T10:30:00+05:30")
+        client.close()
+
+    def test_breakout_review_merges_live_pending_attempts_for_current_trading_day(self):
+        selected_symbol = SimpleNamespace(
+            watchlist_id=self.selected_watchlist.id,
+            exchange="NSE",
+            symbol="ICICIBANK",
+            is_active=True,
+        )
+        trigger_line = TriggerLine(
+            id=uuid.uuid4(),
+            watchlist_id=self.selected_watchlist.id,
+            exchange="NSE",
+            symbol="ICICIBANK",
+            line_type="BUY",
+            line_price=100.0,
+        )
+        self.app.dependency_overrides[get_db] = lambda: DummyDb([[selected_symbol], [trigger_line], []])
+        client = TestClient(self.app)
+
+        with (
+            patch("backend.app.routers.dashboard.get_selected_watchlist", return_value=self.selected_watchlist),
+            patch("backend.app.routers.dashboard.current_trading_date", return_value=date(2026, 7, 29)),
+            patch(
+                "backend.app.routers.dashboard.get_live_engine_runtime",
+                return_value={
+                    "pending_breakout_attempts": [
+                        {
+                            "id": "pending-line-1",
+                            "trigger_line_id": str(trigger_line.id),
+                            "symbol": "ICICIBANK",
+                            "exchange": "NSE",
+                            "line_type": "BUY",
+                            "line_price": 100.0,
+                            "event_type": "BREAKOUT",
+                            "event_time": "2026-07-29T09:16:12+05:30",
+                            "breakout_candle_volume": 1800.0,
+                            "previous_candle_volume": 1000.0,
+                            "required_volume_multiplier": 5.0,
+                            "volume_ratio": 1.8,
+                            "volume_condition_passed": None,
+                            "entry_price": 100.65,
+                            "stop_loss": 99.95,
+                            "target": 110.0,
+                            "status": "PENDING_CANDLE_CLOSE",
+                            "rejection_reason": None,
+                        }
+                    ]
+                },
+            ),
+        ):
+            response = client.get("/dashboard/reports/breakout-review?trade_date=2026-07-29")
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["summary"]["total_events"], 1)
+        self.assertEqual(payload["summary"]["pending_events"], 1)
+        self.assertEqual(payload["summary"]["passed_events"], 0)
+        self.assertEqual(payload["summary"]["failed_events"], 0)
+        self.assertTrue(payload["rows"][0]["is_pending"])
+        self.assertEqual(payload["rows"][0]["status"], "PENDING_CANDLE_CLOSE")
+        self.assertEqual(payload["rows"][0]["event_time"], "2026-07-29T09:16:12+05:30")
         client.close()
 
 

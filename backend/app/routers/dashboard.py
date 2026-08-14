@@ -49,6 +49,15 @@ def _resolve_report_date(raw_value: str | None, runtime_settings=None) -> date:
         raise HTTPException(status_code=422, detail="Invalid report date format. Use YYYY-MM-DD.") from exc
 
 
+def _parse_runtime_datetime(raw_value: str | None) -> datetime | None:
+    if not raw_value:
+        return None
+    try:
+        return datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
 def _paper_trade_summary(trades: list[PaperTrade]) -> dict:
     total_trades = len(trades)
     open_trades = sum(1 for trade in trades if trade.status == "OPEN")
@@ -757,6 +766,7 @@ def dashboard_home() -> str:
     let lastRuntimePublishedAt = null;
     let lastRuntimeSignalId = null;
     let lastRuntimeBreakoutEventId = null;
+    let lastRuntimePendingBreakoutRevision = null;
     let lastRuntimeFinalizedCount = 0;
     let liveRefreshInFlight = false;
     const syncDailyReviewPreview = bindCollapsibleTable({
@@ -842,7 +852,8 @@ def dashboard_home() -> str:
         element.className = "table-toolbar-copy";
         return;
       }
-      element.textContent = `${summary.selected_watchlist.name} · ${summary.report_date || "Today"} · ${summary.total_events} first-attempt rows · ${summary.passed_events} volume-confirmed · ${summary.failed_events} rejected · latest event ${summary.latest_event_time ? new Date(summary.latest_event_time).toLocaleString() : "not recorded yet"}`;
+      const pendingLabel = summary.pending_events ? ` · ${summary.pending_events} under review` : "";
+      element.textContent = `${summary.selected_watchlist.name} · ${summary.report_date || "Today"} · ${summary.total_events} first-attempt rows${pendingLabel} · ${summary.passed_events} volume-confirmed · ${summary.failed_events} rejected · latest event ${summary.latest_event_time ? new Date(summary.latest_event_time).toLocaleString() : "not recorded yet"}`;
       element.className = "table-toolbar-copy";
     }
 
@@ -867,12 +878,24 @@ def dashboard_home() -> str:
           item.breakout_candle_volume ?? "N/A",
           item.required_volume_multiplier ? `${item.required_volume_multiplier}x` : "N/A",
           item.volume_ratio ?? "N/A",
-          item.volume_condition_passed ? '<span class="badge">YES</span>' : '<span class="badge warn">NO</span>',
+          item.is_pending
+            ? '<span class="badge">PENDING</span>'
+            : item.volume_condition_passed
+              ? '<span class="badge">YES</span>'
+              : '<span class="badge warn">NO</span>',
           item.entry_price ?? "N/A",
           item.stop_loss ?? "N/A",
           item.target ?? "N/A",
-          item.signal_generated ? '<span class="badge">CREATED</span>' : '<span class="badge warn">SKIPPED</span>',
-          item.rejection_reason ? `${item.status} · ${item.rejection_reason}` : item.status,
+          item.is_pending
+            ? '<span class="badge">UNDER REVIEW</span>'
+            : item.signal_generated
+              ? '<span class="badge">CREATED</span>'
+              : '<span class="badge warn">SKIPPED</span>',
+          item.is_pending
+            ? "PENDING_CANDLE_CLOSE"
+            : item.rejection_reason
+              ? `${item.status} · ${item.rejection_reason}`
+              : item.status,
         ]),
         { symbolFilter: { enabled: true, columnIndex: 0, placeholder: "Filter breakout symbols" } },
       );
@@ -1092,15 +1115,19 @@ def dashboard_home() -> str:
       const finalizedCount = Number(snapshot.finalized_candles_count || 0);
       const signalId = snapshot.last_signal_id || null;
       const breakoutEventId = snapshot.last_breakout_event_id || null;
+      const pendingBreakoutRevision = snapshot.pending_breakout_revision || null;
       const requiresReload =
         (publishedAt && publishedAt !== lastRuntimePublishedAt && finalizedCount > lastRuntimeFinalizedCount)
         || (signalId && signalId !== lastRuntimeSignalId)
-        || (breakoutEventId && breakoutEventId !== lastRuntimeBreakoutEventId);
+        || (breakoutEventId && breakoutEventId !== lastRuntimeBreakoutEventId)
+        || (pendingBreakoutRevision && pendingBreakoutRevision !== lastRuntimePendingBreakoutRevision)
+        || (!pendingBreakoutRevision && lastRuntimePendingBreakoutRevision);
 
       lastRuntimePublishedAt = publishedAt || lastRuntimePublishedAt;
       lastRuntimeFinalizedCount = Math.max(lastRuntimeFinalizedCount, finalizedCount);
       lastRuntimeBreakoutEventId = breakoutEventId || lastRuntimeBreakoutEventId;
       lastRuntimeSignalId = signalId || lastRuntimeSignalId;
+      lastRuntimePendingBreakoutRevision = pendingBreakoutRevision;
 
       if (requiresReload) {
         refreshDashboardFromRuntime();
@@ -1457,8 +1484,61 @@ def dashboard_breakout_review(trade_date: str | None = None, db: Session = Depen
                 "signal_generated": event.signal_generated,
                 "status": event.status,
                 "rejection_reason": event.rejection_reason,
+                "is_pending": False,
             }
         )
+
+    if report_date == current_trading_date(runtime_settings):
+        try:
+            runtime_snapshot = get_live_engine_runtime()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Unable to load live pending breakout attempts for dashboard review: %s", exc)
+            runtime_snapshot = None
+        pending_attempts = runtime_snapshot.get("pending_breakout_attempts", []) if isinstance(runtime_snapshot, dict) else []
+        for attempt in pending_attempts:
+            attempt_time = _parse_runtime_datetime(attempt.get("event_time"))
+            if attempt_time is None or not (report_start <= attempt_time < report_end):
+                continue
+            exchange = attempt.get("exchange")
+            symbol = attempt.get("symbol")
+            if (exchange, symbol) not in selected_symbol_keys:
+                continue
+            line_id = attempt.get("trigger_line_id")
+            line = None
+            if line_id:
+                try:
+                    line = line_map.get(UUID(line_id))
+                except ValueError:
+                    line = None
+            rows.append(
+                {
+                    "id": attempt.get("id") or f"pending:{line_id or symbol}",
+                    "symbol": symbol,
+                    "exchange": exchange,
+                    "line_type": line.line_type if line is not None else attempt.get("line_type"),
+                    "line_price": line.line_price if line is not None else attempt.get("line_price"),
+                    "event_type": attempt.get("event_type"),
+                    "event_time": _serialize_datetime(attempt_time),
+                    "breakout_candle_volume": attempt.get("breakout_candle_volume"),
+                    "previous_candle_volume": attempt.get("previous_candle_volume"),
+                    "required_volume_multiplier": attempt.get("required_volume_multiplier"),
+                    "volume_ratio": attempt.get("volume_ratio"),
+                    "volume_condition_passed": attempt.get("volume_condition_passed"),
+                    "entry_price": attempt.get("entry_price"),
+                    "stop_loss": attempt.get("stop_loss"),
+                    "target": attempt.get("target"),
+                    "signal_generated": False,
+                    "status": attempt.get("status", "PENDING_CANDLE_CLOSE"),
+                    "rejection_reason": attempt.get("rejection_reason"),
+                    "is_pending": True,
+                }
+            )
+
+    rows.sort(
+        key=lambda row: _parse_runtime_datetime(row.get("event_time")) or datetime.min.replace(tzinfo=UTC),
+        reverse=True,
+    )
+    pending_count = sum(1 for row in rows if row.get("is_pending"))
 
     return {
         "selected_watchlist": {
@@ -1474,8 +1554,9 @@ def dashboard_breakout_review(trade_date: str | None = None, db: Session = Depen
             },
             "report_date": _serialize_date(report_date),
             "total_events": len(rows),
-            "passed_events": sum(1 for row in rows if row["volume_condition_passed"]),
-            "failed_events": sum(1 for row in rows if not row["volume_condition_passed"]),
+            "pending_events": pending_count,
+            "passed_events": sum(1 for row in rows if row.get("volume_condition_passed") is True),
+            "failed_events": sum(1 for row in rows if row.get("is_pending") is not True and row.get("volume_condition_passed") is not True),
             "latest_event_time": rows[0]["event_time"] if rows else None,
         },
         "rows": rows,
@@ -1580,6 +1661,8 @@ def dashboard_runtime_snapshot() -> dict:
             "last_breakout_event_id": None,
             "last_breakout_event_symbol": None,
             "last_signal_id": None,
+            "pending_breakout_attempts": [],
+            "pending_breakout_revision": None,
             "published_at": None,
             "error": "runtime_unavailable",
         }, headers=headers)
@@ -1594,6 +1677,8 @@ def dashboard_runtime_snapshot() -> dict:
             "last_breakout_event_id": None,
             "last_breakout_event_symbol": None,
             "last_signal_id": None,
+            "pending_breakout_attempts": [],
+            "pending_breakout_revision": None,
             "published_at": None,
         }, headers=headers)
     return JSONResponse(snapshot, headers=headers)

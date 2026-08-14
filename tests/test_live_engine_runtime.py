@@ -55,6 +55,8 @@ class LiveEngineRuntimeTests(unittest.TestCase):
         self.assertEqual(payload["signals_created_count"], 0)
         self.assertEqual(payload["breakout_events_count"], 0)
         self.assertIsNone(payload["last_breakout_event_id"])
+        self.assertEqual(payload["pending_breakout_attempts"], [])
+        self.assertIsNone(payload["pending_breakout_revision"])
 
     def test_subscription_manager_describes_selected_watchlist_scope_without_duplicates(self):
         selected_watchlist = SimpleNamespace(id=uuid.uuid4(), name="Selected", exchange="NSE")

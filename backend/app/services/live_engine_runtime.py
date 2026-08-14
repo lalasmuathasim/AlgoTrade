@@ -33,6 +33,8 @@ def build_live_engine_runtime_snapshot(
     last_signal_id: str | None = None,
     last_signal_symbol: str | None = None,
     latest_prices: dict[str, dict] | None = None,
+    pending_breakout_attempts: list[dict] | None = None,
+    pending_breakout_revision: str | None = None,
 ) -> dict:
     return {
         "status": status,
@@ -54,4 +56,6 @@ def build_live_engine_runtime_snapshot(
         "last_signal_id": last_signal_id,
         "last_signal_symbol": last_signal_symbol,
         "latest_prices": latest_prices or {},
+        "pending_breakout_attempts": pending_breakout_attempts or [],
+        "pending_breakout_revision": pending_breakout_revision,
     }

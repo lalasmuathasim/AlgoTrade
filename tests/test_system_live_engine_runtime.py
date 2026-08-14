@@ -61,6 +61,8 @@ class SystemLiveEngineRuntimeTests(unittest.TestCase):
                 "last_finalized_candle": {"symbol": "RELIANCE", "exchange": "NSE"},
                 "last_signal_id": str(uuid.uuid4()),
                 "last_signal_symbol": "RELIANCE",
+                "pending_breakout_attempts": [{"symbol": "RELIANCE", "status": "PENDING_CANDLE_CLOSE"}],
+                "pending_breakout_revision": "2026-07-20T12:00:01+00:00",
                 "published_at": "2026-07-20T12:00:00+00:00",
             },
         ):
@@ -74,6 +76,7 @@ class SystemLiveEngineRuntimeTests(unittest.TestCase):
         self.assertEqual(payload["finalized_candles_count"], 2)
         self.assertEqual(payload["signals_created_count"], 1)
         self.assertEqual(payload["breakout_events_count"], 1)
+        self.assertEqual(len(payload["pending_breakout_attempts"]), 1)
         client.close()
 
     def test_live_engine_runtime_builds_fallback_when_no_snapshot_is_published(self):

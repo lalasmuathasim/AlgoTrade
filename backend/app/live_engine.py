@@ -62,6 +62,8 @@ def run_live_engine() -> None:
         last_breakout_event_symbol: str | None = None,
         last_signal_id: str | None = None,
         last_signal_symbol: str | None = None,
+        pending_breakout_attempts: list[dict] | None = None,
+        pending_breakout_revision: str | None = None,
     ) -> None:
         subscription_keys = {f"{row['exchange']}:{row['symbol']}" for row in subscriptions}
         scoped_latest_prices = {
@@ -89,6 +91,8 @@ def run_live_engine() -> None:
                 last_signal_id=last_signal_id,
                 last_signal_symbol=last_signal_symbol,
                 latest_prices=scoped_latest_prices,
+                pending_breakout_attempts=pending_breakout_attempts,
+                pending_breakout_revision=pending_breakout_revision,
             )
         )
 
@@ -111,6 +115,7 @@ def run_live_engine() -> None:
             last_finalized_candle = result.finalized_candles[-1] if result.finalized_candles else None
             last_breakout_event = result.breakout_events[-1] if result.breakout_events else None
             last_signal = result.signals[-1] if result.signals else None
+            pending_breakout_attempts = processor.snapshot_pending_breakout_attempts()
             runtime_finalized_candles_count += result.finalized_candles_count
             runtime_signals_created_count += result.signals_created_count
             runtime_breakout_events_count += result.breakout_events_count
@@ -146,6 +151,12 @@ def run_live_engine() -> None:
                 last_breakout_event_symbol=runtime_last_breakout_event_symbol,
                 last_signal_id=str(last_signal.id) if last_signal else None,
                 last_signal_symbol=last_signal.symbol if last_signal else None,
+                pending_breakout_attempts=pending_breakout_attempts,
+                pending_breakout_revision=(
+                    latest_tick.timestamp.astimezone(UTC).isoformat()
+                    if latest_tick is not None and pending_breakout_attempts
+                    else None
+                ),
             )
 
     while True:

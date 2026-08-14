@@ -44,6 +44,8 @@ class LiveEngineRuntimeResponse(BaseModel):
     last_signal_id: str | None = None
     last_signal_symbol: str | None = None
     latest_prices: dict[str, dict] = Field(default_factory=dict)
+    pending_breakout_attempts: list[dict] = Field(default_factory=list)
+    pending_breakout_revision: str | None = None
     published_at: str | None = None
 
 

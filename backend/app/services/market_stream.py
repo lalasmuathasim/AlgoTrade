@@ -171,17 +171,9 @@ class BreakoutDetector:
     ) -> list[tuple[TriggerLine, str]]:
         events: list[tuple[TriggerLine, str]] = []
         for line in active_lines:
-            if line.line_type == "BUY" and (
-                (candle.close > line.line_price and candle.high >= line.line_price)
-                if require_candle_close_beyond_line
-                else candle.open < line.line_price <= candle.high
-            ):
+            if line.line_type == "BUY" and candle.high >= line.line_price:
                 events.append((line, "BREAKOUT"))
-            elif line.line_type == "SELL" and (
-                (candle.close < line.line_price and candle.low <= line.line_price)
-                if require_candle_close_beyond_line
-                else candle.open > line.line_price >= candle.low
-            ):
+            elif line.line_type == "SELL" and candle.low <= line.line_price:
                 events.append((line, "BREAKDOWN"))
         return events
 
@@ -458,6 +450,16 @@ class SignalGenerator:
             rejection_reason=None,
         )
 
+        if bool(_coalesce(getattr(runtime_settings, "require_candle_close_beyond_line", None), True)):
+            close_confirmed = (
+                candle.close > line.line_price
+                if action == "BUY"
+                else candle.close < line.line_price
+            )
+            if not close_confirmed:
+                breakout_payload.rejection_reason = "CLOSE_CONFIRMATION_FAILED"
+                return breakout_payload, None
+
         if quality_failure is not None:
             breakout_payload.rejection_reason = quality_failure
             return breakout_payload, None
@@ -547,6 +549,151 @@ class MarketDataProcessor:
         self.candle_builder = candle_builder or CandleBuilder()
         self.breakout_detector = BreakoutDetector()
         self.signal_generator = SignalGenerator()
+        self._pending_breakout_attempts: dict[str, dict] = {}
+
+    def _pending_attempt_key(self, line_id, candle_start: datetime) -> str:
+        return f"{line_id}:{candle_start.isoformat()}"
+
+    def _load_previous_candle_volume(
+        self,
+        db: Session,
+        candle: CompletedCandlePayload,
+    ) -> float | None:
+        previous_candle = db.scalar(
+            select(MarketCandle)
+            .where(
+                MarketCandle.symbol == candle.symbol,
+                MarketCandle.exchange == candle.exchange,
+                MarketCandle.timeframe == candle.timeframe,
+                MarketCandle.candle_start < candle.candle_start,
+            )
+            .order_by(desc(MarketCandle.candle_start))
+            .limit(1)
+        )
+        return previous_candle.volume if previous_candle else None
+
+    def _build_pending_breakout_attempt(
+        self,
+        *,
+        line: TriggerLine,
+        event_type: str,
+        candle: CompletedCandlePayload,
+        event_time: datetime,
+        previous_candle_volume: float | None,
+        runtime_settings,
+    ) -> dict:
+        action = "BUY" if line.line_type == "BUY" else "SELL"
+        required_volume_multiplier = (
+            runtime_settings.buy_volume_multiplier
+            if action == "BUY"
+            else runtime_settings.sell_volume_multiplier
+        )
+        volume_ratio = (
+            round(candle.volume / previous_candle_volume, 4)
+            if previous_candle_volume and previous_candle_volume > 0
+            else None
+        )
+        entry_price = (
+            candle.high + runtime_settings.entry_buffer_ticks
+            if action == "BUY"
+            else candle.low - runtime_settings.entry_buffer_ticks
+        )
+        stop_loss = (
+            line.line_price - runtime_settings.stop_loss_buffer_ticks
+            if action == "BUY"
+            else line.line_price + runtime_settings.stop_loss_buffer_ticks
+        )
+        target = (
+            line.nearest_daily_swing_high_target
+            if action == "BUY"
+            else line.nearest_daily_swing_low_target
+        )
+        if target is None:
+            reward = abs(entry_price - stop_loss) * float(
+                _coalesce(getattr(runtime_settings, "fallback_risk_reward_ratio", None), 2.0)
+            )
+            target = entry_price + reward if action == "BUY" else entry_price - reward
+
+        return {
+            "id": self._pending_attempt_key(line.id, candle.candle_start),
+            "trigger_line_id": str(line.id),
+            "watchlist_id": str(line.watchlist_id) if line.watchlist_id else None,
+            "symbol": line.symbol,
+            "exchange": line.exchange,
+            "line_type": line.line_type,
+            "line_price": line.line_price,
+            "event_type": event_type,
+            "event_time": event_time,
+            "candle_start": candle.candle_start,
+            "candle_end": candle.candle_end,
+            "breakout_candle_high": candle.high,
+            "breakout_candle_low": candle.low,
+            "breakout_candle_volume": candle.volume,
+            "previous_candle_volume": previous_candle_volume,
+            "required_volume_multiplier": required_volume_multiplier,
+            "volume_ratio": volume_ratio,
+            "volume_condition_passed": None,
+            "entry_price": entry_price,
+            "stop_loss": stop_loss,
+            "target": target,
+            "signal_generated": False,
+            "status": "PENDING_CANDLE_CLOSE",
+            "rejection_reason": None,
+            "is_pending": True,
+        }
+
+    def _capture_live_breakout_attempts(
+        self,
+        db: Session,
+        tick: TickPayload,
+        runtime_settings,
+    ) -> None:
+        current_candle = self.candle_builder._candles.get(f"{tick.exchange}:{tick.symbol}")
+        if current_candle is None:
+            return
+        active_lines = db.scalars(
+            select(TriggerLine).where(
+                TriggerLine.symbol == current_candle.symbol,
+                TriggerLine.exchange == current_candle.exchange,
+                TriggerLine.line_status == "ACTIVE",
+            )
+        ).all()
+        if not active_lines:
+            return
+        previous_volume = self._load_previous_candle_volume(db, current_candle)
+        for line, event_type in self.breakout_detector.detect(
+            current_candle,
+            active_lines,
+            require_candle_close_beyond_line=False,
+        ):
+            key = self._pending_attempt_key(line.id, current_candle.candle_start)
+            existing = self._pending_breakout_attempts.get(key)
+            first_event_time = existing["event_time"] if existing is not None else tick.timestamp
+            self._pending_breakout_attempts[key] = self._build_pending_breakout_attempt(
+                line=line,
+                event_type=event_type,
+                candle=current_candle,
+                event_time=first_event_time,
+                previous_candle_volume=previous_volume,
+                runtime_settings=runtime_settings,
+            )
+
+    def snapshot_pending_breakout_attempts(self) -> list[dict]:
+        rows: list[dict] = []
+        for attempt in sorted(
+            self._pending_breakout_attempts.values(),
+            key=lambda item: item["event_time"],
+            reverse=True,
+        ):
+            rows.append(
+                {
+                    **attempt,
+                    "event_time": attempt["event_time"].astimezone(UTC).isoformat(),
+                    "candle_start": attempt["candle_start"].astimezone(UTC).isoformat(),
+                    "candle_end": attempt["candle_end"].astimezone(UTC).isoformat(),
+                }
+            )
+        return rows
 
     def process_ticks(self, db: Session, ticks: list[TickPayload]) -> TickProcessingResult:
         runtime_settings = ensure_settings(db)
@@ -556,6 +703,7 @@ class MarketDataProcessor:
         breakout_events: list[BreakoutEvent] = []
         for tick in ticks:
             tick_finalized_candles = self.candle_builder.on_tick(tick)
+            self._capture_live_breakout_attempts(db, tick, runtime_settings)
             finalized_candles.extend(tick_finalized_candles)
             for candle in tick_finalized_candles:
                 try:
@@ -625,18 +773,7 @@ class MarketDataProcessor:
         runtime_settings=None,
     ) -> tuple[list[TradingSignal], list[BreakoutEvent]]:
         persisted_candle = self._persist_candle(db, candle)
-        previous_candle = db.scalar(
-            select(MarketCandle)
-            .where(
-                MarketCandle.symbol == candle.symbol,
-                MarketCandle.exchange == candle.exchange,
-                MarketCandle.timeframe == candle.timeframe,
-                MarketCandle.candle_start < candle.candle_start,
-            )
-            .order_by(desc(MarketCandle.candle_start))
-            .limit(1)
-        )
-        previous_volume = previous_candle.volume if previous_candle else None
+        previous_volume = self._load_previous_candle_volume(db, candle)
         runtime_settings = runtime_settings or ensure_settings(db)
 
         active_lines = db.scalars(
@@ -646,14 +783,22 @@ class MarketDataProcessor:
                 TriggerLine.line_status == "ACTIVE",
             )
         ).all()
+        pending_keys_for_candle = [
+            key
+            for key, attempt in self._pending_breakout_attempts.items()
+            if attempt["symbol"] == candle.symbol
+            and attempt["exchange"] == candle.exchange
+            and attempt["candle_start"] == candle.candle_start
+        ]
 
         created_signals: list[TradingSignal] = []
         created_breakout_events: list[BreakoutEvent] = []
-        for line, event_type in self.breakout_detector.detect(
+        attempt_candidates = self.breakout_detector.detect(
             candle,
             active_lines,
-            require_candle_close_beyond_line=bool(getattr(runtime_settings, "require_candle_close_beyond_line", True)),
-        ):
+            require_candle_close_beyond_line=False,
+        )
+        for line, event_type in attempt_candidates:
             try:
                 nested = db.begin_nested() if hasattr(db, "begin_nested") else nullcontext()
                 with nested:
@@ -679,6 +824,10 @@ class MarketDataProcessor:
                         previous_volume,
                         persisted_candle.id,
                     )
+                    pending_event_time = self._pending_breakout_attempts.get(
+                        self._pending_attempt_key(line.id, candle.candle_start),
+                        {},
+                    ).get("event_time", candle.candle_end)
 
                     breakout_event = BreakoutEvent(
                         trigger_line_id=line.id,
@@ -686,7 +835,7 @@ class MarketDataProcessor:
                         exchange=line.exchange,
                         symbol=line.symbol,
                         event_type=event_type,
-                        event_time=candle.candle_end,
+                        event_time=pending_event_time.astimezone(UTC),
                         breakout_or_breakdown_price=breakout_payload.breakout_or_breakdown_price,
                         breakout_candle_high=breakout_payload.breakout_candle_high,
                         breakout_candle_low=breakout_payload.breakout_candle_low,
@@ -734,5 +883,8 @@ class MarketDataProcessor:
                     candle.candle_end.isoformat(),
                 )
                 continue
+
+        for key in pending_keys_for_candle:
+            self._pending_breakout_attempts.pop(key, None)
 
         return created_signals, created_breakout_events
