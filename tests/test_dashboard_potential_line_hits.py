@@ -1,7 +1,7 @@
 # ruff: noqa: E402
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from types import SimpleNamespace
 import unittest
 import uuid
@@ -288,7 +288,14 @@ class DashboardPotentialLineHitTests(unittest.TestCase):
         )
         client = TestClient(app)
 
-        with patch("backend.app.routers.dashboard.get_live_engine_runtime", return_value=None):
+        with (
+            patch(
+                "backend.app.routers.dashboard.ensure_settings",
+                return_value=SimpleNamespace(trading_timezone="Asia/Kolkata"),
+            ),
+            patch("backend.app.routers.dashboard.current_trading_date", return_value=date(2026, 7, 24)),
+            patch("backend.app.routers.dashboard.get_live_engine_runtime", return_value=None),
+        ):
             response = client.get("/dashboard/runtime")
 
         payload = response.json()
@@ -297,6 +304,8 @@ class DashboardPotentialLineHitTests(unittest.TestCase):
         self.assertEqual(payload["latest_prices"], {})
         self.assertEqual(payload["finalized_candles_count"], 0)
         self.assertIsNone(payload["published_at"])
+        self.assertEqual(payload["current_trading_date"], "2026-07-24")
+        self.assertEqual(payload["trading_timezone"], "Asia/Kolkata")
         client.close()
         app.dependency_overrides.clear()
 
@@ -311,7 +320,14 @@ class DashboardPotentialLineHitTests(unittest.TestCase):
         )
         client = TestClient(app)
 
-        with patch("backend.app.routers.dashboard.get_live_engine_runtime", side_effect=RuntimeError("redis down")):
+        with (
+            patch(
+                "backend.app.routers.dashboard.ensure_settings",
+                return_value=SimpleNamespace(trading_timezone="Asia/Kolkata"),
+            ),
+            patch("backend.app.routers.dashboard.current_trading_date", return_value=date(2026, 7, 24)),
+            patch("backend.app.routers.dashboard.get_live_engine_runtime", side_effect=RuntimeError("redis down")),
+        ):
             response = client.get("/dashboard/runtime")
 
         payload = response.json()
@@ -320,6 +336,8 @@ class DashboardPotentialLineHitTests(unittest.TestCase):
         self.assertEqual(payload["latest_prices"], {})
         self.assertEqual(payload["error"], "runtime_unavailable")
         self.assertIsNone(payload["published_at"])
+        self.assertEqual(payload["current_trading_date"], "2026-07-24")
+        self.assertEqual(payload["trading_timezone"], "Asia/Kolkata")
         client.close()
         app.dependency_overrides.clear()
 

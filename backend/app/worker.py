@@ -8,7 +8,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from backend.app.config import get_settings
 from backend.app.database import SessionLocal, initialize_runtime_state
 from backend.app.models import TradingSignal
-from backend.app.queue import dequeue_signal_dispatch, enqueue_signal_dispatch
+from backend.app.queue import (
+    dequeue_signal_dispatch,
+    enqueue_signal_dispatch,
+    get_live_engine_runtime,
+    publish_live_engine_runtime,
+)
 from backend.app.schemas import SignalDispatchJob
 from backend.app.services.execution_runtime import LiveExecutionService, OrderReconciliationService
 from backend.app.services.paper_trading_service import ensure_settings, generate_paper_trade_from_signal
@@ -25,6 +30,37 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+
+def publish_trade_history_runtime_update(
+    signal: TradingSignal,
+    *,
+    paper_trade=None,
+    broker_order=None,
+) -> None:
+    try:
+        snapshot = get_live_engine_runtime()
+        if not isinstance(snapshot, dict) or not snapshot:
+            logger.info("Skipping dashboard trade-history runtime update because live runtime snapshot is unavailable")
+            return
+        published_at = datetime.now(UTC).isoformat()
+        trade_mode = (
+            getattr(broker_order, "mode", None)
+            or getattr(paper_trade, "execution_mode", None)
+            or "UNKNOWN"
+        )
+        publish_live_engine_runtime(
+            {
+                **snapshot,
+                "last_trade_activity_revision": f"{signal.id}:{published_at}",
+                "last_trade_activity_at": published_at,
+                "last_trade_signal_id": str(signal.id),
+                "last_trade_symbol": signal.symbol,
+                "last_trade_mode": trade_mode,
+            }
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Unable to publish trade-history runtime update for signal %s", signal.id)
 
 
 def mark_signal_retrying(signal_id: uuid.UUID, error_message: str) -> None:
@@ -98,15 +134,17 @@ def process_signal(job: SignalDispatchJob) -> None:
 
         try:
             runtime_settings = ensure_settings(db)
+            paper_trade = None
             if runtime_settings.paper_trading_enabled:
                 paper_trade = generate_paper_trade_from_signal(db, signal)
                 if paper_trade is not None:
                     db.add(paper_trade)
 
-            live_execution_service.execute(db, signal)
+            live_order = live_execution_service.execute(db, signal)
             reconciliation_service.reconcile(db)
 
             db.commit()
+            publish_trade_history_runtime_update(signal, paper_trade=paper_trade, broker_order=live_order)
 
             notification_status = "SKIPPED"
             try:

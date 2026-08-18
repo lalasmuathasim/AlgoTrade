@@ -760,6 +760,8 @@ def dashboard_home() -> str:
     let currentBreakoutReviewDate = null;
     let currentTradeHistoryDateFrom = "";
     let currentTradeHistoryDateTo = "";
+    let currentRuntimeTradingDate = null;
+    let appTradingTimeZone = "Asia/Kolkata";
     let dashboardRuntimePollTimer = null;
     let dashboardRuntimePollInFlight = false;
     let latestRuntimePrices = {};
@@ -767,6 +769,7 @@ def dashboard_home() -> str:
     let lastRuntimeSignalId = null;
     let lastRuntimeBreakoutEventId = null;
     let lastRuntimePendingBreakoutRevision = null;
+    let lastRuntimeTradeActivityRevision = null;
     let lastRuntimeFinalizedCount = 0;
     let liveRefreshInFlight = false;
     const syncDailyReviewPreview = bindCollapsibleTable({
@@ -804,6 +807,77 @@ def dashboard_home() -> str:
       ]);
     }
 
+    function formatTradingDateTime(value) {
+      if (!value) {
+        return "N/A";
+      }
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) {
+        return value;
+      }
+      return new Intl.DateTimeFormat(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+        timeZone: appTradingTimeZone || "Asia/Kolkata",
+      }).format(parsed);
+    }
+
+    function syncTradingDayDefaults(nextTradingDate, nextTradingTimeZone) {
+      const previousTradingDate = currentRuntimeTradingDate;
+      if (nextTradingTimeZone) {
+        appTradingTimeZone = nextTradingTimeZone;
+      }
+      if (!nextTradingDate) {
+        return false;
+      }
+
+      currentRuntimeTradingDate = nextTradingDate;
+
+      const breakoutInput = document.getElementById("breakoutReviewDate");
+      const tradeFromInput = document.getElementById("tradeHistoryDateFrom");
+      const tradeToInput = document.getElementById("tradeHistoryDateTo");
+
+      let autoAdvanced = false;
+
+      const breakoutFollowsRuntimeDay =
+        !currentBreakoutReviewDate
+        || !breakoutInput?.value
+        || currentBreakoutReviewDate === previousTradingDate;
+      if (breakoutFollowsRuntimeDay && currentBreakoutReviewDate !== nextTradingDate) {
+        currentBreakoutReviewDate = nextTradingDate;
+        if (breakoutInput) {
+          breakoutInput.value = nextTradingDate;
+        }
+        autoAdvanced = Boolean(previousTradingDate && previousTradingDate !== nextTradingDate);
+      }
+
+      const tradeFromFollowsRuntimeDay =
+        !currentTradeHistoryDateFrom
+        || !tradeFromInput?.value
+        || currentTradeHistoryDateFrom === previousTradingDate;
+      if (tradeFromFollowsRuntimeDay && currentTradeHistoryDateFrom !== nextTradingDate) {
+        currentTradeHistoryDateFrom = nextTradingDate;
+        if (tradeFromInput) {
+          tradeFromInput.value = nextTradingDate;
+        }
+        autoAdvanced = autoAdvanced || Boolean(previousTradingDate && previousTradingDate !== nextTradingDate);
+      }
+
+      const tradeToFollowsRuntimeDay =
+        !currentTradeHistoryDateTo
+        || !tradeToInput?.value
+        || currentTradeHistoryDateTo === previousTradingDate;
+      if (tradeToFollowsRuntimeDay && currentTradeHistoryDateTo !== nextTradingDate) {
+        currentTradeHistoryDateTo = nextTradingDate;
+        if (tradeToInput) {
+          tradeToInput.value = nextTradingDate;
+        }
+        autoAdvanced = autoAdvanced || Boolean(previousTradingDate && previousTradingDate !== nextTradingDate);
+      }
+
+      return autoAdvanced;
+    }
+
     function renderDashboardSummary(overview, tuning = null, reviewSummary = null, message = null) {
       const list = document.getElementById("dashboardSummaryList");
       if (message) {
@@ -817,7 +891,7 @@ def dashboard_home() -> str:
           ? `Current tuning: candle lookback ${tuning.daily_candle_lookback}, max gap ${tuning.max_gap_percent}%, swing window ${tuning.swing_window}, minimum swing distance ${tuning.min_swing_distance} candles, prediction threshold ${tuning.prediction_proximity_percent}%.`
           : "Current tuning values will appear after the market structure table loads.",
         reviewSummary
-          ? `${reviewSummary.total_candidate_rows} stored rows are available across ${reviewSummary.symbols_with_lines} symbols. Last scan: ${reviewSummary.last_scan_finished_at ? new Date(reviewSummary.last_scan_finished_at).toLocaleString() : "not run yet"}${reviewSummary.last_scan_status ? ` (${reviewSummary.last_scan_status})` : ""}.`
+          ? `${reviewSummary.total_candidate_rows} stored rows are available across ${reviewSummary.symbols_with_lines} symbols. Last scan: ${reviewSummary.last_scan_finished_at ? formatTradingDateTime(reviewSummary.last_scan_finished_at) : "not run yet"}${reviewSummary.last_scan_status ? ` (${reviewSummary.last_scan_status})` : ""}.`
           : "Saved support and resistance rows load from the database and refresh only when the scheduled scan or manual update runs.",
       ];
       list.innerHTML = items.map((item) => `<li>${item}</li>`).join("");
@@ -853,13 +927,13 @@ def dashboard_home() -> str:
         return;
       }
       const pendingLabel = summary.pending_events ? ` · ${summary.pending_events} under review` : "";
-      element.textContent = `${summary.selected_watchlist.name} · ${summary.report_date || "Today"} · ${summary.total_events} first-attempt rows${pendingLabel} · ${summary.passed_events} volume-confirmed · ${summary.failed_events} rejected · latest event ${summary.latest_event_time ? new Date(summary.latest_event_time).toLocaleString() : "not recorded yet"}`;
+      element.textContent = `${summary.selected_watchlist.name} · ${summary.report_date || "Today"} · ${summary.total_events} first-attempt rows${pendingLabel} · ${summary.passed_events} volume-confirmed · ${summary.failed_events} rejected · latest event ${summary.latest_event_time ? formatTradingDateTime(summary.latest_event_time) : "not recorded yet"}`;
       element.className = "table-toolbar-copy";
     }
 
     async function loadBreakoutReview() {
       const dateInput = document.getElementById("breakoutReviewDate");
-      const requestedDate = dateInput?.value || currentBreakoutReviewDate || new Date().toISOString().slice(0, 10);
+      const requestedDate = dateInput?.value || currentBreakoutReviewDate || currentRuntimeTradingDate;
       currentBreakoutReviewDate = requestedDate;
       if (dateInput && dateInput.value !== requestedDate) {
         dateInput.value = requestedDate;
@@ -873,7 +947,7 @@ def dashboard_home() -> str:
           item.symbol,
           `<span class="badge">${item.line_type}</span>`,
           item.line_price ?? "N/A",
-          item.event_time ? new Date(item.event_time).toLocaleString() : "N/A",
+          formatTradingDateTime(item.event_time),
           item.previous_candle_volume ?? "N/A",
           item.breakout_candle_volume ?? "N/A",
           item.required_volume_multiplier ? `${item.required_volume_multiplier}x` : "N/A",
@@ -996,7 +1070,7 @@ def dashboard_home() -> str:
       const rangeLabel = payload.summary.date_from || payload.summary.date_to
         ? `range ${payload.summary.date_from || "start"} → ${payload.summary.date_to || "today"} · `
         : "";
-      element.textContent = `${watchlistLabel}${modeLabel}${rangeLabel}${payload.summary.total_rows} rows · ${payload.summary.paper_rows} paper · ${payload.summary.live_rows} live · paper PnL ${payload.summary.paper_total_pnl} · latest activity ${payload.summary.latest_activity_at ? new Date(payload.summary.latest_activity_at).toLocaleString() : "not recorded yet"}`;
+      element.textContent = `${watchlistLabel}${modeLabel}${rangeLabel}${payload.summary.total_rows} rows · ${payload.summary.paper_rows} paper · ${payload.summary.live_rows} live · paper PnL ${payload.summary.paper_total_pnl} · latest activity ${payload.summary.latest_activity_at ? formatTradingDateTime(payload.summary.latest_activity_at) : "not recorded yet"}`;
       element.className = "table-toolbar-copy";
     }
 
@@ -1017,8 +1091,14 @@ def dashboard_home() -> str:
       setTradeHistoryMode(mode);
       const fromInput = document.getElementById("tradeHistoryDateFrom");
       const toInput = document.getElementById("tradeHistoryDateTo");
-      currentTradeHistoryDateFrom = fromInput?.value || currentTradeHistoryDateFrom || "";
-      currentTradeHistoryDateTo = toInput?.value || currentTradeHistoryDateTo || "";
+      currentTradeHistoryDateFrom = fromInput?.value || currentTradeHistoryDateFrom || currentRuntimeTradingDate || "";
+      currentTradeHistoryDateTo = toInput?.value || currentTradeHistoryDateTo || currentRuntimeTradingDate || "";
+      if (fromInput && fromInput.value !== currentTradeHistoryDateFrom) {
+        fromInput.value = currentTradeHistoryDateFrom;
+      }
+      if (toInput && toInput.value !== currentTradeHistoryDateTo) {
+        toInput.value = currentTradeHistoryDateTo;
+      }
       const params = new URLSearchParams();
       params.set("mode", mode);
       if (currentTradeHistoryDateFrom) {
@@ -1047,7 +1127,7 @@ def dashboard_home() -> str:
           item.risk_amount ?? "N/A",
           item.pnl ?? "N/A",
           item.order_ref ?? "N/A",
-          item.activity_time ? new Date(item.activity_time).toLocaleString() : "N/A",
+          formatTradingDateTime(item.activity_time),
         ]),
         { symbolFilter: { enabled: true, columnIndex: 1, placeholder: "Filter trade symbols" } },
       );
@@ -1084,6 +1164,7 @@ def dashboard_home() -> str:
         apiGet("/dashboard/reports/overview"),
       ]);
       latestOverview = overview;
+      syncTradingDayDefaults(overview.current_trading_date, overview.trading_timezone);
       renderCards(overview);
       renderDashboardSummary(overview);
       try {
@@ -1111,23 +1192,32 @@ def dashboard_home() -> str:
         applyPotentialLineHitLivePrices(latestRuntimePrices);
       }
 
+      const tradingDayRolled = syncTradingDayDefaults(snapshot.current_trading_date, snapshot.trading_timezone);
+
       const publishedAt = snapshot.published_at || null;
       const finalizedCount = Number(snapshot.finalized_candles_count || 0);
       const signalId = snapshot.last_signal_id || null;
       const breakoutEventId = snapshot.last_breakout_event_id || null;
       const pendingBreakoutRevision = snapshot.pending_breakout_revision || null;
+      const tradeActivityRevision = snapshot.last_trade_activity_revision || null;
       const requiresReload =
+        tradingDayRolled
+        || (tradeActivityRevision && tradeActivityRevision !== lastRuntimeTradeActivityRevision)
+        || (
         (publishedAt && publishedAt !== lastRuntimePublishedAt && finalizedCount > lastRuntimeFinalizedCount)
+        )
         || (signalId && signalId !== lastRuntimeSignalId)
         || (breakoutEventId && breakoutEventId !== lastRuntimeBreakoutEventId)
         || (pendingBreakoutRevision && pendingBreakoutRevision !== lastRuntimePendingBreakoutRevision)
-        || (!pendingBreakoutRevision && lastRuntimePendingBreakoutRevision);
+        || (!pendingBreakoutRevision && lastRuntimePendingBreakoutRevision)
+        || (!tradeActivityRevision && lastRuntimeTradeActivityRevision);
 
       lastRuntimePublishedAt = publishedAt || lastRuntimePublishedAt;
       lastRuntimeFinalizedCount = Math.max(lastRuntimeFinalizedCount, finalizedCount);
       lastRuntimeBreakoutEventId = breakoutEventId || lastRuntimeBreakoutEventId;
       lastRuntimeSignalId = signalId || lastRuntimeSignalId;
       lastRuntimePendingBreakoutRevision = pendingBreakoutRevision;
+      lastRuntimeTradeActivityRevision = tradeActivityRevision;
 
       if (requiresReload) {
         refreshDashboardFromRuntime();
@@ -1617,6 +1707,7 @@ def refresh_dashboard_daily_line_review(db: Session = Depends(get_db)) -> dict:
 
 @router.get("/dashboard/reports/overview")
 def dashboard_report_overview(db: Session = Depends(get_db)) -> dict:
+    runtime_settings = ensure_settings(db)
     watchlists = db.scalars(select(Watchlist)).all()
     selected_watchlist, selected_watchlist_id = _selected_watchlist_filter(db)
     watchlist_symbols_query = select(WatchlistSymbol).where(WatchlistSymbol.is_active.is_(True))
@@ -1638,11 +1729,14 @@ def dashboard_report_overview(db: Session = Depends(get_db)) -> dict:
         "drawn_symbols": len(drawn_symbol_keys),
         "active_trigger_lines": sum(1 for line in trigger_lines if line.line_status == "ACTIVE"),
         "triggered_lines": sum(1 for line in trigger_lines if line.line_status in {"TRIGGERED", "ARCHIVED"}),
+        "current_trading_date": _serialize_date(current_trading_date(runtime_settings)),
+        "trading_timezone": getattr(runtime_settings, "trading_timezone", settings.market_timezone),
     }
 
 
 @router.get("/dashboard/runtime")
-def dashboard_runtime_snapshot() -> dict:
+def dashboard_runtime_snapshot(db: Session = Depends(get_db)) -> dict:
+    runtime_settings = ensure_settings(db)
     headers = {
         "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
         "Pragma": "no-cache",
@@ -1663,6 +1757,13 @@ def dashboard_runtime_snapshot() -> dict:
             "last_signal_id": None,
             "pending_breakout_attempts": [],
             "pending_breakout_revision": None,
+            "last_trade_activity_revision": None,
+            "last_trade_activity_at": None,
+            "last_trade_signal_id": None,
+            "last_trade_symbol": None,
+            "last_trade_mode": None,
+            "current_trading_date": _serialize_date(current_trading_date(runtime_settings)),
+            "trading_timezone": getattr(runtime_settings, "trading_timezone", settings.market_timezone),
             "published_at": None,
             "error": "runtime_unavailable",
         }, headers=headers)
@@ -1679,9 +1780,28 @@ def dashboard_runtime_snapshot() -> dict:
             "last_signal_id": None,
             "pending_breakout_attempts": [],
             "pending_breakout_revision": None,
+            "last_trade_activity_revision": None,
+            "last_trade_activity_at": None,
+            "last_trade_signal_id": None,
+            "last_trade_symbol": None,
+            "last_trade_mode": None,
+            "current_trading_date": _serialize_date(current_trading_date(runtime_settings)),
+            "trading_timezone": getattr(runtime_settings, "trading_timezone", settings.market_timezone),
             "published_at": None,
         }, headers=headers)
-    return JSONResponse(snapshot, headers=headers)
+    return JSONResponse(
+        {
+            **snapshot,
+            "current_trading_date": _serialize_date(current_trading_date(runtime_settings)),
+            "trading_timezone": getattr(runtime_settings, "trading_timezone", settings.market_timezone),
+            "last_trade_activity_revision": snapshot.get("last_trade_activity_revision"),
+            "last_trade_activity_at": snapshot.get("last_trade_activity_at"),
+            "last_trade_signal_id": snapshot.get("last_trade_signal_id"),
+            "last_trade_symbol": snapshot.get("last_trade_symbol"),
+            "last_trade_mode": snapshot.get("last_trade_mode"),
+        },
+        headers=headers,
+    )
 
 
 @router.get("/dashboard/reports/watched-symbols")
@@ -2215,4 +2335,9 @@ def dashboard_trade_history(
     normalized_mode = mode.strip().lower()
     if normalized_mode not in {"combined", "paper", "live"}:
         raise HTTPException(status_code=422, detail="Mode must be one of combined, paper, or live")
+    if date_from is None and date_to is None:
+        runtime_settings = ensure_settings(db)
+        current_day = current_trading_date(runtime_settings)
+        date_from = current_day
+        date_to = current_day
     return _dashboard_trade_history_payload(db, mode=normalized_mode, date_from=date_from, date_to=date_to)
